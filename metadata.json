@@ -1,0 +1,6 @@
+{
+  "name": "KOReader AI Book Cloud",
+  "description": "Cloud backend, EPUB converter, literary AI translator, book discovery advisor, and KOReader Kindle 10 plugin hub.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
