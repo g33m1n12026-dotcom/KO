@@ -24,12 +24,10 @@ interface KindlePluginGuideProps {
 }
 
 export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl }) => {
-  // Compute default suggested URL: if current is ais-dev, suggest ais-pre (Shared URL)
-  const sharedSuggestedUrl = serverUrl.includes('ais-dev-')
-    ? serverUrl.replace('ais-dev-', 'ais-pre-')
-    : serverUrl;
+  const RENDER_PROD_URL = 'https://ko-zviz.onrender.com';
 
-  const [selectedServerUrl, setSelectedServerUrl] = useState<string>(sharedSuggestedUrl || serverUrl);
+  // Compute default suggested URL (prioritize live Render URL)
+  const [selectedServerUrl, setSelectedServerUrl] = useState<string>(RENDER_PROD_URL);
   const [activeCodeTab, setActiveCodeTab] = useState<'meta' | 'main'>('main');
   const [pluginCode, setPluginCode] = useState<{ metaLua: string; mainLua: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -261,6 +259,18 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
           {/* Quick preset chips */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <span className="text-[11px] text-stone-400 font-medium">Szybki wybór:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedServerUrl(RENDER_PROD_URL)}
+              className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 ${
+                selectedServerUrl === RENDER_PROD_URL
+                  ? 'bg-emerald-800 text-white border-emerald-800 font-semibold shadow-xs'
+                  : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-medium'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>🚀 Twój serwer Render 24/7 (ko-zviz.onrender.com)</span>
+            </button>
             {tunnelStatus?.url && (
               <button
                 type="button"
@@ -271,21 +281,7 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
                     : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-medium'
                 }`}
               >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>🚇 Bezpośredni Tunel Kindle (Brak błędu 302!)</span>
-              </button>
-            )}
-            {isDevUrl && (
-              <button
-                type="button"
-                onClick={() => setSelectedServerUrl(sharedSuggestedUrl)}
-                className={`text-[11px] px-2.5 py-1 rounded-lg border transition ${
-                  selectedServerUrl === sharedSuggestedUrl
-                    ? 'bg-stone-900 text-white border-stone-900 font-medium'
-                    : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-                }`}
-              >
-                🌐 Publiczny Shared (ais-pre)
+                <span>🚇 Tunel zapasowy</span>
               </button>
             )}
             <button
@@ -297,18 +293,7 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
                   : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
               }`}
             >
-              📶 Domowe Wi-Fi (192.168.x.x)
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedServerUrl(serverUrl)}
-              className={`text-[11px] px-2.5 py-1 rounded-lg border transition ${
-                selectedServerUrl === serverUrl
-                  ? 'bg-stone-900 text-white border-stone-900 font-medium'
-                  : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-              }`}
-            >
-              ⚙️ Oryginalny (dev)
+              📶 Domowe Wi-Fi
             </button>
           </div>
         </div>

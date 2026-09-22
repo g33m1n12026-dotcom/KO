@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { Job } from '../types';
 
 interface JobsLibraryProps {
   jobs: Job[];
   onRefresh: () => void;
   serverUrl: string;
+  onReadJob?: (job: Job) => void;
 }
 
-export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serverUrl }) => {
+export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serverUrl, onReadJob }) => {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 
   const toggleExpand = (id: string) => {
@@ -161,14 +162,27 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serve
                     {expandedJobId === job.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                   </button>
 
-                  <a
-                    href={`/api/download/${job.id}`}
-                    download={job.outputEpubFilename || 'ksiazka.epub'}
-                    className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Pobierz EPUB</span>
-                  </a>
+                  <div className="flex items-center gap-2">
+                    {onReadJob && (
+                      <button
+                        type="button"
+                        onClick={() => onReadJob(job)}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs"
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>Czytaj</span>
+                      </button>
+                    )}
+
+                    <a
+                      href={`/api/download/${job.id}`}
+                      download={job.outputEpubFilename || 'ksiazka.epub'}
+                      className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Pobierz EPUB</span>
+                    </a>
+                  </div>
                 </div>
 
                 {/* Expanded logs / chapter preview */}

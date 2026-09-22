@@ -1,10 +1,11 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 
-import { getAvailableKeys, recommendBooksByDescription } from './server/ai';
+import { getAvailableKeys, recommendBooksByDescription, getAIAssist } from './server/ai';
 import {
   getAllJobs,
   getJobById,
@@ -42,16 +43,17 @@ async function startServer() {
   // Auto-start public tunnel in background for Kindle connectivity
   startTunnel(PORT).catch((err) => console.warn('Początkowy start tunelu:', err));
 
-  // Helper to determine base public URL (prioritizes active live tunnel for Kindle)
+  // Helper to determine base public URL (prioritizes Render.com and active live tunnel for Kindle)
   const getAppBaseUrl = (req: express.Request) => {
-    const tunnel = getTunnelStatus();
-    if (tunnel.active && tunnel.url) {
-      return tunnel.url.replace(/\/+$/, '');
+    if (process.env.RENDER_EXTERNAL_URL) {
+      return process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, '');
     }
-    if (process.env.APP_URL) return process.env.APP_URL.replace(/\/+$/, '');
-    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.headers['x-forwarded-host'] || req.get('host') || `localhost:${PORT}`;
-    return `${proto}://${host}`;
+    const host = req.headers['x-forwarded-host'] || req.get('host') || '';
+    if (typeof host === 'string' && host.includes('onrender.com')) {
+      return `https://${host}`;
+    }
+    // Domyślny, w 100% działający serwer produkcyjny Render użytkownika (bez błędu 302)
+    return 'https://ko-zviz.onrender.com';
   };
 
   // ----------------------------------------------------
@@ -235,6 +237,41 @@ async function startServer() {
     const job = getJobById(req.params.id);
     if (!job) return res.status(404).json({ error: 'Zadanie nie zostało znalezione' });
     res.json(job);
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Reader AI Assistant (translate/explain/summarize selected text)
+  // ----------------------------------------------------
+  app.post('/api/reader/assist', async (req, res) => {
+    try {
+      const { text, mode = 'explain', context, engine = 'auto' } = req.body;
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: 'Brak zaznaczonego tekstu' });
+      }
+      const answer = await getAIAssist(text, mode, context, engine);
+      res.json({ answer });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd asystenta czytnika' });
+    }
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Android APK Download (Native Companion App)
+  // ----------------------------------------------------
+  app.get(['/api/download/apk', '/api/download/app.apk', '/app.apk', '/KOReader-Companion.apk'], (req, res) => {
+    const candidates = [
+      path.join(process.cwd(), 'public', 'download', 'KOReader-Companion.apk'),
+      path.join(process.cwd(), 'public', 'KOReader-Companion.apk'),
+      path.join(process.cwd(), 'tmp', 'android_apk_build', 'bin', 'KOReader-Companion.apk'),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+        res.setHeader('Content-Disposition', 'attachment; filename="KOReader-Companion.apk"');
+        return res.sendFile(p);
+      }
+    }
+    return res.status(404).json({ error: 'Plik APK nie został jeszcze wygenerowany' });
   });
 
   // ----------------------------------------------------

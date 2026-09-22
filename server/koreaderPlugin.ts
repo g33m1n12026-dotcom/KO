@@ -12,7 +12,7 @@ return {
 `;
 }
 
-export function getMainLua(defaultServerUrl: string = 'https://ais-dev-4n5jnvc4anwct233mdbxyh-237092546198.europe-west2.run.app'): string {
+export function getMainLua(defaultServerUrl: string = 'https://ko-zviz.onrender.com'): string {
   return `--[[
     KOReader Plugin: aibooks.koplugin
     AI Cloud Translator & PDF/Comic Optimizer for Kindle 10
@@ -111,8 +111,11 @@ function AIBooks:loadSettings()
     if f then
         f:close()
         local ok, data = pcall(dofile, settings_path)
-        if ok and type(data) == "table" and data.server_url then
-            self.server_url = data.server_url
+        if ok and type(data) == "table" and data.server_url and data.server_url ~= "" then
+            -- Ignoruj stare adresy Cloud Run (ais-dev / ais-pre), ktore zwracaly blad 302
+            if not data.server_url:match("ais%-dev") and not data.server_url:match("ais%-pre") then
+                self.server_url = data.server_url
+            end
         end
     end
 end

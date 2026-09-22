@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Cpu, Copy, Check, Wifi, ExternalLink } from 'lucide-react';
+import { BookOpen, Cpu, Copy, Check, Wifi, ExternalLink, Download } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: string;
@@ -23,11 +23,12 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const navItems = [
+    { id: 'reader', label: '📱 Czytnik Moon+ & Pilot', icon: '📱' },
     { id: 'convert', label: 'Tłumacz i Konwertuj', icon: '📄' },
     { id: 'storybook', label: 'Książka na życzenie', icon: '✨' },
     { id: 'search', label: 'Szukaj w sieci', icon: '🔍' },
     { id: 'library', label: 'Kolejka i Biblioteka', icon: '📚' },
-    { id: 'plugin', label: 'Wtyczka Kindle 10', icon: '📱' },
+    { id: 'plugin', label: 'Wtyczka Kindle 10', icon: '🔌' },
   ];
 
   return (
@@ -54,8 +55,19 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Connection Pill & Keys */}
+          {/* Connection Pill, APK Download & Keys */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Direct APK Download Button */}
+            <a
+              href="/api/download/apk"
+              download="KOReader-Companion.apk"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-medium rounded-lg transition active:scale-95 shadow-2xs"
+              title="Pobierz gotowy plik instalacyjny APK na telefon z Androidem"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Pobierz .APK</span>
+            </a>
+
             {/* Server URL for Kindle */}
             <div
               onClick={handleCopy}
@@ -63,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
               title="Kliknij, aby skopiować adres serwera do wpisania w Kindle"
             >
               <Wifi className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-mono truncate max-w-[200px] sm:max-w-[260px]">
+              <span className="font-mono truncate max-w-[160px] sm:max-w-[220px]">
                 {serverUrl || 'Ładowanie adresu...'}
               </span>
               {copied ? (

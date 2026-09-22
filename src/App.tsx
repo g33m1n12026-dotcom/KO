@@ -5,10 +5,17 @@ import { StorybookCreator } from './components/StorybookCreator';
 import { BookSearcher } from './components/BookSearcher';
 import { JobsLibrary } from './components/JobsLibrary';
 import { KindlePluginGuide } from './components/KindlePluginGuide';
+import { AndroidCompanionReader } from './components/AndroidCompanionReader';
 import { Job } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('convert');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'reader') return 'reader';
+    }
+    return 'reader';
+  });
   const [serverUrl, setServerUrl] = useState<string>(window.location.origin);
   const [keysStatus, setKeysStatus] = useState<{ openrouter: boolean; openai: boolean; claude: boolean; gemini?: boolean }>({
     openrouter: true,
@@ -79,6 +86,15 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:px-6">
+        {activeTab === 'reader' && (
+          <AndroidCompanionReader
+            serverUrl={serverUrl}
+            jobs={jobs}
+            onRefreshJobs={fetchJobs}
+            onSelectJobForConversion={() => setActiveTab('convert')}
+          />
+        )}
+
         {activeTab === 'convert' && (
           <UploadConverter onJobCreated={handleJobCreated} serverUrl={serverUrl} />
         )}
@@ -92,7 +108,12 @@ export default function App() {
         )}
 
         {activeTab === 'library' && (
-          <JobsLibrary jobs={jobs} onRefresh={fetchJobs} serverUrl={serverUrl} />
+          <JobsLibrary
+            jobs={jobs}
+            onRefresh={fetchJobs}
+            serverUrl={serverUrl}
+            onReadJob={() => setActiveTab('reader')}
+          />
         )}
 
         {activeTab === 'plugin' && (

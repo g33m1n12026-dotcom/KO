@@ -1,0 +1,9 @@
+{
+  "appId": "com.koreader.aicloud",
+  "appName": "KOReader Companion & Reader",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

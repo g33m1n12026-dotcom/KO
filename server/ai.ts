@@ -498,3 +498,79 @@ Twoje zadanie:
   }
 }
 
+/**
+ * Instant reader assistant: translates, explains historical/literary context, or summarizes text
+ */
+export async function getAIAssist(
+  text: string,
+  mode: 'translate' | 'explain' | 'summarize' = 'explain',
+  context?: string,
+  preferredEngine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' = 'auto'
+): Promise<string> {
+  const promptMap = {
+    translate: `Przetłumacz poniższy fragment na naturalny, piękny język polski. Zwróć wyłącznie polski przekład bez wstępów.\nFragment:\n"${text}"`,
+    explain: `Jesteś asystentem czytelnika ebooków. Wyjaśnij krótko, prosto i merytorycznie (po polsku w 2-4 zdaniach) znaczenie tego pojęcia, postaci, nawiązania kulturowego lub historycznego w czytanej książce.\n${context ? `Kontekst: ${context}\n` : ''}Pojęcie/Fragment:\n"${text}"`,
+    summarize: `Streszcz ten fragment książki w 2-3 zwięzłych, kluczowych zdaniach po polsku:\n"${text}"`,
+  };
+
+  const userPrompt = promptMap[mode] || promptMap.explain;
+  const engines = getSortedEngines(preferredEngine);
+
+  for (const eng of engines) {
+    try {
+      if (eng === 'gemini' && GEMINI_KEY) {
+        const ai = getGemini();
+        for (const model of ['gemini-3.1-flash-lite', 'gemini-2.5-flash']) {
+          try {
+            const response = await ai.models.generateContent({
+              model,
+              contents: userPrompt,
+            });
+            if (response.text) return response.text.trim();
+          } catch (e) {
+            // try next model
+          }
+        }
+      } else if (eng === 'openrouter' && OPENROUTER_KEY) {
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENROUTER_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            messages: [{ role: 'user', content: userPrompt }],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const textRes = data.choices?.[0]?.message?.content;
+          if (textRes) return textRes.trim();
+        }
+      } else if (eng === 'openai' && OPENAI_KEY && !quotaExhausted.openai) {
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENAI_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: userPrompt }],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const textRes = data.choices?.[0]?.message?.content;
+          if (textRes) return textRes.trim();
+        }
+      }
+    } catch (err) {
+      console.warn(`Błąd AI assist (${eng}):`, err);
+    }
+  }
+
+  return 'Nie udało się uzyskać odpowiedzi asystenta AI.';
+}
+
