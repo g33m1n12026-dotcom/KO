@@ -76,7 +76,7 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
 
   useEffect(() => {
     if (serverUrl && !selectedServerUrl) {
-      setSelectedServerUrl(sharedSuggestedUrl || serverUrl);
+      setSelectedServerUrl(serverUrl || 'https://ko-zviz.onrender.com');
     }
   }, [serverUrl]);
 

@@ -1,11 +1,13 @@
 import JSZip from 'jszip';
 import { ChapterData } from '../src/types';
+import { ExtractedImage } from './extractor';
 
-interface EpubChapter extends ChapterData {
+export interface EpubChapter extends ChapterData {
   imageBuffer?: Buffer;
+  extractedImages?: ExtractedImage[];
 }
 
-interface EpubOptions {
+export interface EpubOptions {
   title: string;
   author?: string;
   language?: string;
@@ -13,32 +15,79 @@ interface EpubOptions {
   coverImageBuffer?: Buffer;
 }
 
-function escapeXml(unsafe: string): string {
+export function sanitizeToAsciiFilename(name: string): string {
+  const polishMap: Record<string, string> = {
+    'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+    'Ą': 'A', 'Ć': 'C', 'Ę': 'E', 'Ł': 'L', 'Ń': 'N', 'Ó': 'O', 'Ś': 'S', 'Ź': 'Z', 'Ż': 'Z',
+  };
+  const transliterated = name.replace(/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/g, (m) => polishMap[m] || m);
+  return (
+    transliterated
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .substring(0, 60) || 'ksiazka'
+  );
+}
+
+export function escapeXml(unsafe: string): string {
+  if (!unsafe) return '';
   return unsafe
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/'/g, '&#39;');
 }
 
-function formatTextToXhtml(text: string): string {
-  const paragraphs = text
+/**
+ * Formats body text to pristine XHTML, preserving formatting:
+ * - Centered paragraphs (<p class="center">)
+ * - Headings (h1, h2, h3, h4)
+ * - Bold / Strong (b, strong)
+ * - Italics / Em (i, em)
+ * - Footnotes (sup, sub)
+ * - Quotes (blockquote)
+ * - Images (<img ... />)
+ * - Separators (<hr/>)
+ */
+export function formatTextToXhtml(text: string): string {
+  if (!text) return '<p></p>';
+  let clean = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '');
+
+  // If text already has HTML paragraphs/headings:
+  if (/<p[\s>]|<h[1-6][\s>]|<blockquote[\s>]|<div[\s>]/i.test(clean)) {
+    // 1. Ensure valid XML self-closing tags
+    clean = clean.replace(/<br(?:\s*\/|\s*)>/gi, '<br/>');
+    clean = clean.replace(/<hr(?:\s*\/|\s*)>/gi, '<hr/>');
+    clean = clean.replace(/<img\b([^>]*?)(?:\s*\/|\s*)>/gi, '<img $1 />');
+
+    // 2. Escape naked ampersands without breaking existing entities
+    clean = clean.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
+
+    return clean;
+  }
+
+  // Fallback for plain text: split into paragraphs
+  const paragraphs = clean
     .split(/\n\n+/)
-    .map(p => p.trim())
+    .map((p) => p.trim())
     .filter(Boolean);
 
+  if (paragraphs.length === 0) return '<p></p>';
+
   return paragraphs
-    .map(p => {
-      // Check if it's dialogue starting with em-dash
-      const cleanP = escapeXml(p);
+    .map((p) => {
+      const cleanP = escapeXml(p).replace(/\n/g, '<br/>');
       return `<p>${cleanP}</p>`;
     })
     .join('\n      ');
 }
 
 /**
- * Generates an EPUB 3 buffer compatible with KOReader and Kindle devices
+ * Generates an EPUB buffer 100% compatible with KOReader (CREngine), Kindle, Calibre, and PC readers.
+ * Preserves original cover image, chapter illustrations, centered headings, italics, bold, quotes, and footnotes.
  */
 export async function generateEpubBuffer(options: EpubOptions): Promise<Buffer> {
   const { title, author = 'Nieznany autor', language = 'pl', chapters } = options;
@@ -56,7 +105,7 @@ export async function generateEpubBuffer(options: EpubOptions): Promise<Buffer> 
 </container>`;
   zip.file('META-INF/container.xml', containerXml);
 
-  // 3. OEBPS/style.css - Kindle & E-Ink optimized styles
+  // 3. OEBPS/style.css - Kindle & E-Ink optimized styles with typography preservation
   const css = `
 body {
   margin: 5% 5%;
@@ -69,11 +118,11 @@ body {
   background-color: #ffffff;
 }
 
-h1, h2, h3 {
+h1, h2, h3, h4 {
   text-align: center;
   font-weight: bold;
-  margin-top: 1.5em;
-  margin-bottom: 1em;
+  margin-top: 1.6em;
+  margin-bottom: 0.9em;
   page-break-after: avoid;
 }
 
@@ -83,21 +132,73 @@ h1 {
   padding-bottom: 0.3em;
 }
 
+h2 {
+  font-size: 1.35em;
+}
+
+h3 {
+  font-size: 1.2em;
+}
+
 p {
-  margin: 0;
+  margin: 0 0 0.2em 0;
   text-indent: 1.5em;
 }
 
-p:first-of-type, h1 + p, h2 + p {
+p:first-of-type, h1 + p, h2 + p, h3 + p, hr + p {
   text-indent: 0;
 }
 
-.translator-note {
-  font-size: 0.85em;
+/* Centered titles, headings & epigraphs */
+p.center, .center, .title-center, [style*="text-align: center"], [style*="text-align:center"] {
+  text-align: center !important;
+  text-indent: 0 !important;
+  margin-top: 0.8em;
+  margin-bottom: 0.8em;
+}
+
+/* Blockquotes / Excerpts */
+blockquote {
+  margin: 1.4em 4%;
+  padding-left: 1.2em;
+  border-left: 3px solid #888888;
   font-style: italic;
-  text-align: center;
-  margin: 2em 0;
-  color: #555555;
+  text-align: justify;
+}
+
+blockquote p {
+  text-indent: 0;
+}
+
+/* Footnotes & Superscripts */
+sup, .footnote, .fn {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+}
+
+sub {
+  font-size: 0.75em;
+  vertical-align: sub;
+  line-height: 0;
+}
+
+/* Scene break divider */
+hr, .separator {
+  border: 0;
+  height: 1px;
+  background: #888888;
+  margin: 2em auto;
+  width: 35%;
+}
+
+/* Images & Illustrations */
+img {
+  max-width: 95%;
+  height: auto;
+  margin: 1.2em auto;
+  display: block;
+  border-radius: 4px;
 }
 
 .illustration-box {
@@ -107,63 +208,76 @@ p:first-of-type, h1 + p, h2 + p {
 }
 
 .illustration-box img {
-  max-width: 90%;
+  max-width: 92%;
   max-height: 520px;
   height: auto;
-  border-radius: 6px;
   display: inline-block;
-  filter: grayscale(100%) contrast(108%);
 }
 
+/* Cover container */
 .cover-container {
   text-align: center;
-  padding: 2em 0;
+  padding: 1em 0;
 }
 
 .cover-container img {
-  max-width: 92%;
-  max-height: 90vh;
+  max-width: 95%;
+  max-height: 88vh;
   height: auto;
-  filter: grayscale(100%) contrast(108%);
 }
 `;
   zip.file('OEBPS/style.css', css);
 
   // 4. Generate chapter XHTML files and bundle images
-  const bookUuid = `urn:uuid:${Math.random().toString(36).substring(2)}-${Date.now()}`;
+  const bookUuid = `urn:uuid:${crypto.randomUUID()}`;
   const manifestItems: string[] = [];
   const spineItems: string[] = [];
   const navPoints: string[] = [];
   const navListItems: string[] = [];
+  const bundledImageFilenames = new Set<string>();
 
   manifestItems.push(`<item id="css" href="style.css" media-type="text/css"/>`);
   manifestItems.push(`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`);
   manifestItems.push(`<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`);
 
+  const hasCover = Boolean(options.coverImageBuffer && options.coverImageBuffer.length > 0);
+
   // Handle Cover Image if present
-  if (options.coverImageBuffer && options.coverImageBuffer.length > 0) {
-    zip.file('OEBPS/images/cover.jpg', options.coverImageBuffer);
+  if (hasCover && options.coverImageBuffer) {
+    zip.file('OEBPS/images/cover.jpg', options.coverImageBuffer, { compression: 'STORE' });
     manifestItems.push(`<item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>`);
 
     const coverXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXml(language)}" lang="${escapeXml(language)}">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXml(language)}" lang="${escapeXml(language)}">
   <head>
+    <meta charset="utf-8"/>
     <title>Okładka</title>
     <link rel="stylesheet" type="text/css" href="style.css"/>
   </head>
-  <body>
+  <body style="margin:0;padding:0;text-align:center;">
     <div class="cover-container">
       <img src="images/cover.jpg" alt="${escapeXml(title)}"/>
-      <h1 style="border:none;margin-top:0.8em;">${escapeXml(title)}</h1>
+      <h1 style="border:none;margin-top:0.8em;font-size:1.4em;">${escapeXml(title)}</h1>
       <p style="text-align:center;font-style:italic;">${escapeXml(author)}</p>
     </div>
   </body>
 </html>`;
     zip.file('OEBPS/cover.xhtml', coverXhtml);
     manifestItems.push(`<item id="cover_page" href="cover.xhtml" media-type="application/xhtml+xml"/>`);
-    spineItems.push(`<itemref idref="cover_page"/>`);
+    spineItems.push(`<itemref idref="cover_page" linear="yes"/>`);
+
+    navPoints.push(`
+    <navPoint id="np_cover" playOrder="1">
+      <navLabel><text>Okładka</text></navLabel>
+      <content src="cover.xhtml"/>
+    </navPoint>`);
+
+    navListItems.push(`<li><a href="cover.xhtml">Okładka</a></li>`);
   }
+
+  // Include Nav in Spine so both EPUB 2 and EPUB 3 readers validate without spine errors
+  spineItems.push(`<itemref idref="nav" linear="yes"/>`);
 
   chapters.forEach((chapter, index) => {
     const chapterId = `chapter_${index + 1}`;
@@ -171,15 +285,29 @@ p:first-of-type, h1 + p, h2 + p {
     const chapterTitle = chapter.title || `Rozdział ${index + 1}`;
     const bodyContent = formatTextToXhtml(chapter.translatedText || chapter.originalText);
 
-    // Chapter image injection if available
+    // Bundle extracted illustrations from this chapter
+    if (Array.isArray(chapter.extractedImages)) {
+      for (const img of chapter.extractedImages) {
+        if (!bundledImageFilenames.has(img.filename)) {
+          bundledImageFilenames.add(img.filename);
+          zip.file(`OEBPS/images/${img.filename}`, img.buffer, { compression: 'STORE' });
+          manifestItems.push(`<item id="${img.id}" href="images/${img.filename}" media-type="${img.mediaType || 'image/jpeg'}"/>`);
+        }
+      }
+    }
+
+    // Legacy or storybook generated cover/chapter illustration
     let illustrationHtml = '';
     if (chapter.imageBuffer && chapter.imageBuffer.length > 0) {
-      const imgFilename = `images/ch_${index + 1}.jpg`;
-      zip.file(`OEBPS/${imgFilename}`, chapter.imageBuffer);
-      manifestItems.push(`<item id="img_${index + 1}" href="${imgFilename}" media-type="image/jpeg"/>`);
+      const imgFilename = `ch_${index + 1}_legacy.jpg`;
+      if (!bundledImageFilenames.has(imgFilename)) {
+        bundledImageFilenames.add(imgFilename);
+        zip.file(`OEBPS/images/${imgFilename}`, chapter.imageBuffer, { compression: 'STORE' });
+        manifestItems.push(`<item id="img_ch_${index + 1}" href="images/${imgFilename}" media-type="image/jpeg"/>`);
+      }
       illustrationHtml = `
       <div class="illustration-box">
-        <img src="${imgFilename}" alt="${escapeXml(chapterTitle)} - ilustracja"/>
+        <img src="images/${imgFilename}" alt="${escapeXml(chapterTitle)} - ilustracja"/>
       </div>`;
     }
 
@@ -187,6 +315,7 @@ p:first-of-type, h1 + p, h2 + p {
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXml(language)}" lang="${escapeXml(language)}">
   <head>
+    <meta charset="utf-8"/>
     <title>${escapeXml(chapterTitle)}</title>
     <link rel="stylesheet" type="text/css" href="style.css"/>
   </head>
@@ -201,10 +330,11 @@ p:first-of-type, h1 + p, h2 + p {
 
     zip.file(`OEBPS/${filename}`, chapterXhtml);
     manifestItems.push(`<item id="${chapterId}" href="${filename}" media-type="application/xhtml+xml"/>`);
-    spineItems.push(`<itemref idref="${chapterId}"/>`);
+    spineItems.push(`<itemref idref="${chapterId}" linear="yes"/>`);
 
+    const playOrderNum = hasCover ? index + 3 : index + 2;
     navPoints.push(`
-    <navPoint id="np_${index + 1}" playOrder="${index + 1}">
+    <navPoint id="np_${index + 1}" playOrder="${playOrderNum}">
       <navLabel><text>${escapeXml(chapterTitle)}</text></navLabel>
       <content src="${filename}"/>
     </navPoint>`);
@@ -212,11 +342,12 @@ p:first-of-type, h1 + p, h2 + p {
     navListItems.push(`<li><a href="${filename}">${escapeXml(chapterTitle)}</a></li>`);
   });
 
-  // 5. OEBPS/nav.xhtml (EPUB 3 Navigation)
+  // 5. OEBPS/nav.xhtml (EPUB 3 Navigation Document + EPUB 2 fallback)
   const navXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXml(language)}" lang="${escapeXml(language)}">
   <head>
+    <meta charset="utf-8"/>
     <title>Spis treści</title>
     <link rel="stylesheet" type="text/css" href="style.css"/>
   </head>
@@ -231,9 +362,9 @@ p:first-of-type, h1 + p, h2 + p {
 </html>`;
   zip.file('OEBPS/nav.xhtml', navXhtml);
 
-  // 6. OEBPS/toc.ncx (EPUB 2 / Kindle compatibility)
+  // 6. OEBPS/toc.ncx (EPUB 2 Navigation File - for Kindle / older KOReader)
   const tocNcx = `<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="${escapeXml(language)}">
   <head>
     <meta name="dtb:uid" content="${bookUuid}"/>
     <meta name="dtb:depth" content="1"/>
@@ -252,16 +383,17 @@ p:first-of-type, h1 + p, h2 + p {
 </ncx>`;
   zip.file('OEBPS/toc.ncx', tocNcx);
 
-  // 7. OEBPS/content.opf
-  const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookID">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="BookID">${bookUuid}</dc:identifier>
+  // 7. OEBPS/content.opf (Full EPUB 3 + EPUB 2 Package Manifest)
+  const contentOpf = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookId" xml:lang="${escapeXml(language)}">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:identifier id="BookId">${bookUuid}</dc:identifier>
     <dc:title>${escapeXml(title)}</dc:title>
-    <dc:creator>${escapeXml(author)}</dc:creator>
     <dc:language>${escapeXml(language)}</dc:language>
-    <dc:publisher>KOReader AI Cloud Bridge</dc:publisher>
-    <meta property="dcterms:modified">${new Date().toISOString().replace(/\.[0-9]+Z$/, 'Z')}</meta>
+    <dc:creator id="creator">${escapeXml(author)}</dc:creator>
+    <meta refines="#creator" property="role" scheme="marc:relators">aut</meta>
+    <meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</meta>
+    ${hasCover ? '<meta name="cover" content="cover-image"/>' : ''}
   </metadata>
   <manifest>
     ${manifestItems.join('\n    ')}
@@ -269,15 +401,20 @@ p:first-of-type, h1 + p, h2 + p {
   <spine toc="ncx">
     ${spineItems.join('\n    ')}
   </spine>
+  <guide>
+    ${hasCover ? '<reference type="cover" title="Okładka" href="cover.xhtml"/>' : ''}
+    <reference type="toc" title="Spis treści" href="nav.xhtml"/>
+  </guide>
 </package>`;
   zip.file('OEBPS/content.opf', contentOpf);
 
-  // Generate output buffer
-  const uint8Array = await zip.generateAsync({
-    type: 'uint8array',
+  // 8. Generate Buffer
+  const buffer = await zip.generateAsync({
+    type: 'nodebuffer',
+    mimeType: 'application/epub+zip',
     compression: 'DEFLATE',
-    compressionOptions: { level: 6 },
+    compressionOptions: { level: 9 },
   });
 
-  return Buffer.from(uint8Array);
+  return buffer;
 }

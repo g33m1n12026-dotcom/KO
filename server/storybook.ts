@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { StorybookRequest, ChapterData, Job } from '../src/types';
-import { generateEpubBuffer } from './epub';
+import { generateEpubBuffer, sanitizeToAsciiFilename } from './epub';
+import { saveJobsToDisk } from './jobs';
 import fs from 'fs';
 import path from 'path';
 
@@ -110,32 +111,85 @@ async function callAiText(systemPrompt: string, userPrompt: string, engine: stri
 }
 
 /**
- * Generates an E-Ink optimized monochrome illustration buffer (woodcut / vintage ink engraving style)
+ * Strips meta-references to physical books, pages, covers, paper, and mockups so the
+ * image model renders direct 2D artwork scenes rather than a photograph of an open book or paper page.
  */
-async function fetchIllustrationBuffer(promptText: string, isCover: boolean = false): Promise<Buffer | null> {
+export function cleanPromptForDirectArtwork(promptText: string): string {
+  let cleaned = promptText
+    .replace(/\b(book\s*cover|book\s*covers|book\s*page|book\s*pages|open\s*book|closed\s*book|vintage\s*book|physical\s*book|kindle\s*device|kindle\s*screen|paper\s*sheet|paper\s*texture|photo\s*of|picture\s*of\s*a\s*book|photograph\s*of|in\s*a\s*book|on\s*paper|on\s*clean\s*white\s*paper|mockup|table\s*surface|wooden\s*table|desk)\b/gi, ' ')
+    .replace(/\b(book|books|cover|covers|page|pages|paper|papers|mockup|mockups)\b/gi, ' ')
+    .replace(/[^\w\s,.-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned || 'dramatic atmospheric scene, high contrast lineart';
+}
+
+let imageQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Generates an E-Ink optimized monochrome illustration buffer (woodcut / vintage ink engraving style).
+ * Strictly prompts for direct 2D artwork (full-bleed graphic art), preventing the model
+ * from generating photos of physical books, mockups, or open pages on tables.
+ * Employs a sequential queue lock and 429 backoff to respect provider limits.
+ */
+export async function fetchIllustrationBuffer(promptText: string, isCover: boolean = false): Promise<Buffer | null> {
+  const previous = imageQueue;
+  let resolveCurrent: () => void = () => {};
+  imageQueue = new Promise<void>((r) => {
+    resolveCurrent = r;
+  });
+
   try {
-    const cleanStylePrompt = `masterpiece vintage book illustration, woodcut engraving style, fine monochrome ink lines on clean white paper, high contrast, black and white lineart, e-ink kindle book illustration: ${promptText.replace(/[^\w\s,.-]/g, ' ')}`;
-    const width = isCover ? 768 : 640;
-    const height = isCover ? 1024 : 480;
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanStylePrompt)}?width=${width}&height=${height}&model=flux&nologo=true`;
+    await previous;
+  } catch {
+    // Ignore prior queue errors
+  }
 
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(12000),
-      headers: {
-        'User-Agent': 'KOReader-AI-Storybook/1.0',
-        Accept: 'image/jpeg,image/png,image/*',
-      },
-    });
+  try {
+    const cleanedSubject = cleanPromptForDirectArtwork(promptText);
 
-    if (res.ok) {
-      const arr = await res.arrayBuffer();
-      if (arr.byteLength > 1000) {
-        return Buffer.from(arr);
+    // Direct 2D artwork prompt specifying full-bleed graphic scene
+    const directArtPrompt = isCover
+      ? `direct 2D artwork, dynamic vertical poster art depicting ${cleanedSubject}, crisp woodcut engraving and etching style, high contrast black and white ink line art, detailed graphic novel artwork, cinematic composition, subject fills entire image, centered, sharp focus, 2D vector etching, full bleed visual, no photograph, no open book, no book cover, no pages, no table`
+      : `direct 2D scene, wide artwork depicting ${cleanedSubject}, high contrast monochrome ink line art, fine woodcut crosshatching style, graphic novel drawing, sharp black and white illustration, full bleed image, no margins, no text, no book, no pages, no photograph`;
+
+    const seed = Math.floor(Math.random() * 1000000);
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(directArtPrompt)}?model=flux&nologo=true&seed=${seed}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(25000),
+          headers: {
+            'User-Agent': 'KOReader-AI-Storybook/1.0',
+            Accept: 'image/jpeg,image/png,image/*',
+          },
+        });
+
+        if (res.status === 429) {
+          console.warn(`Pollinations 429 (próba ${attempt + 1}/3), oczekiwanie 3.5s...`);
+          await new Promise((r) => setTimeout(r, 3500));
+          continue;
+        }
+
+        if (res.ok) {
+          const arr = await res.arrayBuffer();
+          if (arr.byteLength > 1000) {
+            // Wait 1.5s before releasing queue to avoid bursting anonymous rate limit
+            await new Promise((r) => setTimeout(r, 1500));
+            return Buffer.from(arr);
+          }
+        }
+      } catch (err) {
+        console.warn(`Błąd pobierania ilustracji (próba ${attempt + 1}):`, err);
+        await new Promise((r) => setTimeout(r, 2000));
       }
     }
   } catch (e) {
-    // Non-fatal: if illustration fails, book is still generated cleanly
     console.warn('Illustration generation skipped or timed out:', e);
+  } finally {
+    resolveCurrent();
   }
   return null;
 }
@@ -157,12 +211,12 @@ Odpowiedz WYŁĄCZNIE poprawnym obiektem JSON (bez markdowna \`\`\`json i bez ws
   "title": "Tytuł książki",
   "author": "Imię Nazwisko autora (lub AI Studio)",
   "synopsis": "Krótki, fascynujący opis książki na tylną okładkę (2-3 zdania)",
-  "coverImagePrompt": "Krótki angielski opis ilustracji na okładkę w stylu vintage book engraving",
+  "coverImagePrompt": "Krótki angielski opis samej sceny graficznej na plakat/okładkę (np. 'A massive retro spaceship drifting through a cosmic starfield, detailed ink drawing'). BARDZO WAŻNE: opisuj wyłącznie widoczną scenę, postacie lub otoczenie. NIGDY nie używaj słów 'book', 'book cover', 'page', 'paper', 'photo', 'mockup', 'table' - generator musi narysować samą bezpośrednią grafikę, a nie zdjęcie leżącej książki!",
   "chapters": [
     {
       "title": "Tytuł Rozdziału 1",
       "summary": "Co dokładnie wydarzy się lub zostanie omówione w tym rozdziale",
-      "imagePrompt": "Krótki angielski opis ryciny do tego rozdziału (np. A quiet detective office with rain against window, ink lineart)"
+      "imagePrompt": "Krótki angielski opis konkretnej sceny fabularnej z tego rozdziału (np. 'A shadowy detective entering a dimly lit retro room with rain on the window, noir ink line art'). NIGDY nie używaj słów 'book', 'page', 'illustration', 'reading', 'paper' ani 'open book'."
     }
   ]
 }`;
@@ -195,11 +249,11 @@ Stwórz zrównoważony, wciągający i kompletny spis ${req.chapterCount || 5} r
       title: req.title || 'Książka na życzenie',
       author: req.author || 'KOReader AI Storybook',
       synopsis: req.prompt.slice(0, 200),
-      coverImagePrompt: 'vintage book cover emblem, monochrome engraving',
+      coverImagePrompt: 'dramatic 2D scene, detailed monochrome ink drawing, high contrast linework',
       chapters: Array.from({ length: req.chapterCount || 4 }).map((_, i) => ({
         title: `Rozdział ${i + 1}`,
         summary: `Omówienie i rozwinięcie wątków: ${req.prompt.slice(0, 100)}`,
-        imagePrompt: 'vintage ink drawing of book page scene',
+        imagePrompt: 'atmospheric 2D scene, fine ink lineart, graphic novel style',
       })),
     };
   }
@@ -281,7 +335,7 @@ export async function executeStorybookJob(job: Job, req: StorybookRequest): Prom
     if (req.includeIllustrations) {
       log('Generowanie unikalnej okładki książki w stylu rycin e-ink...');
       job.progress = 18;
-      const buf = await fetchIllustrationBuffer(outline.coverImagePrompt || `${outline.title} book cover`, true);
+      const buf = await fetchIllustrationBuffer(outline.coverImagePrompt || `${outline.title} dramatic scene, ink poster art`, true);
       if (buf) {
         coverBuffer = buf;
         log('Okładka e-booka wygenerowana pomyślnie!');
@@ -339,7 +393,7 @@ export async function executeStorybookJob(job: Job, req: StorybookRequest): Prom
       coverImageBuffer: coverBuffer,
     });
 
-    const safeTitle = outline.title.replace(/[^a-zA-Z0-9_\u0080-\uFFFF]+/g, '_').toLowerCase();
+    const safeTitle = sanitizeToAsciiFilename(outline.title);
     const filename = `${safeTitle}_${Date.now()}.epub`;
     const outputPath = path.join(EPUB_DIR, filename);
 
@@ -350,10 +404,12 @@ export async function executeStorybookJob(job: Job, req: StorybookRequest): Prom
     job.outputEpubFilename = filename;
     job.originalSize = epubBuffer.length;
     log(`Książka została pomyślnie utworzona i spakowana! Rozmiar: ${(epubBuffer.length / 1024).toFixed(1)} KB. Gotowa do pobrania na Kindle.`);
+    saveJobsToDisk();
   } catch (err: any) {
     console.error(`Błąd generowania książki ${job.id}:`, err);
     job.status = 'failed';
     job.error = err.message || 'Wystąpił nieznany błąd podczas pisania książki';
     log(`BŁĄD: ${job.error}`);
+    saveJobsToDisk();
   }
 }

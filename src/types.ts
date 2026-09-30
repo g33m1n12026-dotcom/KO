@@ -4,8 +4,8 @@ export interface Job {
   sourceLang: string;
   targetLang: string;
   engine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini';
-  conversionMode?: 'translate' | 'epub_clean' | 'comic_cbz';
-  outputFormat?: 'epub' | 'cbz';
+  conversionMode?: 'translate' | 'epub_clean' | 'comic_cbz' | 'original';
+  outputFormat?: 'epub' | 'cbz' | 'pdf' | 'mobi' | 'txt';
   status: 'queued' | 'extracting' | 'translating' | 'packaging' | 'completed' | 'failed';
   progress: number; // 0 - 100
   totalChapters: number;
@@ -55,7 +55,21 @@ export interface BookSearchResult {
   downloadUrl?: string;
   format: string;
   source: string;
+  size?: string;
+  coverUrl?: string;
+  isLendingDRM?: boolean;
   mirrorLinks?: { name: string; url: string }[];
+  availableSources?: Array<{
+    id: string;
+    title?: string;
+    author?: string;
+    source: string;
+    format: string;
+    language?: string;
+    size?: string;
+    downloadUrl?: string;
+    isLendingDRM?: boolean;
+  }>;
 }
 
 export interface BookRecommendation {
@@ -77,11 +91,47 @@ export interface BookRecommendation {
 export interface ShadowLibraryMirror {
   id: string;
   name: string;
-  category: 'annas' | 'zlib' | 'libgen' | 'scihub' | 'decentralized' | 'open';
+  category: 'annas' | 'zlib' | 'libgen' | 'scihub' | 'decentralized' | 'open' | 'chomikuj';
   domain: string;
   searchUrlTemplate: string;
   description: string;
   isPrimary?: boolean;
+}
+
+export interface MultilingualBookMeta {
+  originalQuery: string;
+  detectedTitle?: string;
+  canonicalAuthor?: string;
+  titles: Record<string, string>;
+  searchVariants: string[];
+}
+
+export interface AccountSettings {
+  internetArchive: {
+    accessKey?: string;
+    secretKey?: string;
+    sessionCookie?: string;
+    hasKeys?: boolean;
+    accessKeyMasked?: string;
+  };
+  zlibrary?: {
+    isConnected?: boolean;
+    emailMasked?: string;
+    userName?: string;
+    downloadsToday?: number;
+    downloadsLimit?: number;
+  };
+  annasArchive: {
+    fastDownloadKey?: string;
+    hasKey?: boolean;
+    fastDownloadKeyMasked?: string;
+  };
+  chomikuj?: {
+    isConnected?: boolean;
+    accountName?: string;
+    emailMasked?: string;
+    hasPassword?: boolean;
+  };
 }
 
 export interface AIProviderConfig {

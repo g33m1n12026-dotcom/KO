@@ -24,6 +24,7 @@ export default function App() {
     gemini: true,
   });
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
   // Fetch status and jobs
   const fetchStatus = useCallback(async () => {
@@ -71,8 +72,14 @@ export default function App() {
 
   const handleJobCreated = (newJob: Job) => {
     setJobs((prev) => [newJob, ...prev.filter((j) => j.id !== newJob.id)]);
+    setSelectedJob(newJob);
     setActiveTab('library');
   };
+
+  const handleDeleteJob = useCallback((jobId: string) => {
+    setJobs((prev) => prev.filter((j) => j.id !== jobId));
+    if (selectedJob?.id === jobId) setSelectedJob(null);
+  }, [selectedJob]);
 
   return (
     <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans selection:bg-stone-900 selection:text-white">
@@ -90,6 +97,8 @@ export default function App() {
           <AndroidCompanionReader
             serverUrl={serverUrl}
             jobs={jobs}
+            selectedJob={selectedJob}
+            onSelectJob={setSelectedJob}
             onRefreshJobs={fetchJobs}
             onSelectJobForConversion={() => setActiveTab('convert')}
           />
@@ -111,8 +120,12 @@ export default function App() {
           <JobsLibrary
             jobs={jobs}
             onRefresh={fetchJobs}
+            onDeleteJob={handleDeleteJob}
             serverUrl={serverUrl}
-            onReadJob={() => setActiveTab('reader')}
+            onReadJob={(job) => {
+              setSelectedJob(job);
+              setActiveTab('reader');
+            }}
           />
         )}
 

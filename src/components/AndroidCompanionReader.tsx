@@ -33,6 +33,8 @@ import { Job } from '../types';
 interface AndroidCompanionReaderProps {
   serverUrl: string;
   jobs: Job[];
+  selectedJob?: Job | null;
+  onSelectJob?: (job: Job) => void;
   onRefreshJobs: () => void;
   onSelectJobForConversion?: (jobId: string) => void;
 }
@@ -49,6 +51,8 @@ type ReaderFont = 'serif' | 'sans' | 'mono';
 export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   serverUrl,
   jobs,
+  selectedJob,
+  onSelectJob,
   onRefreshJobs,
 }) => {
   // Main view modes
@@ -96,14 +100,34 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   // Content scroll ref
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // When a job is selected from outside (e.g. library "Czytaj" button)
+  useEffect(() => {
+    if (selectedJob && selectedJob.status === 'completed') {
+      loadBookFromJob(selectedJob);
+    }
+  }, [selectedJob]);
+
   // ----------------------------------------------------
-  // Initialize demo book if none loaded
+  // Initialize book from completed jobs or demo
   // ----------------------------------------------------
   useEffect(() => {
-    // Check if there are completed jobs to load the latest book automatically
-    const completed = jobs.filter((j) => j.status === 'completed' && j.outputEpubFilename);
-    if (completed.length > 0 && chapters.length === 0) {
+    // Prefer valid completed jobs (EPUB, CBZ, or jobs with chapters)
+    const completed = jobs.filter(
+      (j) =>
+        j.status === 'completed' &&
+        (j.outputFormat === 'epub' ||
+          j.outputFormat === 'cbz' ||
+          j.outputEpubFilename?.endsWith('.epub') ||
+          j.outputEpubFilename?.endsWith('.cbz') ||
+          (j.chapters && j.chapters.length > 0))
+    );
+
+    if (selectedJob && selectedJob.status === 'completed') {
+      return; // Already handled above
+    }
+    if (completed.length > 0 && (chapters.length === 0 || bookTitle === 'Przykładowy Ebook')) {
       loadBookFromJob(completed[0]);
+      if (onSelectJob) onSelectJob(completed[0]);
     } else if (chapters.length === 0) {
       // Default demo chapters
       setChapters([
@@ -113,23 +137,23 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           content: `
             <h2>Witaj w mobilnym czytniku i pilocie Kindle</h2>
             <p>Ta aplikacja łączy funkcjonalność zaawansowanego czytnika ebooków (alternatywa dla Moon+ Reader) z bezprzewodowym pilotem dla Twojego czytnika Kindle z KOReaderem.</p>
-            <p>Możesz wgrać dowolny plik <strong>.EPUB</strong> lub <strong>.TXT</strong> z pamięci telefonu, skorzystać z książek przetłumaczonych przez AI w chmurze lub podyktować głosowo wyszukanie nowej powieści.</p>
-            <p>Zaznacz dowolny fragment tekstu na ekranie telefonu, aby natychmiast uzyskać literacki przekład na polski lub wyjaśnienie kontekstu historyczno-literackiego przez sztuczną inteligencję.</p>
+            <p>Możesz wgrać dowolny plik <strong>.EPUB</strong>, <strong>.CBZ</strong> lub <strong>.TXT</strong> z komputera/telefonu, otworzyć książki przetłumaczone przez AI lub wygenerowane e-booki.</p>
+            <p>Wybierz dowolną pozycję z biblioteki powyżej, aby natychmiast zanurzyć się w lekturze z ilustracjami i podziałem na rozdziały.</p>
           `,
         },
         {
           id: 'demo_2',
           title: 'Rozdział 1: Bezprzewodowy transfer na Kindle',
           content: `
-            <h2>Jak błyskawicznie przesłać książkę z telefonu na czytnik?</h2>
-            <p>W KOReaderze na czytniku Kindle wejdź w <strong>Menu główne</strong> (trzy kreski) ➔ <strong>Narzędzia</strong> ➔ <strong>Narzędzia dodatkowe</strong> ➔ <strong>Uruchom serwer bezprzewodowy</strong>.</p>
-            <p>KOReader wyświetli adres IP czytnika (np. <code>192.168.1.45:8080</code>). Wpisz ten adres w zakładce <em>Pilot Kindle</em> na telefonie i kliknij <strong>Prześlij na czytnik</strong>.</p>
-            <p>Książka zostanie natychmiast wysłana z telefonu prosto do pamięci Kindle bez podłączania żadnych kabli!</p>
+            <h2>Jak błyskawicznie przesłać książkę z komputera/telefonu na czytnik?</h2>
+            <p>W KOReaderze na czytniku Kindle wejdź w <strong>Menu główne</strong> ➔ <strong>Narzędzia</strong> ➔ <strong>Narzędzia dodatkowe</strong> ➔ <strong>Uruchom serwer bezprzewodowy</strong>.</p>
+            <p>KOReader wyświetli adres IP czytnika (np. <code>192.168.1.45:8080</code>). Wpisz ten adres w zakładce <em>Pilot Kindle</em> i kliknij <strong>Prześlij na czytnik</strong>.</p>
+            <p>Książka zostanie natychmiast wysłana prosto do pamięci Kindle bez podłączania żadnych kabli!</p>
           `,
         },
       ]);
     }
-  }, [jobs]);
+  }, [jobs, selectedJob]);
 
   // Save Kindle IP in localStorage
   useEffect(() => {
@@ -146,27 +170,94 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   }, [currentChapterIdx]);
 
   // ----------------------------------------------------
-  // Load EPUB from Job or URL
+  // Load EPUB, CBZ, or PDF from Job or URL
   // ----------------------------------------------------
   const loadBookFromJob = async (job: Job) => {
     setLoadingBook(true);
     setBookTitle(job.title);
+
+    // 1. If job has chapters already, set them immediately for fast resilient reading
+    if (job.chapters && job.chapters.length > 0) {
+      setChapters(
+        job.chapters.map((c, i) => ({
+          id: `ch_${i}`,
+          title: c.title || `Rozdział ${i + 1}`,
+          content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
+        }))
+      );
+      setCurrentChapterIdx(0);
+    }
+
     try {
       const res = await fetch(`/api/download/${job.id}`);
-      if (!res.ok) throw new Error('Nie udało się pobrać pliku');
+      if (!res.ok) {
+        if (job.chapters && job.chapters.length > 0) {
+          return;
+        }
+        throw new Error('Plik nie jest jeszcze gotowy na serwerze');
+      }
+
+      const contentType = res.headers.get('content-type') || '';
       const blob = await res.blob();
+
+      // Check if it's a PDF
+      if (
+        contentType.includes('application/pdf') ||
+        job.outputFormat === 'pdf' ||
+        job.outputEpubFilename?.toLowerCase().endsWith('.pdf')
+      ) {
+        setChapters([
+          {
+            id: 'pdf_notice',
+            title: job.title,
+            content: `
+              <div style="text-align: center; padding: 2.5rem 1rem;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">📄</div>
+                <h2 style="font-size: 1.25rem; font-weight: bold; margin-bottom: 0.5rem; color: #1c1917;">Dokument PDF: ${job.title}</h2>
+                <p style="color: #78716c; margin-bottom: 1.5rem; font-size: 0.875rem; max-width: 480px; margin-left: auto; margin-right: auto;">
+                  Ten plik został zapisany w formacie PDF. Możesz go pobrać bezpośrednio na dysk komputera lub przesłać na czytnik Kindle za pomocą zakładki <em>Pilot Kindle</em>.
+                </p>
+                <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+                  <a href="/api/download/${job.id}" download="${job.outputEpubFilename || 'dokument.pdf'}" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.625rem 1.25rem; background: #1c1917; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 500; font-size: 0.875rem;">
+                    📥 Pobierz plik PDF (${((job.originalSize || 0) / 1024 / 1024).toFixed(1)} MB)
+                  </a>
+                </div>
+              </div>
+            `,
+          },
+        ]);
+        setCurrentChapterIdx(0);
+        return;
+      }
+
       await parseEpubBlob(blob, job.title);
     } catch (err: any) {
-      console.error('Błąd wczytywania EPUB:', err);
+      console.warn('Wczytywanie e-booka (tryb awaryjny):', err.message || err);
       // Fallback to job chapters if available
       if (job.chapters && job.chapters.length > 0) {
         setChapters(
           job.chapters.map((c, i) => ({
             id: `ch_${i}`,
             title: c.title || `Rozdział ${i + 1}`,
-            content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n/g, '</p><p>')}</p>`,
+            content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
           }))
         );
+        setCurrentChapterIdx(0);
+      } else {
+        // Fallback to any other completed job available with EPUB
+        const altJob = jobs.find(
+          (j) =>
+            j.id !== job.id &&
+            j.status === 'completed' &&
+            (j.outputFormat === 'epub' ||
+              j.outputFormat === 'cbz' ||
+              j.outputEpubFilename?.endsWith('.epub') ||
+              (j.chapters && j.chapters.length > 0))
+        );
+        if (altJob) {
+          loadBookFromJob(altJob);
+          if (onSelectJob) onSelectJob(altJob);
+        }
       }
     } finally {
       setLoadingBook(false);
@@ -174,69 +265,201 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   };
 
   // ----------------------------------------------------
-  // Parse EPUB client-side with JSZip
+  // Parse EPUB and CBZ client-side with JSZip + Blob URLs
   // ----------------------------------------------------
   const parseEpubBlob = async (blob: Blob, defaultTitle?: string) => {
     try {
       const zip = await JSZip.loadAsync(blob);
       const parsedChapters: Chapter[] = [];
 
-      // Find html/xhtml files in the epub
-      const htmlFiles = Object.keys(zip.files).filter(
-        (f) =>
-          !zip.files[f].dir &&
-          (f.endsWith('.xhtml') || f.endsWith('.html') || f.endsWith('.htm')) &&
-          !f.includes('cover') &&
-          !f.includes('toc')
+      // 1. Extract all images into blob URLs for clean display in browser
+      const imageBlobMap: Record<string, string> = {};
+      const imageFiles = Object.keys(zip.files).filter(
+        (f) => !zip.files[f].dir && /\.(jpe?g|png|webp|gif|svg)$/i.test(f)
       );
 
-      // Sort files naturally
-      htmlFiles.sort();
+      for (const imgPath of imageFiles) {
+        try {
+          const imgData = await zip.files[imgPath].async('blob');
+          const blobUrl = URL.createObjectURL(imgData);
+          imageBlobMap[imgPath] = blobUrl;
+          const baseName = imgPath.split('/').pop() || '';
+          imageBlobMap[baseName] = blobUrl;
+        } catch (e) {
+          console.warn('Nie udało się wyodrębnić obrazu:', imgPath, e);
+        }
+      }
 
-      for (let i = 0; i < htmlFiles.length; i++) {
-        const path = htmlFiles[i];
-        const text = await zip.files[path].async('text');
+      // 2. Discover reading order via EPUB OPF Spine
+      let orderedHtmlPaths: string[] = [];
+      let discoveredTitle = defaultTitle;
 
-        // Extract body content
-        const bodyMatch = text.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-        const rawContent = bodyMatch ? bodyMatch[1] : text;
+      // Try container.xml -> content.opf -> spine
+      try {
+        const containerFile = zip.file('META-INF/container.xml');
+        let opfPath = 'OEBPS/content.opf';
+        if (containerFile) {
+          const cXml = await containerFile.async('text');
+          const fullPathMatch = cXml.match(/full-path=["']([^"']+)["']/i);
+          if (fullPathMatch) opfPath = fullPathMatch[1];
+        }
 
-        // Try extracting chapter title
-        const titleMatch = rawContent.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
-        const title = titleMatch
-          ? titleMatch[1].replace(/<[^>]+>/g, '').trim()
-          : `Część ${i + 1}`;
+        const opfFile = zip.file(opfPath);
+        if (opfFile) {
+          const opfText = await opfFile.async('text');
+          const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
 
-        parsedChapters.push({
-          id: `epub_${i}`,
-          title: title || `Rozdział ${i + 1}`,
-          content: rawContent,
+          // Extract Title
+          const titleMatch = opfText.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
+          if (titleMatch && titleMatch[1].trim()) {
+            discoveredTitle = titleMatch[1].trim();
+          }
+
+          // Manifest map: id -> href
+          const manifestMap = new Map<string, string>();
+          const itemRegex = /<item\s+[^>]*>/gi;
+          let itemMatch: RegExpExecArray | null;
+          while ((itemMatch = itemRegex.exec(opfText)) !== null) {
+            const itemTag = itemMatch[0];
+            const idM = itemTag.match(/id=["']([^"']+)["']/i);
+            const hrefM = itemTag.match(/href=["']([^"']+)["']/i);
+            if (idM && hrefM) {
+              manifestMap.set(idM[1], hrefM[1]);
+            }
+          }
+
+          // Spine itemrefs in reading order
+          const itemrefRegex = /<itemref\s+[^>]*>/gi;
+          let refMatch: RegExpExecArray | null;
+          while ((refMatch = itemrefRegex.exec(opfText)) !== null) {
+            const refTag = refMatch[0];
+            const idrefM = refTag.match(/idref=["']([^"']+)["']/i);
+            if (idrefM && manifestMap.has(idrefM[1])) {
+              const relHref = manifestMap.get(idrefM[1])!;
+              const resolvedPath = opfDir + relHref;
+              if (zip.file(resolvedPath)) {
+                orderedHtmlPaths.push(resolvedPath);
+              }
+            }
+          }
+        }
+      } catch (opfErr) {
+        console.warn('Błąd czytania OPF spine:', opfErr);
+      }
+
+      // Fallback: If spine didn't give files, list all HTML files
+      if (orderedHtmlPaths.length === 0) {
+        const allHtml = Object.keys(zip.files).filter(
+          (f) =>
+            !zip.files[f].dir &&
+            (f.endsWith('.xhtml') || f.endsWith('.html') || f.endsWith('.htm')) &&
+            !f.toLowerCase().includes('nav.xhtml') &&
+            !f.toLowerCase().includes('toc.xhtml')
+        );
+
+        // Put cover first, then sort numerically
+        allHtml.sort((a, b) => {
+          const aCover = a.toLowerCase().includes('cover');
+          const bCover = b.toLowerCase().includes('cover');
+          if (aCover && !bCover) return -1;
+          if (!aCover && bCover) return 1;
+          return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
         });
+
+        orderedHtmlPaths = allHtml;
+      }
+
+      // 3. Comic / CBZ Mode: if no HTML files at all, display pages from images
+      if (orderedHtmlPaths.length === 0 && imageFiles.length > 0) {
+        imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        for (let i = 0; i < imageFiles.length; i++) {
+          const imgUrl = imageBlobMap[imageFiles[i]];
+          parsedChapters.push({
+            id: `page_${i + 1}`,
+            title: `Strona ${i + 1} z ${imageFiles.length}`,
+            content: `
+              <div style="text-align: center; margin: 1em auto;">
+                <img src="${imgUrl}" alt="Strona ${i + 1}" style="max-width: 100%; max-height: 80vh; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: inline-block;" />
+              </div>
+            `,
+          });
+        }
+      } else {
+        // 4. EPUB HTML Content extraction
+        for (let i = 0; i < orderedHtmlPaths.length; i++) {
+          const path = orderedHtmlPaths[i];
+          const text = await zip.files[path].async('text');
+
+          // Extract body content
+          const bodyMatch = text.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+          let rawContent = bodyMatch ? bodyMatch[1] : text;
+
+          // Replace relative image src with blob URLs
+          rawContent = rawContent.replace(/src=["']([^"']+)["']/gi, (match, srcPath) => {
+            const cleanSrc = srcPath.replace(/^\.\.\//, '').replace(/^\.\//, '');
+            const baseSrc = cleanSrc.split('/').pop() || '';
+            const resolved =
+              imageBlobMap[cleanSrc] ||
+              imageBlobMap[baseSrc] ||
+              imageBlobMap[`OEBPS/${cleanSrc}`] ||
+              imageBlobMap[`images/${baseSrc}`] ||
+              imageBlobMap[`OEBPS/images/${baseSrc}`] ||
+              Object.entries(imageBlobMap).find(([k]) => k.endsWith('/' + baseSrc) || k === baseSrc)?.[1];
+            return resolved ? `src="${resolved}"` : match;
+          });
+
+          // Decode HTML entities in title
+          const titleMatch = rawContent.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+          let chapterTitle = titleMatch
+            ? titleMatch[1].replace(/<[^>]+>/g, '').trim()
+            : path.toLowerCase().includes('cover')
+            ? 'Okładka'
+            : `Rozdział ${i + 1}`;
+
+          chapterTitle = chapterTitle
+            .replace(/&apos;/g, "'")
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>');
+
+          // If the content already starts with h1, remove redundant inner h1 to avoid duplicate header in UI
+          const cleanedContent = rawContent.replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, '').trim() || rawContent;
+
+          parsedChapters.push({
+            id: `epub_${i}`,
+            title: chapterTitle || `Rozdział ${i + 1}`,
+            content: cleanedContent,
+          });
+        }
       }
 
       if (parsedChapters.length > 0) {
         setChapters(parsedChapters);
         setCurrentChapterIdx(0);
-        if (defaultTitle) setBookTitle(defaultTitle);
+        if (discoveredTitle) setBookTitle(discoveredTitle);
       }
     } catch (e) {
-      console.error('Błąd parsowania struktury EPUB:', e);
+      console.error('Błąd parsowania struktury e-booka:', e);
     }
   };
 
   // ----------------------------------------------------
-  // Handle Local File Upload (from phone storage)
+  // Handle Local File Upload (from phone/PC storage)
   // ----------------------------------------------------
   const handleLocalFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setLoadingBook(true);
-    setBookTitle(file.name.replace(/\.[^/.]+$/, ''));
+    const cleanName = file.name.replace(/\.[^/.]+$/, '');
+    setBookTitle(cleanName);
 
-    if (file.name.toLowerCase().endsWith('.epub')) {
-      await parseEpubBlob(file, file.name.replace(/\.epub$/i, ''));
-    } else if (file.name.toLowerCase().endsWith('.txt')) {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith('.epub') || lower.endsWith('.cbz') || lower.endsWith('.zip')) {
+      await parseEpubBlob(file, cleanName);
+    } else if (lower.endsWith('.txt') || lower.endsWith('.md')) {
       const text = await file.text();
       const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim());
       setChapters([
@@ -531,9 +754,34 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
               >
                 <List className="w-4 h-4" />
               </button>
-              <span className="font-semibold truncate max-w-[200px] sm:max-w-md">
-                {bookTitle}
-              </span>
+
+              {/* Book selector dropdown */}
+              <div className="flex items-center gap-1.5 bg-black/10 dark:bg-white/10 rounded-lg px-2 py-1 max-w-[220px] sm:max-w-xs">
+                <BookOpen className="w-3.5 h-3.5 opacity-70 shrink-0" />
+                <select
+                  value={selectedJob?.id || ''}
+                  onChange={(e) => {
+                    const found = jobs.find((j) => j.id === e.target.value);
+                    if (found) {
+                      if (onSelectJob) onSelectJob(found);
+                      loadBookFromJob(found);
+                    }
+                  }}
+                  className="bg-transparent border-none text-current text-xs font-semibold focus:outline-hidden truncate cursor-pointer w-full"
+                >
+                  {jobs.filter((j) => j.status === 'completed' && j.outputEpubFilename).length > 0 ? (
+                    jobs.filter((j) => j.status === 'completed' && j.outputEpubFilename).map((j) => (
+                      <option key={j.id} value={j.id} className="text-black bg-white">
+                        {j.title} ({j.outputFormat === 'cbz' ? 'CBZ' : 'EPUB'})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" className="text-black bg-white">
+                      {bookTitle}
+                    </option>
+                  )}
+                </select>
+              </div>
             </div>
 
             <div className="flex items-center gap-1.5">

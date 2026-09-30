@@ -1,24 +1,66 @@
-import React, { useState } from 'react';
-import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X } from 'lucide-react';
 import { Job } from '../types';
 
 interface JobsLibraryProps {
   jobs: Job[];
   onRefresh: () => void;
+  onDeleteJob?: (jobId: string) => void;
   serverUrl: string;
   onReadJob?: (job: Job) => void;
 }
 
-export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serverUrl, onReadJob }) => {
+export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDeleteJob, serverUrl, onReadJob }) => {
+  const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteJob, setConfirmDeleteJob] = useState<{ id: string; title: string } | null>(null);
+
+  useEffect(() => {
+    setLocalJobs(jobs);
+  }, [jobs]);
 
   const toggleExpand = (id: string) => {
     setExpandedJobId(expandedJobId === id ? null : id);
   };
 
-  const completedJobs = jobs.filter((j) => j.status === 'completed');
-  const activeJobs = jobs.filter((j) => j.status !== 'completed' && j.status !== 'failed');
-  const failedJobs = jobs.filter((j) => j.status === 'failed');
+  const executeDeleteJob = async (jobId: string) => {
+    // Immediate optimistic removal from UI
+    setLocalJobs((prev) => prev.filter((j) => j.id !== jobId));
+    if (onDeleteJob) {
+      onDeleteJob(jobId);
+    }
+    setConfirmDeleteId(null);
+    setConfirmDeleteJob(null);
+    setDeletingId(jobId);
+
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        console.warn('Nie udało się usunąć pozycji na serwerze');
+      }
+      onRefresh();
+    } catch (err: any) {
+      console.error('Błąd sieci podczas usuwania:', err);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const clearAllFailed = async () => {
+    const ids = failedJobs.map((j) => j.id);
+    setLocalJobs((prev) => prev.filter((j) => j.status !== 'failed'));
+    ids.forEach((id) => onDeleteJob?.(id));
+    for (const id of ids) {
+      fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    }
+    setTimeout(onRefresh, 500);
+  };
+
+  const completedJobs = localJobs.filter((j) => j.status === 'completed');
+  const activeJobs = localJobs.filter((j) => j.status !== 'completed' && j.status !== 'failed');
+  const failedJobs = localJobs.filter((j) => j.status === 'failed');
 
   return (
     <div className="space-y-6">
@@ -73,19 +115,34 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serve
                       Silnik: <strong>{job.engine}</strong> • {job.sourceType === 'storybook' ? 'Tworzenie e-booka' : `Język docelowy: ${job.targetLang}`} • ID: <code className="font-mono text-[10px]">{job.id}</code>
                     </p>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 self-start sm:self-auto">
-                    {job.sourceType === 'storybook' ? (
-                      job.status === 'extracting' ? 'Planowanie fabuły...' :
-                      job.status === 'translating' ? `Pisanie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
-                      job.status === 'packaging' ? 'Generowanie rycin i EPUB...' :
-                      'Oczekuje w kolejce'
-                    ) : (
-                      job.status === 'extracting' ? 'Ekstrakcja tekstu...' :
-                      job.status === 'translating' ? `Tłumaczenie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
-                      job.status === 'packaging' ? 'Tworzenie EPUB...' :
-                      'Oczekuje w kolejce'
-                    )}
-                  </span>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900">
+                      {job.sourceType === 'storybook' ? (
+                        job.status === 'extracting' ? 'Planowanie fabuły...' :
+                        job.status === 'translating' ? `Pisanie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
+                        job.status === 'packaging' ? 'Generowanie rycin i EPUB...' :
+                        'Oczekuje w kolejce'
+                      ) : (
+                        job.status === 'extracting' ? 'Ekstrakcja tekstu...' :
+                        job.status === 'translating' ? `Tłumaczenie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
+                        job.status === 'packaging' ? 'Tworzenie EPUB...' :
+                        'Oczekuje w kolejce'
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      title="Anuluj i usuń zadanie"
+                      disabled={deletingId === job.id}
+                      onClick={() => setConfirmDeleteJob({ id: job.id, title: job.title })}
+                      className="p-1 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 border border-stone-200 transition active:scale-90 cursor-pointer"
+                    >
+                      {deletingId === job.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Progress bar */}
@@ -174,16 +231,73 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serve
                       </button>
                     )}
 
-                    <a
-                      href={`/api/download/${job.id}`}
-                      download={job.outputEpubFilename || 'ksiazka.epub'}
-                      className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs"
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/download/${job.id}`);
+                          if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            alert(err.error || 'Plik e-booka nie został odnaleziony na serwerze.');
+                            return;
+                          }
+                          const blob = await res.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = job.outputEpubFilename || 'ksiazka.epub';
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                        } catch (e: any) {
+                          alert('Błąd podczas pobierania: ' + (e.message || 'Brak połączenia'));
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Pobierz EPUB</span>
-                    </a>
+                    </button>
+
+                    <button
+                      type="button"
+                      title="Usuń książkę z biblioteki i zwolnij miejsce na dysku"
+                      disabled={deletingId === job.id}
+                      onClick={() => setConfirmDeleteId(confirmDeleteId === job.id ? null : job.id)}
+                      className="p-1.5 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 border border-stone-200 hover:border-red-200 transition active:scale-90 cursor-pointer"
+                    >
+                      {deletingId === job.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
                   </div>
                 </div>
+
+                {/* Inline Confirmation for deleting book */}
+                {confirmDeleteId === job.id && (
+                  <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-2 text-xs">
+                    <span className="text-red-900 font-medium">Usunąć książkę i plik z dysku serwera?</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => executeDeleteJob(job.id)}
+                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-xs transition cursor-pointer"
+                      >
+                        Tak, usuń
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="px-2 py-1 text-stone-600 hover:bg-stone-200/60 rounded-lg text-xs transition cursor-pointer"
+                      >
+                        Anuluj
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Expanded logs / chapter preview */}
                 {expandedJobId === job.id && (
@@ -205,22 +319,88 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, serve
       {/* Failed Jobs */}
       {failedJobs.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-xs font-bold text-red-700 uppercase tracking-wider flex items-center gap-2 px-1">
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-            Błędy ({failedJobs.length})
-          </h3>
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-bold text-red-700 uppercase tracking-wider flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              Błędy ({failedJobs.length})
+            </h3>
+            <button
+              type="button"
+              onClick={clearAllFailed}
+              className="text-xs font-medium text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
+            >
+              Wyczyść wszystkie błędy
+            </button>
+          </div>
           <div className="space-y-2">
             {failedJobs.map((job) => (
               <div
                 key={job.id}
                 className="bg-red-50/50 border border-red-200 rounded-xl p-3.5 text-xs text-red-800 flex items-start justify-between gap-3"
               >
-                <div>
+                <div className="space-y-1">
                   <div className="font-semibold text-stone-900">{job.title}</div>
-                  <div className="text-red-700 mt-1">{job.error || 'Nieznany błąd'}</div>
+                  <div className="text-red-700">{job.error || 'Nieznany błąd'}</div>
+                  {job.logs && job.logs.length > 0 && (
+                    <div className="text-[10px] text-stone-500 font-mono">
+                      Ostatni wpis: {job.logs[job.logs.length - 1]}
+                    </div>
+                  )}
                 </div>
+                <button
+                  type="button"
+                  title="Usuń wpis o błędzie"
+                  onClick={() => executeDeleteJob(job.id)}
+                  className="p-1.5 rounded-lg text-red-400 hover:text-red-700 hover:bg-red-100 transition active:scale-90 cursor-pointer shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal (Avoids window.confirm in iframe) */}
+      {confirmDeleteJob && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl border border-stone-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-stone-900 text-sm">Usunąć książkę?</h4>
+                <p className="text-xs text-stone-500">Zwolni to miejsce na dysku serwera.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-700 bg-stone-50 p-3 rounded-xl border border-stone-200 line-clamp-3">
+              "{confirmDeleteJob.title}"
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteJob(null)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 transition cursor-pointer"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === confirmDeleteJob.id}
+                onClick={() => executeDeleteJob(confirmDeleteJob.id)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-700 text-white flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
+              >
+                {deletingId === confirmDeleteJob.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>Usuń książkę</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

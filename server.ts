@@ -13,7 +13,10 @@ import {
   createSearchOrderJob,
   createStorybookJob,
   getEpubFilePath,
+  deleteJob,
+  saveJobsToDisk,
 } from './server/jobs';
+import { generateEpubBuffer, sanitizeToAsciiFilename } from './server/epub';
 import { searchOnlineBooks, findDirectBookDownload } from './server/search';
 import { SHADOW_LIBRARY_MIRRORS } from './server/mirrors';
 import {
@@ -26,6 +29,7 @@ import {
   stopTunnel,
   getTunnelStatus,
 } from './server/tunnel';
+import { getPublicAccountStatus, saveSettings, loginZlibrary } from './server/settings';
 
 dotenv.config();
 
@@ -130,15 +134,57 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
+  // API Endpoints: Duck.ai & Free AI Book Assistant
+  // ----------------------------------------------------
+  app.post(['/api/assistant', '/api/koreader/assistant'], async (req, res) => {
+    try {
+      const { text, query, mode = 'explain', context, engine = 'auto' } = req.body;
+      const input = (text || query || '').trim();
+      if (!input) {
+        return res.status(400).json({ error: 'Proszę podać treść pytania lub fragment tekstu.' });
+      }
+      const answer = await getAIAssist(input, mode, context, engine);
+      res.json({ answer, mode, input });
+    } catch (err: any) {
+      console.error('Błąd asystenta AI:', err);
+      res.status(500).json({ error: err.message || 'Błąd odpowiedzi asystenta AI' });
+    }
+  });
+
+  // ----------------------------------------------------
   // API Endpoints: Book Search & Ordering
   // ----------------------------------------------------
   app.get(['/api/search', '/api/koreader/search'], async (req, res) => {
     try {
       const q = String(req.query.q || '').trim();
-      const results = await searchOnlineBooks(q);
-      res.json(results);
+      const results: any = await searchOnlineBooks(q);
+      if (req.path.includes('/koreader/')) {
+        // Return flat array for KOReader Lua compatibility
+        return res.json(Array.from(results));
+      }
+      // Return rich object for web SPA
+      res.json({
+        results: Array.from(results),
+        multilingual: results.multilingual || null,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Błąd wyszukiwania' });
+    }
+  });
+
+  app.get('/api/settings/accounts', (req, res) => {
+    res.json(getPublicAccountStatus());
+  });
+
+  app.post('/api/settings/accounts', async (req, res) => {
+    try {
+      const saved = saveSettings(req.body);
+      if (req.body.zlibrary?.email && req.body.zlibrary?.password && (!saved.zlibrary.userKey || !saved.zlibrary.userId)) {
+        await loginZlibrary(req.body.zlibrary.email, req.body.zlibrary.password);
+      }
+      res.json({ success: true, status: getPublicAccountStatus() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Nie udało się zapisać ustawień kont' });
     }
   });
 
@@ -239,6 +285,14 @@ async function startServer() {
     res.json(job);
   });
 
+  app.delete(['/api/jobs/:id', '/api/koreader/tasks/:id'], (req, res) => {
+    const deleted = deleteJob(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Książka lub zadanie nie istnieje albo zostało już usunięte' });
+    }
+    res.json({ success: true, message: 'Książka została usunięta z biblioteki i pamięci serwera' });
+  });
+
   // ----------------------------------------------------
   // API Endpoints: Reader AI Assistant (translate/explain/summarize selected text)
   // ----------------------------------------------------
@@ -277,21 +331,69 @@ async function startServer() {
   // ----------------------------------------------------
   // API Endpoints: Book/Comic Download (EPUB or CBZ)
   // ----------------------------------------------------
-  app.get(['/api/download/:id', '/api/koreader/download/:id'], (req, res) => {
-    const job = getJobById(req.params.id);
-    if (!job || !job.outputEpubFilename) {
-      return res.status(404).json({ error: 'Plik nie jest jeszcze gotowy lub zadanie nie istnieje' });
-    }
-    const fullPath = getEpubFilePath(job.outputEpubFilename);
-    if (!fullPath) {
-      return res.status(404).json({ error: 'Plik nie został znaleziony na dysku' });
+  app.get(['/api/download/:id', '/api/koreader/download/:id'], async (req, res) => {
+    const rawId = req.params.id;
+    const job = getJobById(rawId);
+    let fullPath: string | null = null;
+    let filename = '';
+    let isCbz = false;
+
+    if (job && job.outputEpubFilename) {
+      fullPath = getEpubFilePath(job.outputEpubFilename);
+      filename = job.outputEpubFilename;
+      isCbz = filename.toLowerCase().endsWith('.cbz') || job.outputFormat === 'cbz';
+    } else {
+      // Fallback: check if id is a direct filename in data/epubs
+      fullPath = getEpubFilePath(rawId);
+      if (fullPath) {
+        filename = path.basename(fullPath);
+        isCbz = filename.toLowerCase().endsWith('.cbz');
+      }
     }
 
-    const isCbz = job.outputEpubFilename.toLowerCase().endsWith('.cbz') || job.outputFormat === 'cbz';
-    res.setHeader('Content-Type', isCbz ? 'application/vnd.comicbook+zip' : 'application/epub+zip');
+    // Auto-rebuild on-the-fly if file is missing on disk but chapters exist in memory/disk
+    if ((!fullPath || !fs.existsSync(fullPath)) && job && job.chapters && job.chapters.length > 0) {
+      try {
+        const epubBuffer = await generateEpubBuffer({
+          title: job.title,
+          author: 'KOReader AI Cloud',
+          language: 'pl',
+          chapters: job.chapters,
+        });
+        const safeTitle = sanitizeToAsciiFilename(job.title);
+        const newFilename = `${safeTitle}_pl_${job.id.substring(4, 9)}.epub`;
+        const newPath = path.join(process.cwd(), 'data', 'epubs', newFilename);
+        fs.writeFileSync(newPath, epubBuffer);
+        job.outputEpubFilename = newFilename;
+        job.outputFormat = 'epub';
+        saveJobsToDisk();
+        fullPath = newPath;
+        filename = newFilename;
+        isCbz = false;
+      } catch (err: any) {
+        console.error('Błąd regeneracji pliku EPUB w locie:', err);
+      }
+    }
+
+    if (!fullPath || !fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'Plik nie jest jeszcze gotowy lub zadanie nie istnieje' });
+    }
+
+    const safeAscii = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const isPdf = filename.toLowerCase().endsWith('.pdf') || job?.outputFormat === 'pdf';
+    const isTxt = filename.toLowerCase().endsWith('.txt') || job?.outputFormat === 'txt';
+    const contentType = isPdf
+      ? 'application/pdf'
+      : isTxt
+      ? 'text/plain; charset=utf-8'
+      : isCbz
+      ? 'application/vnd.comicbook+zip'
+      : 'application/epub+zip';
+
+    res.setHeader('Content-Type', contentType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(job.outputEpubFilename)}"`
+      `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(filename)}`
     );
     res.sendFile(fullPath);
   });

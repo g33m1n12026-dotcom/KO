@@ -239,6 +239,15 @@ export const SHADOW_LIBRARY_MIRRORS: ShadowLibraryMirror[] = [
     searchUrlTemplate: 'https://sci-net.xyz/{query}',
     description: 'Portal wymiany publikacji naukowych Sci-Net.',
   },
+  {
+    id: 'chomikuj',
+    name: 'Chomikuj.pl',
+    category: 'chomikuj',
+    domain: 'chomikuj.pl',
+    searchUrlTemplate: 'https://chomikuj.pl/action/SearchFiles?FileName={query}',
+    description: 'Polska platforma wymiany plików i dokumentów (EPUB, PDF, MOBI, DOC).',
+    isPrimary: true,
+  },
 ];
 
 /**
@@ -247,6 +256,11 @@ export const SHADOW_LIBRARY_MIRRORS: ShadowLibraryMirror[] = [
 export function generateMirrorSearchLinks(query: string): { name: string; url: string; category: string }[] {
   const enc = encodeURIComponent(query.trim());
   return [
+    {
+      name: 'Chomikuj.pl',
+      url: `https://chomikuj.pl/action/SearchFiles?FileName=${enc}`,
+      category: 'chomikuj',
+    },
     {
       name: "Anna's Archive",
       url: `https://annas-archive.gl/search?q=${enc}`,

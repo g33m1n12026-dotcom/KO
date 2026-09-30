@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { heuristicOcrProofread } from './extractor';
 dotenv.config();
 
 export interface TranslationOptions {
@@ -67,14 +68,19 @@ function getSortedEngines(preferred: 'auto' | 'claude' | 'openai' | 'openrouter'
  */
 function buildTranslationSystemPrompt(targetLang: string = 'Polish', context?: string): string {
   return `Jesteś wybitnym tłumaczem literatury i redaktorem książkowym, specjalizującym się w przekładzie na język ${targetLang}.
-Twoim zadaniem jest przetłumaczenie fragmentu książki na piękny, naturalny i literacki język ${targetLang}.
+Twoim zadaniem jest przetłumaczenie fragmentu książki na piękny, naturalny i literacki język ${targetLang} z bezwzględnym ZACHOWANIEM ORYGINALNEGO FORMATOWANIA I STRUKTURY.
 
-ZASADY PRZEKŁADU:
-1. Zachowaj oryginalny styl, ton, tempo i ładunek emocjonalny autora (np. ironię, dramatyzm, dowcip).
+ZASADY PRZEKŁADU LITERACKIEGO:
+1. Zachowaj oryginalny styl, ton, tempo i ładunek emocjonalny autora (np. ironię, dramatyzm, dowcip, melancholię).
 2. Unikaj dosłownych kalk językowych i sztywnych sformułowań. Tłumacz idiomy na ich naturalne polskie odpowiedniki kulturowe i frazeologiczne.
-3. Dialogi formatuj zgodnie z polską typografią książkową: używaj myślników (pauzy '—' lub półpauzy '–') na początku wypowiedzi postaci, a nie cudzysłowów czy myślników maszynowych.
-4. Zachowaj podział na akapity i strukturę tekstu.
-5. Nie dodawaj od siebie żadnych komentarzy, wstępów typu "Oto tłumaczenie:", ani przypisów od tłumacza, chyba że są integralną częścią tekstu. Zwróć WYŁĄCZNIE przetłumaczony tekst.
+3. Dialogi formatuj zgodnie z polską typografią książkową: używaj myślników (pauzy '—' lub półpauzy '–') na początku wypowiedzi postaci, a nie cudzysłowów.
+
+ZASADY FORMATOWANIA I STRUKTURY HTML (KRYTYCZNIE WAŻNE):
+4. Tekst zawiera znaczniki HTML formatowania: <p>, <p class="center"> (wyśrodkowane tytuły/śródtytuły), <i>kursywa</i>, <b>pogrubienie</b>, <strong>, <em>, <sup>przypisy</sup>, <blockquote>cytaty/akapity wcięte</blockquote>, nagłówki <h1>-<h3>, <hr/> oraz znaczniki obrazków <img ... />.
+5. BEZWZGLĘDNIE ZACHOWAJ wszystkie znaczniki HTML w tych samych miejscach tekstu! Przetłumacz tekst wewnątrz znaczników, ale nie usuwaj, nie zmieniaj ani nie przekręcaj tagów HTML.
+6. Jeśli w tekście występują odnośniki do przypisów w <sup>[1]</sup> lub <sup>1</sup>, zachowaj je dokładnie przy przetłumaczonych odpowiednich słowach.
+7. Tytuły rozdziałów i podtytuły wyśrodkowane (<p class="center"> lub nagłówki) muszą pozostać wyśrodkowane.
+8. Nie dodawaj od siebie żadnych komentarzy, wstępów typu "Oto tłumaczenie:", ani uwag od tłumacza. Zwróć WYŁĄCZNIE przetłumaczony tekst z nienaruszonymi tagami HTML.
 ${context ? `KONTEKST KSIĄŻKI / ROZDZIAŁU:\n${context}` : ''}`;
 }
 
@@ -246,8 +252,63 @@ async function translateWithOpenRouter(prompt: string, text: string): Promise<st
 }
 
 /**
+ * Free fallback AI without any API key or registration (Free AI Engine / Pollinations / Duck-compatible).
+ * Automatically invoked when Gemini / Claude / OpenAI quotas or keys are exhausted,
+ * ensuring translations, proofreading, and literary advice never stop functioning.
+ */
+async function translateWithFreeAi(prompt: string, text: string): Promise<string> {
+  const fullPrompt = `${prompt}\n\nOto tekst do przetłumaczenia (zwróć WYŁĄCZNIE przetłumaczony tekst z nienaruszonymi tagami HTML):\n\n${text}`;
+  const models = ['openai', 'mistral', 'qwen-coder', 'searchgpt'];
+  let lastErr = '';
+
+  for (const model of models) {
+    try {
+      const url = `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}?model=${model}&seed=${Math.floor(Math.random() * 100000)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+
+      const resp = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'text/plain',
+        },
+      });
+      clearTimeout(timeout);
+
+      if (resp.ok) {
+        const result = (await resp.text()).trim();
+        if (result && result.length > 5 && !result.startsWith('{') && !result.startsWith('<!DOCTYPE')) {
+          return result;
+        }
+      }
+    } catch (e: any) {
+      lastErr = e?.message || String(e);
+    }
+  }
+
+  throw new Error(`Darmowy silnik AI nie mógł zrealizować zadania: ${lastErr}`);
+}
+
+/**
+ * Polish typographic refinement layer for Kindle / e-ink:
+ * - Converts dialogue quotation marks / hyphens into standard Polish book em-dashes (— )
+ * - Attaches non-breaking spaces &nbsp; to single-letter Polish prepositions (w, z, o, i, a, u)
+ *   so they never hang awkwardly orphaned at the end of lines on 6-inch Kindle screens.
+ */
+function postProcessPolishKindle(html: string): string {
+  let s = html.trim();
+  s = s.replace(/<p>\s*[-–—]\s*/gi, '<p>— ');
+  s = s.replace(/<p>"/gi, '<p>— ');
+  s = s.replace(/ ([wzouiWZOUIA]) /g, ' $1&nbsp;');
+  s = s.replace(/>([wzouiWZOUIA]) /g, '>$1&nbsp;');
+  return s;
+}
+
+/**
  * Orchestrator: translates text using preferred engine, with automatic fallback
- * hierarchy (Gemini -> OpenRouter -> Claude -> OpenAI)
+ * hierarchy (Gemini -> OpenRouter -> Claude -> OpenAI -> Free AI)
+ * and final typographic polish for Kindle e-ink displays.
  */
 export async function translateText(options: TranslationOptions): Promise<{ text: string; usedEngine: string }> {
   const { text, targetLang = 'Polish', context, preferredEngine = 'auto' } = options;
@@ -262,22 +323,22 @@ export async function translateText(options: TranslationOptions): Promise<{ text
       if (eng === 'gemini' && GEMINI_KEY) {
         const translated = await translateWithGemini(systemPrompt, text);
         if (translated && translated.trim().length > 0) {
-          return { text: translated.trim(), usedEngine: 'Google Gemini 3.1 Flash' };
+          return { text: postProcessPolishKindle(translated), usedEngine: 'Google Gemini 3.1 Flash' };
         }
       } else if (eng === 'openrouter' && OPENROUTER_KEY) {
         const translated = await translateWithOpenRouter(systemPrompt, text);
         if (translated && translated.trim().length > 0) {
-          return { text: translated.trim(), usedEngine: 'OpenRouter (DeepSeek / LLaMA)' };
+          return { text: postProcessPolishKindle(translated), usedEngine: 'OpenRouter (DeepSeek / LLaMA)' };
         }
       } else if (eng === 'claude' && ANTHROPIC_KEY) {
         const translated = await translateWithClaude(systemPrompt, text);
         if (translated && translated.trim().length > 0) {
-          return { text: translated.trim(), usedEngine: 'Claude 3.5 Sonnet' };
+          return { text: postProcessPolishKindle(translated), usedEngine: 'Claude 3.5 Sonnet' };
         }
       } else if (eng === 'openai' && OPENAI_KEY) {
         const translated = await translateWithOpenAI(systemPrompt, text);
         if (translated && translated.trim().length > 0) {
-          return { text: translated.trim(), usedEngine: 'OpenAI GPT-4o-mini' };
+          return { text: postProcessPolishKindle(translated), usedEngine: 'OpenAI GPT-4o-mini' };
         }
       }
     } catch (err: any) {
@@ -293,6 +354,16 @@ export async function translateText(options: TranslationOptions): Promise<{ text
       console.warn(`Silnik ${eng} zgłosił błąd, sprawdzam kolejny silnik:`, errMsg);
       errors.push(`${eng}: ${errMsg}`);
     }
+  }
+
+  // Automatic fallback to Free AI Engine without API keys / limits
+  try {
+    const translated = await translateWithFreeAi(systemPrompt, text);
+    if (translated && translated.trim().length > 0) {
+      return { text: postProcessPolishKindle(translated), usedEngine: 'Mózg Free AI (bez limitów / Duck & Pollinations)' };
+    }
+  } catch (freeErr: any) {
+    errors.push(`free_ai: ${freeErr?.message || freeErr}`);
   }
 
   throw new Error(`Wszystkie silniki AI zawiodły przy próbie tłumaczenia. Błędy:\n${errors.join('\n')}`);
@@ -457,6 +528,32 @@ Twoje zadanie:
     }
   }
 
+  // Automatic fallback to Free AI Engine (Pollinations / Duck-compatible)
+  if (!rawJson) {
+    try {
+      const freePrompt = `${prompt}\n\nPAMIĘTAJ: Zwróć WYŁĄCZNIE poprawny, surowy obiekt JSON bez markdownu.`;
+      const url = `https://text.pollinations.ai/${encodeURIComponent(freePrompt)}?model=openai&json=true`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      const resp = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/json, text/plain',
+        },
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const textRes = await resp.text();
+        if (textRes && textRes.includes('{') && textRes.includes('recommendations')) {
+          rawJson = textRes;
+        }
+      }
+    } catch (err: any) {
+      console.warn('Free AI fallback notice for recommendations:', err?.message);
+    }
+  }
+
   if (!rawJson) {
     throw new Error('Nie udało się wygenerować rekomendacji książkowych przez AI.');
   }
@@ -571,6 +668,129 @@ export async function getAIAssist(
     }
   }
 
+  // Automatic fallback to Free AI (Pollinations / Duck-compatible)
+  try {
+    const freeUrl = `https://text.pollinations.ai/${encodeURIComponent(userPrompt)}?model=openai`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    const resp = await fetch(freeUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const txt = await resp.text();
+      if (txt && txt.trim().length > 10 && !txt.startsWith('{')) {
+        return txt.trim();
+      }
+    }
+  } catch (err) {
+    console.warn('Free AI assistant notice:', err);
+  }
+
   return 'Nie udało się uzyskać odpowiedzi asystenta AI.';
+}
+
+/**
+ * Professional F7 Book Proofreader:
+ * Simulates pressing "F7" in MS Word with AI and heuristic grammar/OCR spellcheck:
+ * 1. Corrects OCR letter misreads and scanning dust (e.g. 1 -> i, Śś -> Ś, L co -> i co)
+ * 2. Un-glues merged Polish prepositions and conjunctions (no ipotężny -> no i potężny)
+ * 3. Polishes typography (Polish book dialogue dashes "— " with proper spaces, quotes, punctuation)
+ * 4. Preserves 100% of HTML tags (<h2>, <p>, <div>, <img>) and author's original literary voice.
+ */
+export async function proofreadChapterF7(
+  text: string,
+  context?: string,
+  preferredEngine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' = 'auto'
+): Promise<{ text: string; usedEngine: string }> {
+  // First run heuristic baseline to immediately fix mechanical glitches
+  const cleanedBaseline = heuristicOcrProofread(text);
+
+  const engines = getSortedEngines(preferredEngine);
+
+  const systemPrompt = `Jesteś profesjonalnym korektorem książkowym i redaktorem tekstu (jak autokorekta F7 w edytorze Word).
+Otrzymujesz fragment rozdziału książki wyciągnięty ze skanu / OCR (PDF).
+Twoim zadaniem jest usunięcie błędów skanowania i OCR, przywracając czysty, poprawny literacko polski tekst:
+1. Rozdziel słowa, w których OCR zgubił spacje (np. "no ipotężny" -> "no i potężny", "wszyscynieproszeni" -> "wszyscy nieproszeni", "Ciąglewołałem" -> "Ciągle wołałem", "Czymprędzej" -> "Czym prędzej").
+2. Popraw oczywiste błędy rozpoznawania znaków (np. cyfra "1" jako spójnik "i", "L co" -> "i co", "Śślimaku" -> "ślimaku", "Śni" -> "śni", zduplikowane litery przez paprochy na skanie).
+3. Upewnij się, że dialogi mają prawidłowe polskie myślniki (—) ze spacjami.
+4. BEZWZGLĘDNIE ZACHOWAJ wszystkie znaczniki HTML (<p>, <h2>, <div>, <img>, <em>, <strong>). Zwróć wyłącznie poprawiony kod HTML.
+5. KRYTYCZNIE: Nie zmieniaj fabuły, nie streszczaj, nie usuwaj zdań. Zachowaj oryginalny styl, urok i słownictwo autorki.`;
+
+  for (const eng of engines) {
+    try {
+      if (eng === 'gemini' && GEMINI_KEY && !quotaExhausted.gemini) {
+        const gemini = getGemini();
+        const models = ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'];
+        for (const m of models) {
+          try {
+            const resp = await gemini.models.generateContent({
+              model: m,
+              contents: `${systemPrompt}\n\nKontekst: ${context || 'Książka'}\n\nTEKST DO KOREKTY:\n${cleanedBaseline}`,
+              config: { temperature: 0.2 },
+            });
+            const resText = resp.text?.trim();
+            if (resText && resText.length > cleanedBaseline.length * 0.5) {
+              return { text: resText.replace(/^```html\s*|\s*```$/g, '').trim(), usedEngine: `Google Gemini (${m}) - F7 Redakcja` };
+            }
+          } catch (modelErr: any) {
+            if (modelErr?.status === 429) quotaExhausted.gemini = true;
+          }
+        }
+      } else if (eng === 'openrouter' && OPENROUTER_KEY && !quotaExhausted.openrouter) {
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENROUTER_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'deepseek/deepseek-chat',
+            temperature: 0.2,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Kontekst: ${context || 'Książka'}\n\nTEKST DO KOREKTY:\n${cleanedBaseline}` },
+            ],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const resText = data.choices?.[0]?.message?.content?.trim();
+          if (resText && resText.length > cleanedBaseline.length * 0.5) {
+            return { text: resText.replace(/^```html\s*|\s*```$/g, '').trim(), usedEngine: 'OpenRouter DeepSeek - F7 Redakcja' };
+          }
+        }
+      } else if (eng === 'openai' && OPENAI_KEY && !quotaExhausted.openai) {
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENAI_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            temperature: 0.2,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Kontekst: ${context || 'Książka'}\n\nTEKST DO KOREKTY:\n${cleanedBaseline}` },
+            ],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const resText = data.choices?.[0]?.message?.content?.trim();
+          if (resText && resText.length > cleanedBaseline.length * 0.5) {
+            return { text: resText.replace(/^```html\s*|\s*```$/g, '').trim(), usedEngine: 'OpenAI GPT-4o-mini - F7 Redakcja' };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Błąd F7 proofread (${eng}):`, e);
+    }
+  }
+
+  // Fallback to high-fidelity rule-based F7 OCR proofreading
+  return {
+    text: cleanedBaseline,
+    usedEngine: 'Autokorekta F7 (silnik regułowy)',
+  };
 }
 
