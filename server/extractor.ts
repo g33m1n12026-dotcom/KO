@@ -1026,7 +1026,20 @@ export async function parseDocumentBuffer(
     return await parsePdfDocument(buffer, baseTitle);
   }
 
-  // Fallback for other formats
+  // Fallback for other text formats (TXT, etc.)
+  // CRITICAL: Ensure buffer is actually plain text and not binary or HTML webpage
+  const isBinary = buffer.slice(0, 1024).includes(0x00);
+  const snippet = buffer.slice(0, 200).toString('utf-8').trim().toLowerCase();
+  const isHtml = snippet.startsWith('<!doctype html') || snippet.startsWith('<html') || snippet.includes('<head>') || snippet.includes('<body>');
+
+  if (isBinary) {
+    throw new Error(`Plik "${filename}" zawiera dane binarne, których nie można odczytać jako e-booka (uszkodzone archiwum lub nieobsługiwany format binarny).`);
+  }
+
+  if (isHtml) {
+    throw new Error(`Pobrana zawartość pliku "${filename}" to strona internetowa HTML zamiast e-booka.`);
+  }
+
   const raw = buffer.toString('utf-8');
   const chapters = splitIntoChapters(raw, baseTitle);
   return { title: baseTitle, chapters };

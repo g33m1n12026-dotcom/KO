@@ -64,6 +64,11 @@ local function doHttpRequest(req, max_redirects)
     req.options = "all"
     req.verify = "none"
 
+    local socketutil = pcall(require, "socketutil") and require("socketutil") or nil
+    if socketutil and socketutil.set_timeout then
+        socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT or 10, socketutil.LARGE_TOTAL_TIMEOUT or 30)
+    end
+
     local res, code, headers, status
     local ok, err = pcall(function()
         if req.url and req.url:match("^https://") then
@@ -81,6 +86,10 @@ local function doHttpRequest(req, max_redirects)
             res, code, headers, status = http.request(req)
         end
     end)
+
+    if socketutil and socketutil.reset_timeout then
+        socketutil:reset_timeout()
+    end
 
     if not ok then
         return nil, 0, {}, tostring(err)
@@ -114,6 +123,7 @@ local AIBooks = WidgetContainer:extend{
 function AIBooks:init()
     self:loadSettings()
     self:ensureTargetDir()
+    self:ensureOpdsCatalog()
 end
 
 function AIBooks:ensureTargetDir()
@@ -124,6 +134,100 @@ function AIBooks:ensureTargetDir()
     else
         os.execute("mkdir -p " .. self.target_folder .. " 2>/dev/null")
     end
+end
+
+-- Automatyczna rejestracja katalogu OPDS w ustawieniach KOReadera
+function AIBooks:ensureOpdsCatalog()
+    local opds_path = DataStorage:getSettingsDir() .. "/opds_servers.lua"
+    local servers = {}
+    local ok, loaded = pcall(dofile, opds_path)
+    if ok and type(loaded) == "table" then
+        servers = loaded
+    end
+
+    local my_url = self.server_url .. "/opds"
+    local exists = false
+    for _, s in ipairs(servers) do
+        if s.url and (s.url == my_url or s.url:match("/opds$")) then
+            exists = true
+            s.url = my_url
+            s.title = "KOReader AI Cloud (Pobieranie w tle)"
+            break
+        end
+    end
+
+    if not exists then
+        table.insert(servers, 1, {
+            title = "KOReader AI Cloud (Pobieranie w tle)",
+            url = my_url,
+        })
+    end
+
+    local f = io.open(opds_path, "w")
+    if f then
+        f:write("return {\\n")
+        for _, s in ipairs(servers) do
+            f:write("    { title = [[" .. (s.title or "Katalog") .. "]], url = [[" .. (s.url or "") .. "]] },\\n")
+        end
+        f:write("}\\n")
+        f:close()
+    end
+end
+
+-- Otwieranie wbudowanego katalogu OPDS KOReadera (pobiera w tle z paskiem postępu i nigdy nie zawiesza czytnika)
+function AIBooks:openNativeOpds()
+    self:ensureOpdsCatalog()
+    local opds_url = self.server_url .. "/opds"
+
+    -- 1. Oficjalny dyspozytor akcji KOReadera (uruchamia zarejestrowaną akcję "opds_show_catalog")
+    local ok_disp, Dispatcher = pcall(require, "dispatcher")
+    if ok_disp and Dispatcher and Dispatcher.execute then
+        local ok = pcall(function() Dispatcher:execute("opds_show_catalog") end)
+        if ok then return end
+    end
+
+    -- 2. Rozesłanie zdarzenia ShowOPDSCatalog do stosu UI KOReadera
+    local ok_evt, Event = pcall(require, "ui/event")
+    if ok_evt and Event then
+        local ok = pcall(function()
+            UIManager:broadcastEvent(Event:new("ShowOPDSCatalog"))
+        end)
+        if ok then return end
+    end
+
+    -- 3. Bezpośrednie załadowanie wtyczki opds.koplugin
+    local ok_opds, OPDS = pcall(require, "plugins/opds.koplugin/main")
+    if not ok_opds or not OPDS then
+        ok_opds, OPDS = pcall(dofile, "plugins/opds.koplugin/main.lua")
+    end
+    if ok_opds and OPDS and OPDS.onShowOPDSCatalog then
+        local opds_instance = OPDS:new{ ui = self.ui }
+        local ok = pcall(function() opds_instance:onShowOPDSCatalog() end)
+        if ok then return end
+    end
+
+    -- 4. Bezpośrednie załadowanie przeglądarki opdsbrowser
+    local ok_browser, OPDSBrowser = pcall(require, "plugins/opds.koplugin/opdsbrowser")
+    if not ok_browser or not OPDSBrowser then
+        ok_browser, OPDSBrowser = pcall(dofile, "plugins/opds.koplugin/opdsbrowser.lua")
+    end
+    if ok_browser and OPDSBrowser and OPDSBrowser.new then
+        local ok = pcall(function()
+            local browser = OPDSBrowser:new{
+                title = "⚡ KOReader AI Cloud",
+                servers = {
+                    { title = "⚡ KOReader AI Cloud (Pobieranie w tle)", url = opds_url },
+                },
+                is_popout = false,
+                is_borderless = true,
+                title_bar_fm_style = true,
+            }
+            UIManager:show(browser)
+        end)
+        if ok then return end
+    end
+
+    self:showOpdsInfo()
 end
 
 -- Asynchroniczny dyspozytor: budzi Wi-Fi bez zamrażania UI i uruchamia akcję w kolejnej klatce
@@ -160,6 +264,7 @@ function AIBooks:saveSettings()
         f:write("return { server_url = [[" .. self.server_url .. "]] }\\n")
         f:close()
     end
+    self:ensureOpdsCatalog()
 end
 
 -- Obsluga bledu 302 i problemów sieciowych
@@ -206,37 +311,47 @@ function AIBooks:addToMainMenu(menu_items)
         sorting_hint = "tools",
         sub_item_table = {
             {
-                text = _("🔍 Szukaj książki w sieci i pobierz"),
-                callback = function() self:showSearchDialog() end,
+                text = _("⚡ 1. Katalog OPDS & Biblioteka (Pobieranie w tle - bez zacinania)"),
+                callback = function() self:openNativeOpds() end,
             },
             {
-                text = _("💡 Doradca AI: Opisz co chcesz przeczytać"),
-                callback = function() self:showRecommendDialog() end,
-            },
-            {
-                text = _("📥 Moje zadania (Pobierz gotowe e-booki)"),
+                text = _("⏳ 2. Książki w toku & Zadania chmury AI"),
                 callback = function() self:showTasksList() end,
             },
             {
-                text = _("📄 Przetłumacz lub konwertuj plik z czytnika"),
+                text = _("🔍 3. Szukaj książki w sieci (Chomikuj, Z-Lib, Lektury)"),
+                callback = function() self:showSearchDialog() end,
+            },
+            {
+                text = _("💡 4. Doradca AI: Dobierz książkę na dziś"),
+                callback = function() self:showRecommendDialog() end,
+            },
+            {
+                text = _("📄 5. Przetłumacz lub konwertuj plik z czytnika"),
                 callback = function() self:showLocalFilesDialog() end,
             },
             {
-                text = _("✨ Książka na życzenie (AI Storybook)"),
+                text = _("✨ 6. Książka na życzenie (AI Storybook)"),
                 callback = function() self:showStorybookDialog() end,
             },
             {
-                text = _("⚡ Katalog OPDS (Pobieranie w tle w KOReader)"),
-                callback = function() self:showOpdsInfo() end,
-            },
-            {
-                text = _("⚙️ Ustawienia serwera i kont"),
+                text = _("⚙️ 7. Ustawienia serwera i kont"),
                 callback = function() self:showSettingsDialog() end,
             },
         },
     }
 
     -- Skróty pod Lupką (Wyszukiwanie)
+    menu_items.ai_books_opds_quick = {
+        text = _("⚡ Katalog OPDS (Pobieranie w tle)"),
+        sorting_hint = "search",
+        callback = function() self:openNativeOpds() end,
+    }
+    menu_items.ai_books_tasks_quick = {
+        text = _("⏳ Książki w toku & Zadania chmury"),
+        sorting_hint = "search",
+        callback = function() self:showTasksList() end,
+    }
     menu_items.ai_books_search_quick = {
         text = _("🔍 Szukaj książki w sieci (AI Przekład)"),
         sorting_hint = "search",
@@ -246,11 +361,6 @@ function AIBooks:addToMainMenu(menu_items)
         text = _("💡 Doradca AI: Dobierz książkę"),
         sorting_hint = "search",
         callback = function() self:showRecommendDialog() end,
-    }
-    menu_items.ai_books_tasks_quick = {
-        text = _("📥 Moje zadania (Gotowe książki)"),
-        sorting_hint = "search",
-        callback = function() self:showTasksList() end,
     }
 end
 
@@ -522,27 +632,15 @@ function AIBooks:performRecommendation(description)
             if item.polishTitle and item.polishTitle ~= "" then
                 titleDisplay = item.polishTitle .. " (" .. item.title .. ")"
             end
-            local label = titleDisplay .. "\\nAutor: " .. (item.author or "Brak") .. " • " .. (item.genre or "")
+            local isPolish = (item.originalLang == "PL" or item.isPolishAvailable or item.language == "PL")
+            local langBadge = isPolish and "🇵🇱 [PL - Język polski]" or ("🌐 [" .. (item.originalLang or "Obcy") .. " - Wymaga przekładu]")
+            local label = langBadge .. " " .. titleDisplay .. "\\nAutor: " .. (item.author or "Brak") .. " • " .. (item.genre or "")
             local hint = "💡 " .. (item.matchReason or item.synopsis or "")
-            if item.downloadUrl and item.downloadUrl ~= "" then
-                hint = "⚡ [Dostępna od ręki] " .. hint
-            end
+
             table.insert(menu_items, {
                 text = label .. "\\n" .. hint,
                 callback = function()
-                    if item.downloadUrl and item.downloadUrl ~= "" then
-                        self:showBookActionDialog({
-                            title = item.polishTitle or item.title,
-                            author = item.author or "Nieznany autor",
-                            language = item.originalLang or "EN",
-                            source = "Repozytorium",
-                            downloadUrl = item.downloadUrl,
-                        })
-                    else
-                        self:withNetwork(function()
-                            self:performSearch(item.searchQuery or (item.author .. " " .. item.title))
-                        end)
-                    end
+                    self:showAdvisorActionDialog(item, isPolish)
                 end,
             })
         end
@@ -553,11 +651,113 @@ function AIBooks:performRecommendation(description)
         })
 
         local menu = Menu:new{
-            title = _("Propozycje AI (Wybierz pozycję):"),
+            title = _("Propozycje AI (Język polski w pierwszej kolejności):"),
             item_table = menu_items,
         }
         UIManager:show(menu)
     end)
+end
+
+-- Menu akcji dla wybranej rekomendacji od Doradcy AI
+function AIBooks:showAdvisorActionDialog(item, isPolish)
+    local titleDisplay = item.polishTitle or item.title
+    local actions = {}
+
+    if isPolish then
+        table.insert(actions, {
+            text = _("📥 1. Pobierz od razu (Polskie wydanie)\\n[🇵🇱 Język polski - Gotowe do czytania bez tłumaczenia]"),
+            callback = function()
+                self:withNetwork(function()
+                    self:orderBookProcessing({
+                        title = item.polishTitle or item.title,
+                        author = item.author,
+                        language = "PL",
+                        downloadUrl = item.downloadUrl or "auto",
+                        searchQuery = item.searchQuery,
+                    }, "original")
+                end)
+            end,
+        })
+        table.insert(actions, {
+            text = _("🔍 2. Przejrzyj inne źródła w wyszukiwarce\\n(Sprawdź Chomikuj, Wolne Lektury, Z-Library i wybierz format)"),
+            callback = function()
+                self:withNetwork(function()
+                    self:performSearch(item.searchQuery or (item.author .. " " .. (item.polishTitle or item.title)))
+                end)
+            end,
+        })
+    else
+        table.insert(actions, {
+            text = _("🌐 1. Pobierz i przetłumacz na polski (Przekład AI)\\n[Język obcy: " .. (item.originalLang or "EN") .. " - Literacki przekład AI na polski]"),
+            callback = function()
+                self:withNetwork(function()
+                    self:orderBookProcessing({
+                        title = item.title,
+                        author = item.author,
+                        language = item.originalLang or "EN",
+                        downloadUrl = item.downloadUrl or "auto",
+                        searchQuery = item.searchQuery,
+                    }, "translate")
+                end)
+            end,
+        })
+        table.insert(actions, {
+            text = _("🔍 2. Szukaj polskiego wydania w wyszukiwarce\\n(Sprawdź czy w innych źródłach jest wersja po polsku)"),
+            callback = function()
+                self:withNetwork(function()
+                    self:performSearch(item.searchQuery or (item.author .. " " .. (item.polishTitle or item.title)))
+                end)
+            end,
+        })
+        table.insert(actions, {
+            text = _("📥 3. Pobierz oryginał w j. obcym (bez tłumaczenia)"),
+            callback = function()
+                self:withNetwork(function()
+                    self:orderBookProcessing({
+                        title = item.title,
+                        author = item.author,
+                        language = item.originalLang or "EN",
+                        downloadUrl = item.downloadUrl or "auto",
+                        searchQuery = item.searchQuery,
+                    }, "original")
+                end)
+            end,
+        })
+    end
+
+    table.insert(actions, {
+        text = _("📄 Konwertuj na lekki EPUB (gdy plik to PDF)\\n(Przystosowuje skan/PDF do e-inku ze skalowaniem czcionki)"),
+        callback = function()
+            self:withNetwork(function()
+                self:orderBookProcessing({
+                    title = item.polishTitle or item.title,
+                    author = item.author,
+                    language = isPolish and "PL" or (item.originalLang or "EN"),
+                    downloadUrl = item.downloadUrl or "auto",
+                    searchQuery = item.searchQuery,
+                }, "epub_clean")
+            end)
+        end,
+    })
+
+    table.insert(actions, {
+        text = _("ℹ️ Zarys fabuły & Dlaczego warto przeczytać"),
+        callback = function()
+            local desc = (item.synopsis and item.synopsis ~= "" and (item.synopsis .. "\\n\\n") or "") .. "🎯 Dopasowanie: " .. (item.matchReason or "Polecana pozycja.")
+            UIManager:show(InfoMessage:new{ text = desc })
+        end,
+    })
+
+    table.insert(actions, {
+        text = _("❌ Wróć do listy propozycji"),
+        callback = function() end,
+    })
+
+    local menu = Menu:new{
+        title = titleDisplay:sub(1, 35) .. (isPolish and " [PL]" or " [Obcy]"),
+        item_table = actions,
+    }
+    UIManager:show(menu)
 end
 
 -- Wyszukiwarka książek w Internecie
@@ -807,10 +1007,23 @@ function AIBooks:orderBookProcessing(item, conversionMode)
     local info = InfoMessage:new{ text = _("Wysyłanie zlecenia do chmury AI...") }
     UIManager:show(info)
 
+    local dUrl = item.downloadUrl
+    if (not dUrl or dUrl == "" or dUrl == "nil") and item.availableSources and #item.availableSources > 0 then
+        for _, src in ipairs(item.availableSources) do
+            if src.downloadUrl and src.downloadUrl ~= "" and src.downloadUrl ~= "nil" then
+                dUrl = src.downloadUrl
+                break
+            end
+        end
+    end
+    if not dUrl or dUrl == "" or dUrl == "nil" then
+        dUrl = "auto"
+    end
+
     UIManager:nextTick(function()
         local payload = json.encode({
             title = item.title,
-            downloadUrl = item.downloadUrl,
+            downloadUrl = dUrl,
             engine = "auto",
             targetLang = conversionMode == "translate" and "Polish" or "none",
             conversionMode = conversionMode,
@@ -1006,22 +1219,35 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
 
     if is_local then
         table.insert(actionItems, {
-            text = _("📖 Otwórz w czytniku (już pobrany!)"),
+            text = _("📖 1. Otwórz w czytniku (już pobrany na Kindle!)"),
             callback = function()
                 local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
                 if ok_reader and ReaderUI and ReaderUI.showReader then
                     ReaderUI:showReader(dest_path)
+                else
+                    local ok_evt, Event = pcall(require, "ui/event")
+                    if ok_evt and Event then
+                        UIManager:broadcastEvent(Event:new("OpenFile", dest_path))
+                    end
                 end
             end,
         })
         table.insert(actionItems, {
-            text = _("🔄 Pobierz ponownie z chmury"),
+            text = _("🔄 2. Pobierz ponownie prosto na czytnik"),
             callback = function() self:downloadCompletedFile(task) end,
+        })
+        table.insert(actionItems, {
+            text = _("⚡ 3. Otwórz w Katalogu OPDS KOReadera"),
+            callback = function() self:openNativeOpds() end,
         })
     elseif task.status == "completed" and task.outputEpubFilename then
         table.insert(actionItems, {
-            text = _("📥 Pobierz na czytnik Kindle"),
+            text = _("📥 1. Pobierz teraz na czytnik (Bezpieczne pobieranie w tle)"),
             callback = function() self:downloadCompletedFile(task) end,
+        })
+        table.insert(actionItems, {
+            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera (Wbudowana przeglądarka)"),
+            callback = function() self:openNativeOpds() end,
         })
     else
         table.insert(actionItems, {
@@ -1081,58 +1307,137 @@ function AIBooks:deleteServerTask(task)
     UIManager:show(confirm)
 end
 
--- Bezpieczne pobieranie pliku EPUB / CBZ prosto do pamięci Kindle
+-- Bezpieczne pobieranie pliku EPUB / CBZ prosto do pamięci Kindle z weryfikacją poprawności (nigdy nie zawiesza czytnika)
 function AIBooks:downloadCompletedFile(task)
     self:ensureTargetDir()
     local rawFilename = task.outputEpubFilename or "ksiazka.epub"
     local filename = rawFilename:gsub("[^a-zA-Z0-9._-]", "_")
     local dest_path = self.target_folder .. "/" .. filename
+    local temp_path = dest_path .. ".download.tmp"
 
-    local info = InfoMessage:new{ text = _("Pobieranie na Kindle...\\nAI_Books/") .. filename:sub(1, 25), timeout = 2 }
+    local info = InfoMessage:new{
+        text = _("Pobieranie e-booka...\\nAI_Books/") .. filename:sub(1, 25) .. _("\\nProszę czekać..."),
+    }
     UIManager:show(info)
 
-    self:withNetwork(function()
-        local f = io.open(dest_path, "wb")
-        if not f then
-            UIManager:close(info)
-            UIManager:show(InfoMessage:new{ text = _("Błąd zapisu w folderze: ") .. dest_path })
-            return
-        end
+    -- scheduleIn(0.5) pozwala KOReaderowi zamknąć menu i odświeżyć ekran e-ink przed rozpoczęciem transferu
+    UIManager:scheduleIn(0.5, function()
+        self:withNetwork(function()
+            local f = io.open(temp_path, "wb")
+            if not f then
+                pcall(function() UIManager:close(info) end)
+                UIManager:show(InfoMessage:new{ text = _("Błąd zapisu w folderze: ") .. dest_path, timeout = 3 })
+                return
+            end
 
-        -- Zwiększ timeout dla dużych plików e-booków / komiksów
-        local old_timeout = http.TIMEOUT
-        http.TIMEOUT = 60
+            local download_url = self.server_url .. "/api/koreader/download/" .. task.id
+            local code, headers, status
 
-        local download_url = self.server_url .. "/api/koreader/download/" .. task.id
-        local res, code, headers, status = doHttpRequest{
-            url = download_url,
-            method = "GET",
-            sink = ltn12.sink.file(f),
-        }
-        f:close()
-        http.TIMEOUT = old_timeout
+            -- 1. Użyj oficjalnego OPDSClient KOReadera jeśli dostępny (identyczna architektura co OPDS, bez zawieszania)
+            local ok_client, OPDSClient = pcall(require, "plugins/opds.koplugin/opdsclient")
+            if not ok_client or not OPDSClient then
+                ok_client, OPDSClient = pcall(require, "opdsclient")
+            end
+            local CookieJar = pcall(require, "cookiejar") and require("cookiejar") or nil
 
-        UIManager:close(info)
+            local socketutil = pcall(require, "socketutil") and require("socketutil") or nil
+            if socketutil and socketutil.set_timeout then
+                socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT or 15, socketutil.FILE_TOTAL_TIMEOUT or 60)
+            end
 
-        if code == 200 then
-            collectgarbage("collect")
-            local confirm = ConfirmBox:new{
-                text = _("Plik pobrany pomyślnie!\\nZapisano w: ") .. dest_path .. _("\\n\\nCzy chcesz go otworzyć teraz w czytniku?"),
-                ok_text = _("Otwórz teraz"),
-                cancel_text = _("Później"),
-                ok_callback = function()
-                    local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
-                    if ok_reader and ReaderUI and ReaderUI.showReader then
-                        ReaderUI:showReader(dest_path)
+            if ok_client and OPDSClient and OPDSClient.new then
+                local client = OPDSClient:new{ cookie_jar = CookieJar and CookieJar:new() or nil }
+                code, headers, status = client:request{
+                    url = download_url,
+                    method = "GET",
+                    headers = {
+                        ["Accept-Encoding"] = "identity",
+                        ["bypass-tunnel-reminder"] = "1",
+                        ["Connection"] = "close",
+                        ["User-Agent"] = "KOReader-AIBooks/2.0",
+                    },
+                    sink = ltn12.sink.file(f),
+                }
+            else
+                local res
+                res, code, headers, status = doHttpRequest{
+                    url = download_url,
+                    method = "GET",
+                    headers = {
+                        ["Accept-Encoding"] = "identity",
+                        ["Connection"] = "close",
+                    },
+                    sink = ltn12.sink.file(f),
+                }
+            end
+
+            f:close()
+
+            if socketutil and socketutil.reset_timeout then
+                socketutil:reset_timeout()
+            end
+
+            pcall(function() UIManager:close(info) end)
+
+            if code == 200 then
+                -- Weryfikacja sygnatury pliku e-booka (chroni czytnik przed zawieszeniem i śmieciami HTML)
+                local check_f = io.open(temp_path, "rb")
+                local magic = check_f and check_f:read(4) or ""
+                local file_size = check_f and check_f:seek("end") or 0
+                if check_f then check_f:close() end
+
+                local is_zip_epub = magic:sub(1, 2) == "PK"
+                local is_pdf = magic:sub(1, 4) == "%PDF"
+                local is_html_error = magic:sub(1, 1) == "<" or magic:sub(1, 1) == "{"
+
+                if is_html_error or file_size < 1000 or (not is_zip_epub and not is_pdf and not filename:lower():match("%.mobi$") and not filename:lower():match("%.txt$")) then
+                    os.remove(temp_path)
+                    collectgarbage("step", 20)
+                    UIManager:show(InfoMessage:new{
+                        text = _("⚠️ Błąd: Pobrany plik nie jest prawidłowym e-bookiem!\\nSerwer zwrócił stronę WWW lub błąd zamiast książki.\\nSpróbuj wybrać inną wersję z listy wyszukiwania."),
+                        timeout = 5
+                    })
+                    return
+                end
+
+                -- Plik jest prawidłowym e-bookiem!
+                os.remove(dest_path)
+                os.rename(temp_path, dest_path)
+                collectgarbage("step", 20)
+
+                -- Odśwież listę plików w KOReader bez konieczności restartu czytnika
+                pcall(function()
+                    local ok_fm, FileManager = pcall(require, "apps/filemanager/filemanager")
+                    if ok_fm and FileManager and FileManager.instance then
+                        FileManager.instance:updateFolder()
                     end
-                end,
-            }
-            UIManager:show(confirm)
-        else
-            -- Usuń niepełny plik w razie błędu
-            os.remove(dest_path)
-            self:handleHttpError(code, status)
-        end
+                end)
+
+                local confirm = ConfirmBox:new{
+                    text = _("✅ Plik pobrany pomyślnie!\\nZapisano w: ") .. dest_path .. _("\\n\\nCzy chcesz go teraz otworzyć w czytniku?"),
+                    ok_text = _("Otwórz teraz"),
+                    cancel_text = _("Później"),
+                    ok_callback = function()
+                        local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
+                        if ok_reader and ReaderUI and ReaderUI.showReader then
+                            ReaderUI:showReader(dest_path)
+                        else
+                            local ok_evt, Event = pcall(require, "ui/event")
+                            if ok_evt and Event then
+                                UIManager:broadcastEvent(Event:new("OpenFile", dest_path))
+                            end
+                        end
+                    end,
+                }
+                UIManager:nextTick(function()
+                    UIManager:show(confirm)
+                end)
+            else
+                os.remove(temp_path)
+                collectgarbage("collect")
+                self:handleHttpError(code, status)
+            end
+        end)
     end)
 end
 

@@ -190,10 +190,31 @@ async function startServer() {
 
   app.post(['/api/order', '/api/koreader/order'], async (req, res) => {
     try {
-      const { title, downloadUrl, engine = 'auto', targetLang = 'Polish', conversionMode = 'translate' } = req.body;
-      if (!title || !downloadUrl) {
-        return res.status(400).json({ error: 'Brak tytułu lub linku do pobrania' });
+      let { title, downloadUrl, engine = 'auto', targetLang = 'Polish', conversionMode = 'translate' } = req.body;
+      if (!title || typeof title !== 'string' || !title.trim()) {
+        return res.status(400).json({ error: 'Brak tytułu książki do pobrania' });
       }
+
+      // If downloadUrl was not provided (e.g. metadata-only result on Kindle), auto-resolve it from mirrors/sources!
+      if (!downloadUrl || downloadUrl === 'auto' || typeof downloadUrl !== 'string' || !downloadUrl.trim()) {
+        console.log(`[Order] Brak bezpośredniego linku dla "${title}". Przeszukiwanie mirrorów i źródeł...`);
+        try {
+          const found = await findDirectBookDownload(title);
+          if (found && found.downloadUrl) {
+            downloadUrl = found.downloadUrl;
+            console.log(`[Order] Sukces: Odnaleziono link dla "${title}": ${downloadUrl}`);
+          }
+        } catch (e: any) {
+          console.warn(`[Order] Błąd szukania mirrora dla ${title}:`, e?.message);
+        }
+      }
+
+      if (!downloadUrl || downloadUrl === 'auto') {
+        return res.status(404).json({
+          error: `Nie znaleziono bezpośredniego pliku do pobrania dla: "${title}". Wybierz inną pozycję z listy wyników wyszukiwania.`
+        });
+      }
+
       const job = createSearchOrderJob(title, downloadUrl, engine, targetLang, conversionMode);
       res.status(201).json(job);
     } catch (err: any) {
@@ -376,6 +397,27 @@ async function startServer() {
     }
 
     if (!fullPath || !fs.existsSync(fullPath)) {
+      try {
+        const remoteRes = await fetch(`https://ko-zviz.onrender.com/api/download/${encodeURIComponent(rawId)}`, {
+          signal: AbortSignal.timeout(15000),
+        });
+        if (remoteRes.ok) {
+          const ab = await remoteRes.arrayBuffer();
+          const buf = Buffer.from(ab);
+          if (buf.length > 500) {
+            const fallbackName = job?.outputEpubFilename || `${rawId}.epub`;
+            const savePath = path.join(process.cwd(), 'data', 'epubs', fallbackName);
+            fs.writeFileSync(savePath, buf);
+            fullPath = savePath;
+            filename = fallbackName;
+          }
+        }
+      } catch (err: any) {
+        console.warn(`Nie udało się pobrać pliku ${rawId} z Render:`, err?.message);
+      }
+    }
+
+    if (!fullPath || !fs.existsSync(fullPath)) {
       return res.status(404).json({ error: 'Plik nie jest jeszcze gotowy lub zadanie nie istnieje' });
     }
 
@@ -390,7 +432,10 @@ async function startServer() {
       ? 'application/vnd.comicbook+zip'
       : 'application/epub+zip';
 
+    const stat = fs.statSync(fullPath);
     res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Connection', 'close');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(filename)}`
@@ -403,27 +448,63 @@ async function startServer() {
   // ----------------------------------------------------
   app.get(['/opds', '/api/koreader/opds'], (req, res) => {
     const baseUrl = getAppBaseUrl(req);
-    const completedJobs = getAllJobs().filter(j => j.status === 'completed' && j.outputEpubFilename);
+    const allJobs = getAllJobs();
+    const completedJobs = allJobs.filter(j => j.status === 'completed' && j.outputEpubFilename);
+    const activeJobs = allJobs.filter(j => ['queued', 'extracting', 'translating', 'packaging'].includes(j.status));
 
     let entriesXml = '';
+
+    // Individual live status entries for each job currently processing in cloud
+    if (activeJobs.length > 0) {
+      for (const aj of activeJobs) {
+        const stepDesc = aj.status === 'translating'
+          ? `Tłumaczenie AI (${aj.progress || 0}%) - rozdział ${aj.currentChapter || 0}/${aj.totalChapters || 0}`
+          : aj.status === 'extracting'
+          ? 'Ekstrakcja tekstu i analiza...'
+          : aj.status === 'packaging'
+          ? 'Budowanie e-booka EPUB/CBZ...'
+          : 'Oczekuje w kolejce...';
+
+        entriesXml += `
+  <entry>
+    <title>⏳ [W TOKU ${aj.progress || 0}%] ${aj.title}</title>
+    <id>urn:uuid:active-${aj.id}</id>
+    <updated>${new Date(aj.updatedAt || Date.now()).toISOString()}</updated>
+    <author><name>Kolejka Chmury AI</name></author>
+    <summary>${stepDesc}. Odśwież stronę za chwilę w KOReaderze, aby pobrać po ukończeniu.</summary>
+    <link rel="alternate" href="${baseUrl}/opds" type="application/atom+xml;profile=opds-catalog"/>
+  </entry>`;
+      }
+    }
+
     for (const job of completedJobs) {
+      const isCbz = job.outputFormat === 'cbz' || (job.outputEpubFilename || '').toLowerCase().endsWith('.cbz');
+      const isPdf = job.outputFormat === 'pdf' || (job.outputEpubFilename || '').toLowerCase().endsWith('.pdf');
+      const mime = isCbz
+        ? 'application/vnd.comicbook+zip'
+        : isPdf
+        ? 'application/pdf'
+        : 'application/epub+zip';
+      const sizeAttr = job.originalSize ? ` length="${job.originalSize}"` : '';
+      const typeTag = isCbz ? '🎨 [CBZ]' : isPdf ? '📄 [PDF]' : '📚 [EPUB]';
+
       entriesXml += `
   <entry>
-    <title>${job.title} (Polski Przekład AI)</title>
+    <title>${typeTag} ${job.title}</title>
     <id>urn:uuid:${job.id}</id>
     <updated>${new Date(job.updatedAt).toISOString()}</updated>
     <author><name>KOReader AI Cloud</name></author>
-    <summary>Format: EPUB 3. Rozdziały: ${job.totalChapters}. Silnik AI: ${job.engine}.</summary>
+    <summary>Gotowa książka. Format: ${job.outputFormat || 'epub'}. Silnik AI: ${job.engine || 'auto'}. Kliknij, aby natychmiast pobrać i otworzyć w czytniku.</summary>
     <link rel="http://opds-spec.org/acquisition"
           href="${baseUrl}/api/download/${job.id}"
-          type="application/epub+zip"/>
+          type="${mime}"${sizeAttr}/>
   </entry>`;
     }
 
     const opdsXml = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <id>urn:uuid:koreader-ai-catalog</id>
-  <title>KOReader AI Cloud Library</title>
+  <title>📚 KOReader AI Cloud Library</title>
   <updated>${new Date().toISOString()}</updated>
   <link rel="self" href="${baseUrl}/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
   <link rel="start" href="${baseUrl}/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
@@ -431,6 +512,8 @@ async function startServer() {
 </feed>`;
 
     res.setHeader('Content-Type', 'application/atom+xml;profile=opds-catalog;charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Connection', 'close');
     res.send(opdsXml);
   });
 

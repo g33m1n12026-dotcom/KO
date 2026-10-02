@@ -57,15 +57,22 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Connection Pill, APK Download & Keys */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Direct APK Download Button */}
+            {/* Mobile App Install Button */}
             <a
-              href="/api/download/apk"
-              download="KOReader-Companion.apk"
+              href="#reader"
+              onClick={(e) => {
+                // If there's an install prompt, try to trigger it
+                const deferredPrompt = (window as any).__pwaInstallPrompt;
+                if (deferredPrompt) {
+                  e.preventDefault();
+                  deferredPrompt.prompt();
+                }
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-medium rounded-lg transition active:scale-95 shadow-2xs"
-              title="Pobierz gotowy plik instalacyjny APK na telefon z Androidem"
+              title="Zainstaluj aplikację czytnika i asystenta na telefonie z Androidem (PWA)"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Pobierz .APK</span>
+              <span>Aplikacja na telefon</span>
             </a>
 
             {/* Server URL for Kindle */}

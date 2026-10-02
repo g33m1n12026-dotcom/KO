@@ -425,32 +425,63 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                     className="bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs"
                   >
                     <div className="space-y-2.5">
-                      {/* Title & Language */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
+                      {/* Title & Language Badge */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
                           <h3 className="font-bold text-stone-900 text-sm leading-snug">
                             {rec.polishTitle ? `${rec.polishTitle}` : rec.title}
                           </h3>
                           {rec.polishTitle && rec.polishTitle !== rec.title && (
                             <span className="text-xs text-stone-500 italic block">
-                              (Oryg. {rec.title})
+                              (Tytuł oryginału: {rec.title})
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 uppercase shrink-0">
-                          {rec.originalLang || 'EN'}
-                        </span>
+                        {rec.isPolishAvailable || (rec.originalLang || '').toUpperCase() === 'PL' ? (
+                          <div className="shrink-0 flex flex-col items-end">
+                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                              <span>🇵🇱</span>
+                              <span>JĘZYK POLSKI</span>
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                              ✓ Gotowe do czytania
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="shrink-0 flex flex-col items-end">
+                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
+                              <span>🌐</span>
+                              <span>JĘZYK OBCY ({rec.originalLang || 'EN'})</span>
+                            </span>
+                            <span className="text-[10px] text-amber-800 font-medium mt-0.5">
+                              ⚡ Zalecany przekład AI
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Author & Year & Genre */}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
-                        <span className="font-medium">Autor: {rec.author}</span>
-                        {rec.year && <span>• {rec.year}</span>}
+                        <span className="font-medium text-stone-900">Autor: {rec.author}</span>
+                        {rec.year && <span>• Wydanie: {rec.year}</span>}
                         {rec.genre && (
                           <span className="px-2 py-0.5 bg-stone-100 rounded text-[11px] text-stone-600">
                             {rec.genre}
                           </span>
                         )}
+                      </div>
+
+                      {/* Guidance banner for user: Download vs Translate */}
+                      <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                        rec.isPolishAvailable
+                          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                          : 'bg-indigo-50/70 border-indigo-200 text-indigo-900'
+                      }`}>
+                        <span className="font-medium">
+                          {rec.isPolishAvailable
+                            ? '💡 Książka dostępna po polsku: Wybierz zielony przycisk „Pobierz od razu”.'
+                            : `💡 Książka w języku obcym (${rec.originalLang || 'angielskim'}): Wybierz fioletowy przycisk „Przetłumacz na polski”.`}
+                        </span>
                       </div>
 
                       {/* Why it matches */}
@@ -469,9 +500,9 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                       )}
 
                       {/* Direct mirror deep links from user list */}
-                      <div className="pt-2">
+                      <div className="pt-1">
                         <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider block mb-1.5">
-                          Szukaj w repozytoriach i bazach:
+                          Sprawdź bezpośrednio w repozytoriach:
                         </span>
                         <div className="flex flex-wrap gap-1.5">
                           {rec.mirrorLinks?.map((ml, idx) => (
@@ -494,11 +525,12 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                     <div className="mt-4 pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => {
                             navigator.clipboard.writeText(rec.searchQuery || `${rec.author} ${rec.title}`);
                             setMessage({ text: `Skopiowano: "${rec.searchQuery}"`, type: 'success' });
                           }}
-                          className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1"
+                          className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
                         >
                           <Copy className="w-3.5 h-3.5" />
                           <span>Kopiuj</span>
@@ -511,59 +543,77 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleOrder(rec, 'original')}
-                          disabled={orderingId === `${rec.id}_original`}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 transition active:scale-95 shadow-2xs"
-                          title="Pobierz oryginalny plik z repozytorium bez tłumaczenia"
-                        >
-                          {orderingId === `${rec.id}_original` ? (
-                            <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                          ) : (
-                            <Download className="w-3.5 h-3.5" />
-                          )}
-                          <span>Oryginał</span>
-                        </button>
+                        {/* 1. Primary Action: Download directly (if Polish) OR Translate (if foreign) */}
+                        {rec.isPolishAvailable ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOrder(rec, 'original')}
+                            disabled={orderingId === `${rec.id}_original`}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                            title="Pobierz polskie wydanie natychmiast bez czekania na tłumaczenie"
+                          >
+                            {orderingId === `${rec.id}_original` ? (
+                              <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5" />
+                            )}
+                            <span>📥 Pobierz od razu</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOrder(rec, 'translate')}
+                            disabled={orderingId === `${rec.id}_translate`}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-700 hover:bg-indigo-800 active:scale-95 text-white flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                            title="Rozpocznij literacki przekład AI całej książki na język polski"
+                          >
+                            {orderingId === `${rec.id}_translate` ? (
+                              <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                            )}
+                            <span>🌐 Przetłumacz na polski</span>
+                          </button>
+                        )}
 
+                        {/* 2. PDF Conversion Option */}
                         <button
                           type="button"
                           onClick={() => handleOrder(rec, 'epub_clean')}
                           disabled={orderingId === `${rec.id}_epub_clean`}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-700 hover:bg-sky-800 text-white flex items-center gap-1.5 transition active:scale-95 shadow-2xs"
-                          title="Przerób na lekki, czytelny format EPUB dla czytnika e-ink bez tłumaczenia"
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                          title="Gdy plik źródłowy to PDF: konwertuje na lekki format EPUB z powiększaniem czcionki dla czytnika e-ink"
                         >
                           {orderingId === `${rec.id}_epub_clean` ? (
-                            <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                            <div className="w-3 h-3 border-2 border-stone-600/40 border-t-stone-800 rounded-full animate-spin" />
                           ) : (
-                            <BookOpen className="w-3.5 h-3.5" />
+                            <BookOpen className="w-3.5 h-3.5 text-stone-600" />
                           )}
-                          <span>Lekki EPUB</span>
+                          <span>Konwertuj PDF</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleOrder(rec, 'translate')}
-                          disabled={orderingId === `${rec.id}_translate`}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-stone-900 hover:bg-stone-800 text-white flex items-center gap-1.5 transition active:scale-95 shadow-2xs"
-                          title="Przetłumacz na język polski za pomocą AI"
-                        >
-                          {orderingId === `${rec.id}_translate` ? (
-                            <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                          )}
-                          <span>Przetłumacz</span>
-                        </button>
+                        {/* 3. Secondary: if foreign, allow downloading original anyway */}
+                        {!rec.isPolishAvailable && (
+                          <button
+                            type="button"
+                            onClick={() => handleOrder(rec, 'original')}
+                            disabled={orderingId === `${rec.id}_original`}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 border border-stone-200 flex items-center gap-1 transition cursor-pointer"
+                            title="Pobierz plik w języku oryginalnym (bez tłumaczenia)"
+                          >
+                            <span>Oryginał {rec.originalLang}</span>
+                          </button>
+                        )}
 
+                        {/* 4. Switch to search tab to explore all available mirrors/editions */}
                         <button
                           type="button"
                           onClick={() => searchForRecommendation(rec)}
-                          className="px-2 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg text-xs font-medium flex items-center gap-1 transition"
-                          title="Przeglądaj wszystkie dostępne wydania w wyszukiwarce"
+                          className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
+                          title="Przejdź do wyszukiwarki, aby przejrzeć inne źródła (Chomikuj, Wolne Lektury, Z-Lib)"
                         >
-                          <Search className="w-3.5 h-3.5 text-stone-500" />
-                          <span>Wydania</span>
+                          <Search className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Inne źródła (Szukaj)</span>
                         </button>
                       </div>
                     </div>

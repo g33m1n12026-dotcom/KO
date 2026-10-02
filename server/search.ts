@@ -814,17 +814,16 @@ export async function fetchRemoteBookBuffer(
       console.warn('Pobieranie z Chomikuj wymagało transferu lub autoryzacji:', chomikErr.message);
       onLog?.(`[Chomikuj] Plik na Chomikuj jest chroniony lub wymaga transferu konta. Automatyczne przeszukiwanie innych repozytoriów (Z-Library, Anna's Archive, LibGen) w poszukiwaniu otwartej wersji EPUB/PDF...`);
 
-      const searchTarget = bookTitle || url.split('/').pop()?.replace(/,\d+\.[a-zA-Z0-9]+$/, '').replace(/[_+]+/g, ' ') || 'ksiazka';
+      const searchTarget = (bookTitle || url.split('/').pop()?.replace(/,\d+\.[a-zA-Z0-9]+$/, '').replace(/[_+]+/g, ' ') || 'ksiazka')
+        .replace(/[-_.]+/g, ' ')
+        .trim();
       const alt = await findDirectBookDownload(searchTarget);
       if (alt && alt.downloadUrl && !alt.downloadUrl.includes('chomikuj.pl')) {
         onLog?.(`[Chomikuj -> Mirror] Znaleziono wydanie w repozytorium alternatywnym: "${alt.title}" (${alt.format}). Pobieranie...`);
-        let altDirectUrl = alt.downloadUrl;
-        let altReferer = alt.downloadUrl;
-        if (alt.downloadUrl.includes('ads.php') || alt.downloadUrl.includes('/ads.php?md5=')) {
-          altDirectUrl = await resolveDirectDownloadUrl(alt.downloadUrl);
-          altReferer = alt.downloadUrl;
-        }
-        if (altDirectUrl) {
+        let altDirectUrl = await resolveDirectDownloadUrl(alt.downloadUrl);
+        let altReferer = alt.downloadUrl.startsWith('http') ? alt.downloadUrl : 'https://z-library.sk/';
+
+        if (altDirectUrl && !altDirectUrl.startsWith('zlib://')) {
           const altResp = await fetch(altDirectUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -844,8 +843,42 @@ export async function fetchRemoteBookBuffer(
         }
       }
 
-      // If fallback couldn't find an alternate, propagate with clear guidance
-      throw chomikErr;
+      // If Polish title search didn't find an open mirror, check known multilingual translations
+      const altCandidates = [
+        searchTarget.replace(/dziki robot/gi, 'The Wild Robot'),
+        searchTarget.replace(/mikołajek/gi, 'Le Petit Nicolas'),
+        searchTarget.replace(/karolcia/gi, 'Karolcia Krüger'),
+      ];
+
+      for (const altQuery of altCandidates) {
+        if (altQuery !== searchTarget) {
+          onLog?.(`[Chomikuj -> Mirror Światowy] Sprawdzanie otwartego wydania: "${altQuery}"...`);
+          const intlAlt = await findDirectBookDownload(altQuery);
+          if (intlAlt && intlAlt.downloadUrl && !intlAlt.downloadUrl.includes('chomikuj.pl')) {
+            const intlDirectUrl = await resolveDirectDownloadUrl(intlAlt.downloadUrl);
+            if (intlDirectUrl && !intlDirectUrl.startsWith('zlib://')) {
+              const intlResp = await fetch(intlDirectUrl, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                  Referer: 'https://z-library.sk/',
+                },
+                signal: AbortSignal.timeout(30000),
+              });
+              if (intlResp.ok) {
+                const intlBuf = Buffer.from(await intlResp.arrayBuffer());
+                if (intlBuf.length > 1000) {
+                  const ext = intlAlt.format.toLowerCase().includes('pdf') ? 'pdf' : 'epub';
+                  const cleanName = `${(bookTitle || intlAlt.title).replace(/[^a-zA-Z0-9_-]/g, '_')}.${ext}`;
+                  return { buffer: intlBuf, filename: cleanName };
+                }
+              }
+            }
+          }
+        }
+      }
+
+      throw new Error(`Plik "${bookTitle || searchTarget}" na Chomikuj wymaga płatnego transferu, a mirrory alternatywne nie zawierają jeszcze otwartej kopii. Wybierz inne źródło z listy wyników wyszukiwania.`);
     }
   }
 
@@ -978,13 +1011,9 @@ export async function fetchRemoteBookBuffer(
     const alt = await findDirectBookDownload(searchTarget);
     if (alt && alt.downloadUrl && alt.downloadUrl !== url) {
       onLog?.(`[Pobieranie] Znaleziono otwarte wydanie w mirrorach: "${alt.title}" (${alt.format}). Pobieranie...`);
-      let altDirectUrl = alt.downloadUrl;
-      let altReferer = alt.downloadUrl;
-      if (alt.downloadUrl.includes('ads.php') || alt.downloadUrl.includes('/ads.php?md5=')) {
-        altDirectUrl = await resolveDirectDownloadUrl(alt.downloadUrl);
-        altReferer = alt.downloadUrl;
-      }
-      if (altDirectUrl && !altDirectUrl.includes('details/')) {
+      let altDirectUrl = await resolveDirectDownloadUrl(alt.downloadUrl);
+      let altReferer = alt.downloadUrl.startsWith('http') ? alt.downloadUrl : 'https://z-library.sk/';
+      if (altDirectUrl && !altDirectUrl.startsWith('zlib://') && !altDirectUrl.includes('details/')) {
         const altResp = await fetch(altDirectUrl, {
           headers: {
             ...browserHeaders,

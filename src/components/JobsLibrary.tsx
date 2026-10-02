@@ -60,7 +60,10 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
 
   const completedJobs = localJobs.filter((j) => j.status === 'completed');
   const activeJobs = localJobs.filter((j) => j.status !== 'completed' && j.status !== 'failed');
-  const failedJobs = localJobs.filter((j) => j.status === 'failed');
+  const completedTitles = new Set(completedJobs.map((j) => j.title.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const failedJobs = localJobs.filter(
+    (j) => j.status === 'failed' && !completedTitles.has(j.title.toLowerCase().replace(/[^a-z0-9]/g, ''))
+  );
 
   return (
     <div className="space-y-6">

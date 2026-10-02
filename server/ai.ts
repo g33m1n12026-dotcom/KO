@@ -384,28 +384,30 @@ export async function recommendBooksByDescription(
     return { recommendations: [], analysis: 'Brak opisu poszukiwanej książki.' };
   }
 
-  const prompt = `Jesteś genialnym doradcą literackim, erudycyjnym bibliotekarzem i ekspertem światowej literatury.
+  const prompt = `Jesteś genialnym doradcą literackim, erudycyjnym bibliotekarzem i ekspertem światowej i polskiej literatury.
 Użytkownik opisał, na jaką książkę ma dziś ochotę / co chciałby przeczytać:
 "${userDescription.trim()}"
 
 Twoje zadanie:
 1. Zinterpretuj nastrój, motywy, tematykę, tempo i specyfikę tego opisu.
-2. Zaproponuj od 4 do 6 rzeczywistych, istniejących, wybitnych książek (zarówno klasykę jak i współczesne pozycje, zagraniczne lub polskie), które idealnie trafiają w te oczekiwania.
-3. Zwróć wynik w formacie czystego JSON (bez znaczników markdown \`\`\` ani dodatkowego tekstu):
+2. ZASADA BEZWZGLĘDNEGO PRIORYTETU: W PIERWSZEJ KOLEJNOŚCI zaproponuj wybitne książki W JĘZYKU POLSKIM (zarówno polskich pisarzy, jak i dzieła zagraniczne z powszechnie dostępnymi, znakomitymi polskimi przekładami). Pozycje polskojęzyczne MUSZĄ zająć pierwsze pozycje na liście!
+3. Jeśli proponujesz książkę zagraniczną niemającą polskiego wydania, umieść ją na dalszych pozycjach z wyraźnym oznaczeniem "originalLang" (np. EN, DE, FR) i wyjaśnij w rekomendacji, że wymaga ona przekładu AI.
+4. Zaproponuj od 4 do 6 rzeczywistych, istniejących, wybitnych książek.
+5. Zwróć wynik w formacie czystego JSON (bez znaczników markdown \`\`\` ani dodatkowego tekstu):
 
 {
   "analysis": "1-2 zdaniowe podsumowanie Twojego zrozumienia nastroju i motywów użytkownika w języku polskim",
   "recommendations": [
     {
-      "title": "Oryginalny tytuł książki (np. Solaris, Neuromancer, The Shadow of the Wind)",
-      "polishTitle": "Oficjalny polski tytuł (jeśli istnieje, np. Cień wiatru)",
+      "title": "Tytuł książki",
+      "polishTitle": "Oficjalny polski tytuł (jeśli oryginał jest obcy)",
       "author": "Imię i nazwisko autora",
       "year": "Rok pierwszego wydania",
-      "genre": "Gatunek literacki (np. Sci-Fi / Cyberpunk, Thriller psychologiczny)",
+      "genre": "Gatunek literacki (np. Sci-Fi / Cyberpunk, Thriller psychologiczny, Reportaż)",
       "matchReason": "1-2 zdania w języku polskim wyjaśniające, dlaczego ta książka to strzał w dziesiątkę pod kątem opisu użytkownika",
       "synopsis": "Krótki (2-3 zdania) nastrojowy zarys fabuły bez spoilerów po polsku",
-      "originalLang": "Język oryginału (np. English, German, French, Polish, Japanese)",
-      "searchQuery": "Precyzyjna fraza do wyszukania pliku w bazach (np. William Gibson Neuromancer)"
+      "originalLang": "Język dostępnego wydania: PL (jeśli polskie/po polsku) lub EN / DE / FR (jeśli wydanie obcojęzyczne)",
+      "searchQuery": "Precyzyjna fraza do wyszukania pliku w bazach (np. Stanisław Lem Niezwyciężony lub Peter Brown Dziki robot)"
     }
   ]
 }`;
@@ -570,6 +572,13 @@ Twoje zadanie:
     const parsed = JSON.parse(clean);
     const recs: BookRecommendation[] = (parsed.recommendations || []).map((r: any, idx: number) => {
       const q = r.searchQuery || `${r.author} ${r.title}`;
+      const rawLang = String(r.originalLang || '').toUpperCase();
+      const isPolish = rawLang.includes('PL') || rawLang.includes('POL') || (!rawLang.includes('EN') && !rawLang.includes('GER') && !rawLang.includes('FR') && Boolean(r.polishTitle));
+      const langCode = isPolish ? 'PL' : (rawLang.includes('EN') ? 'EN' : rawLang || 'INNY');
+      const recAction = isPolish
+        ? 'Pobierz od razu (Polskie wydanie)'
+        : 'Przetłumacz na polski (Przekład AI)';
+
       return {
         id: `rec_${Date.now()}_${idx}`,
         title: r.title || 'Nieznany tytuł',
@@ -579,10 +588,20 @@ Twoje zadanie:
         genre: r.genre || 'Literatura',
         matchReason: r.matchReason || 'Idealnie koresponduje z Twoim opisem.',
         synopsis: r.synopsis || '',
-        originalLang: r.originalLang || 'EN',
+        originalLang: langCode,
+        language: langCode,
+        isPolishAvailable: isPolish,
+        recommendedAction: recAction,
         searchQuery: q,
         mirrorLinks: generateMirrorSearchLinks(q),
       };
+    });
+
+    // Ensure Polish language recommendations are strictly prioritized at the top
+    recs.sort((a, b) => {
+      if (a.isPolishAvailable && !b.isPolishAvailable) return -1;
+      if (!a.isPolishAvailable && b.isPolishAvailable) return 1;
+      return 0;
     });
 
     return {

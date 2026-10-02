@@ -82,6 +82,9 @@ export interface BookRecommendation {
   matchReason: string;
   synopsis: string;
   originalLang: string;
+  language?: string;
+  isPolishAvailable?: boolean;
+  recommendedAction?: string;
   searchQuery: string;
   downloadUrl?: string;
   downloadFormat?: string;

@@ -5,17 +5,9 @@ import { saveJobsToDisk } from './jobs';
 import fs from 'fs';
 import path from 'path';
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
-
-let geminiClient: GoogleGenAI | null = null;
 function getGemini(): GoogleGenAI {
-  if (!geminiClient) {
-    geminiClient = new GoogleGenAI({ apiKey: GEMINI_KEY });
-  }
-  return geminiClient;
+  const key = process.env.GEMINI_API_KEY || '';
+  return new GoogleGenAI({ apiKey: key });
 }
 
 interface GeneratedOutline {
@@ -34,6 +26,11 @@ interface GeneratedOutline {
  * Calls AI to generate JSON or text with automatic fallback across available providers
  */
 async function callAiText(systemPrompt: string, userPrompt: string, engine: string = 'auto'): Promise<string> {
+  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const openrouterKey = process.env.OPENROUTER_API_KEY || '';
+  const openaiKey = process.env.OPENAI_API_KEY || '';
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || '';
+
   const providers = engine === 'claude' ? ['claude', 'gemini', 'openrouter']
     : engine === 'openai' ? ['openai', 'gemini', 'openrouter']
     : engine === 'openrouter' ? ['openrouter', 'gemini', 'claude']
@@ -41,73 +38,115 @@ async function callAiText(systemPrompt: string, userPrompt: string, engine: stri
 
   let lastErr = '';
 
-  for (const provider of providers) {
-    try {
-      if (provider === 'gemini' && GEMINI_KEY) {
-        const gemini = getGemini();
-        const res = await gemini.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: `${systemPrompt}\n\n${userPrompt}`,
-          config: {
-            temperature: 0.7,
-          },
-        });
-        const text = res.text?.trim();
-        if (text) return text;
-      }
+  // 1. Try Gemini with retry and alternative model fallbacks
+  if (geminiKey) {
+    const gemini = getGemini();
+    const geminiModels = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash'];
 
-      if (provider === 'openrouter' && OPENROUTER_KEY) {
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${OPENROUTER_KEY}`,
-          },
-          body: JSON.stringify({
-            model: 'deepseek/deepseek-chat',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.7,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.choices?.[0]?.message?.content?.trim();
+    for (const m of geminiModels) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await gemini.models.generateContent({
+            model: m,
+            contents: `${systemPrompt}\n\n${userPrompt}`,
+            config: {
+              temperature: 0.7,
+            },
+          });
+          const text = res.text?.trim();
           if (text) return text;
+        } catch (e: any) {
+          lastErr = e?.message || String(e);
+          console.warn(`Gemini (${m}) próba ${attempt + 1}/3 ostrzeżenie:`, lastErr);
+          if (lastErr.includes('503') || lastErr.includes('high demand') || lastErr.includes('429')) {
+            await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+            continue;
+          }
+          break; // Try next model if non-retriable error
         }
       }
-
-      if (provider === 'openai' && OPENAI_KEY) {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${OPENAI_KEY}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.7,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.choices?.[0]?.message?.content?.trim();
-          if (text) return text;
-        }
-      }
-    } catch (e: any) {
-      lastErr = e?.message || String(e);
-      console.warn(`Storybook AI provider ${provider} notice:`, lastErr);
     }
   }
 
-  throw new Error(`Nie udało się wygenerować tekstu przez AI: ${lastErr || 'Brak skonfigurowanych kluczy API'}`);
+  // 2. Try OpenRouter if configured
+  if (openrouterKey) {
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openrouterKey}`,
+        },
+        body: JSON.stringify({
+          model: 'deepseek/deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.7,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content?.trim();
+        if (text) return text;
+      }
+    } catch (e: any) {
+      lastErr = e?.message || String(e);
+    }
+  }
+
+  // 3. Try OpenAI if configured
+  if (openaiKey) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.7,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content?.trim();
+        if (text) return text;
+      }
+    } catch (e: any) {
+      lastErr = e?.message || String(e);
+    }
+  }
+
+  // 4. Automatic Free AI Fallback (Pollinations / Duck-compatible)
+  try {
+    console.log('[Storybook] Uruchamianie darmowego silnika zapasowego AI (Pollinations)...');
+    const combinedPrompt = `${systemPrompt}\n\n${userPrompt}`;
+    const url = `https://text.pollinations.ai/${encodeURIComponent(combinedPrompt)}?model=openai`;
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(20000),
+      headers: {
+        'User-Agent': 'KOReader-AI-Storybook/1.0',
+        Accept: 'text/plain, application/json',
+      },
+    });
+    if (resp.ok) {
+      const text = await resp.text();
+      if (text && text.trim().length > 30) {
+        return text.trim();
+      }
+    }
+  } catch (freeErr: any) {
+    console.warn('Free AI fallback notice:', freeErr?.message || freeErr);
+  }
+
+  throw new Error(`Nie udało się wygenerować tekstu przez AI: ${lastErr || 'Przeciążenie modeli'}`);
 }
 
 /**
@@ -157,10 +196,10 @@ export async function fetchIllustrationBuffer(promptText: string, isCover: boole
     const seed = Math.floor(Math.random() * 1000000);
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(directArtPrompt)}?model=flux&nologo=true&seed=${seed}`;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(url, {
-          signal: AbortSignal.timeout(25000),
+          signal: AbortSignal.timeout(10000),
           headers: {
             'User-Agent': 'KOReader-AI-Storybook/1.0',
             Accept: 'image/jpeg,image/png,image/*',
@@ -168,22 +207,21 @@ export async function fetchIllustrationBuffer(promptText: string, isCover: boole
         });
 
         if (res.status === 429) {
-          console.warn(`Pollinations 429 (próba ${attempt + 1}/3), oczekiwanie 3.5s...`);
-          await new Promise((r) => setTimeout(r, 3500));
+          console.warn(`Pollinations 429 (próba ${attempt + 1}/2), oczekiwanie 2s...`);
+          await new Promise((r) => setTimeout(r, 2000));
           continue;
         }
 
         if (res.ok) {
           const arr = await res.arrayBuffer();
           if (arr.byteLength > 1000) {
-            // Wait 1.5s before releasing queue to avoid bursting anonymous rate limit
-            await new Promise((r) => setTimeout(r, 1500));
+            await new Promise((r) => setTimeout(r, 800));
             return Buffer.from(arr);
           }
         }
       } catch (err) {
         console.warn(`Błąd pobierania ilustracji (próba ${attempt + 1}):`, err);
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
   } catch (e) {
@@ -378,11 +416,13 @@ export async function executeStorybookJob(job: Job, req: StorybookRequest): Prom
       });
 
       log(`Ukończono rozdział ${i + 1}: "${chMeta.title}" (${chapterText.split(/\s+/).length} słów).`);
+      saveJobsToDisk();
     }
 
     // 4. Packaging EPUB
     job.status = 'packaging';
     job.progress = 90;
+    saveJobsToDisk();
     log('Kompilowanie książki do formatu EPUB 3 zoptymalizowanego dla Kindle 10 i KOReadera...');
 
     const epubBuffer = await generateEpubBuffer({

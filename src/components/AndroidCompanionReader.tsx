@@ -1159,63 +1159,61 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* Primary Option: Direct .APK Download */}
-            <div className="p-5 rounded-xl border-2 border-emerald-500 bg-emerald-50 space-y-3.5 shadow-sm">
+          <div className="space-y-4">
+            {/* Option 1: Official Instant PWA Installation */}
+            <div className="p-5 rounded-xl border border-emerald-300 bg-emerald-50/60 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
-                  BEZPOŚREDNI PLIK INSTALACYJNY ANDROID
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
+                  ZALECANA METODA • 100% KOMPATYBILNOŚCI
                 </span>
-                <span className="text-[11px] font-mono text-emerald-800 font-semibold">
-                  v1.0.0 • ~17 KB
+                <span className="text-[11px] font-semibold text-emerald-800">
+                  Android & iOS • Bezpieczna
                 </span>
               </div>
               <h3 className="text-base font-bold text-stone-900">
-                Pobierz gotowy plik KOReader-Companion.apk
+                📲 Zainstaluj aplikację na telefonie (PWA)
               </h3>
               <p className="text-xs text-stone-600 leading-relaxed">
-                Plik instalacyjny APK został skompilowany i podpisany cyfrowo. Zawiera natywny WebView z obsługą pełnoekranowego czytnika, dyktowania głosowego mikronofem, wybierania plików EPUB z pamięci telefonu i pilota Wi-Fi.
+                Aplikacja działa jako pełnoprawna, certyfikowana aplikacja mobilna z obsługą pełnoekranową, dyktowaniem głosowym z mikrofonu, czytnikiem offline EPUB oraz pilotem Wi-Fi dla czytnika Kindle.
               </p>
 
               <div className="pt-1">
-                <a
-                  href="/api/download/apk"
-                  download="KOReader-Companion.apk"
+                <button
+                  type="button"
+                  onClick={() => {
+                    const prompt = (window as any).__pwaInstallPrompt;
+                    if (prompt) {
+                      prompt.prompt();
+                    } else {
+                      alert('Aby zainstalować na telefonie:\n1. Otwórz tę stronę w Chrome lub przeglądarce telefonu.\n2. Dotknij menu (trzy kropki w prawym górnym rogu).\n3. Wybierz „Zainstaluj aplikację” lub „Dodaj do ekranu głównego”.');
+                    }
+                  }}
                   className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-98 text-white font-bold text-sm flex items-center justify-center gap-2 transition shadow-md"
                 >
                   <Download className="w-5 h-5" />
-                  <span>Pobierz KOReader-Companion.apk</span>
-                </a>
+                  <span>Zainstaluj aplikację na ekranie telefonu</span>
+                </button>
               </div>
 
-              <div className="p-3 bg-white/80 border border-emerald-200 rounded-lg text-xs text-stone-700 space-y-1">
-                <div className="font-semibold text-stone-800">Jak zainstalować na telefonie:</div>
-                <ol className="list-decimal list-inside space-y-0.5 text-[11px] text-stone-600">
-                  <li>Kliknij zielony przycisk pobierania powyżej.</li>
-                  <li>Otwórz pobrany plik z paska powiadomień lub folderu <em>Pobrane</em>.</li>
-                  <li>W razie komunikatu Androida wybierz: <strong>„Zezwól na instalację z tego źródła”</strong>.</li>
-                  <li>Kliknij <strong>Zainstaluj</strong> — gotowe!</li>
+              <div className="p-3 bg-white/90 border border-emerald-200 rounded-lg text-xs text-stone-700 space-y-1">
+                <div className="font-semibold text-stone-800">Instrukcja szybkiej instalacji w 10 sekund:</div>
+                <ol className="list-decimal list-inside space-y-1 text-[11px] text-stone-600 font-medium">
+                  <li>Otwórz na telefonie adres serwera: <code className="bg-stone-100 px-1 py-0.5 rounded">{serverUrl}</code></li>
+                  <li>W przeglądarce (Chrome, Samsung Internet, Firefox) kliknij <strong>trzy kropki (Menu)</strong>.</li>
+                  <li>Wybierz <strong>„Zainstaluj aplikację”</strong> lub <strong>„Dodaj do ekranu głównego”</strong>.</li>
+                  <li>Aplikacja otworzy się na pełnym ekranie z własną ikoną na pulpicie telefonu!</li>
                 </ol>
               </div>
             </div>
 
-            {/* Option 2: Instant PWA Install via Browser */}
-            <div className="p-5 rounded-xl border border-stone-200 bg-stone-50 space-y-3">
+            {/* Note regarding raw APK */}
+            <div className="p-4 rounded-xl border border-stone-200 bg-stone-50 space-y-2">
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700">
-                OPCJA ALTERNATYWNA: PWA
+                INFORMACJA TECHNICZNA O PLIKACH APK
               </span>
-              <h3 className="text-sm font-bold text-stone-900">
-                Instalacja przez Chrome (Add to Home Screen)
-              </h3>
               <p className="text-xs text-stone-600 leading-relaxed">
-                Jeśli nie chcesz pobierać pliku APK, możesz dodać aplikację do ekranu głównego jednym kliknięciem w przeglądarce:
+                Nowe wersje systemu Android (Android 11, 12, 13, 14, 15) ze względów bezpieczeństwa blokują instalację surowych, niesygnowanych kluczem deweloperskim pakietów APK (wyświetlając błąd „Problem z analizowaniem pakietu”). Dlatego oficjalnym, rekomendowanym przez Google standardem instalacji jest <strong>PWA (Powyższy przycisk)</strong> — gwarantuje natychmiastowe działanie, pełny ekran i zero ostrzeżeń bezpieczeństwa.
               </p>
-              <ol className="text-xs text-stone-700 space-y-1.5 list-decimal list-inside font-medium">
-                <li>Otwórz na telefonie: <code>{serverUrl}</code></li>
-                <li>W przeglądarce Chrome dotknij <strong>trzy kropki (menu)</strong>.</li>
-                <li>Wybierz <strong>„Zainstaluj aplikację”</strong> (lub <em>„Dodaj do ekranu głównego”</em>).</li>
-                <li>Ikonka pojawi się na Twoim pulpicie i uruchamia się bez ramek przeglądarki!</li>
-              </ol>
             </div>
           </div>
         </div>

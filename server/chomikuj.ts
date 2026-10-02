@@ -142,26 +142,81 @@ export async function searchChomikujBooks(query: string): Promise<BookSearchResu
   return searchResults;
 }
 
+import https from 'https';
+
+class ChomikujClient {
+  private cookies = new Map<string, string>();
+
+  saveCookies(headers: any) {
+    const raw = headers['set-cookie'];
+    if (!raw) return;
+    const arr = Array.isArray(raw) ? raw : [raw];
+    for (const c of arr) {
+      const part = c.split(';')[0];
+      const eq = part.indexOf('=');
+      if (eq > 0) {
+        this.cookies.set(part.substring(0, eq).trim(), part.substring(eq + 1).trim());
+      }
+    }
+  }
+
+  getCookieHeader(): string {
+    return Array.from(this.cookies.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+  }
+
+  async request(urlStr: string, options: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<{ statusCode: number; headers: any; buffer: Buffer; text: string }> {
+    return new Promise((resolve, reject) => {
+      const url = new URL(urlStr);
+      const headers: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8',
+        ...(options.headers || {}),
+      };
+      const cookieHeader = this.getCookieHeader();
+      if (cookieHeader) headers['Cookie'] = cookieHeader;
+
+      const req = https.request(url, {
+        method: options.method || 'GET',
+        headers,
+      }, (res) => {
+        this.saveCookies(res.headers);
+        const chunks: Buffer[] = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          resolve({
+            statusCode: res.statusCode || 200,
+            headers: res.headers,
+            buffer: buf,
+            text: buf.toString('utf-8'),
+          });
+        });
+      });
+      req.on('error', reject);
+      if (options.body) req.write(options.body);
+      req.end();
+    });
+  }
+}
+
 /**
  * Downloads or extracts content from a Chomikuj file URL or preview URL.
- * Handles both docs*.chomikuj.pl HTML previews and file downloads.
+ * Automatically authenticates using the user's Chomikuj account (e.g. diweg68665)
+ * to claim files and download directly without manual browser interaction.
  */
 export async function downloadChomikujFile(targetUrl: string): Promise<{ buffer: Buffer; filename: string }> {
-  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+  const client = new ChomikujClient();
 
-  // 1. If it is a docs*.chomikuj.pl preview URL, we can scrape the document text and pages directly!
+  // 1. If it is a docs*.chomikuj.pl preview URL, extract plain text directly
   if (targetUrl.includes('docs') && targetUrl.includes('chomikuj.pl')) {
-    const resp = await fetch(targetUrl, {
-      headers: { 'User-Agent': userAgent },
-    });
-    if (!resp.ok) throw new Error(`Błąd pobierania podglądu z Chomikuj: status ${resp.status}`);
-    const html = await resp.text();
+    const resp = await client.request(targetUrl);
+    if (resp.statusCode >= 400) throw new Error(`Błąd pobierania podglądu z Chomikuj: status ${resp.statusCode}`);
 
-    // Extract text from paragraphs
     const paragraphs: string[] = [];
     const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
     let m;
-    while ((m = pRegex.exec(html)) !== null) {
+    while ((m = pRegex.exec(resp.text)) !== null) {
       const cleanP = m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
       if (cleanP) paragraphs.push(cleanP);
     }
@@ -173,37 +228,127 @@ export async function downloadChomikujFile(targetUrl: string): Promise<{ buffer:
     };
   }
 
-  // 2. For standard chomikuj.pl file URLs (e.g. https://chomikuj.pl/.../File,12345.doc)
-  const resp = await fetch(targetUrl, {
-    headers: {
-      'User-Agent': userAgent,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    },
-  });
+  // 2. Extract fileId and file name from URL (e.g. /mbirkhoff/.../Dziki+robot+-+Peter+Brown,8850774744.epub)
+  const fileIdMatch = targetUrl.match(/,(\d+)(?:\.[a-zA-Z0-9]+)?(?:[?#]|$)/) || targetUrl.match(/fileid[=:_]+(\d+)/i);
+  let resolvedFileId = fileIdMatch ? fileIdMatch[1] : null;
 
-  if (!resp.ok) {
-    throw new Error(`Nie udało się otworzyć strony pliku na Chomikuj: status ${resp.status}`);
-  }
-
-  const html = await resp.text();
-
-  // Check if there is a preview docs link on the page
-  const docsMatch = html.match(/href="(\/\/[^"]*docs\d*\.chomikuj\.pl\/[^"]+)"/i);
-  if (docsMatch) {
-    const docsUrl = `https:${docsMatch[1]}`;
-    return downloadChomikujFile(docsUrl);
-  }
-
-  // Extract filename
-  const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-  const rawTitle = titleMatch ? titleMatch[1].split('-')[0].trim() : 'chomikuj_plik';
-  const cleanFilename = rawTitle.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ._-]/g, '_');
+  const rawFilename = targetUrl.split('/').pop()?.split(',')[0]?.replace(/\+/g, ' ') || 'chomikuj_plik';
+  const extMatch = targetUrl.match(/\.(epub|pdf|mobi|cbz|txt|azw3|doc|docx)(?:[?#]|$)/i);
+  const detectedExt = extMatch ? extMatch[1].toLowerCase() : 'epub';
+  const cleanFilename = `${rawFilename.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ._ -]/g, '_').trim()}.${detectedExt}`;
 
   const settings = loadSettings();
-  const currentAccount = settings.chomikuj?.accountName || 'diweg68665';
+  const accountLogin = settings.chomikuj?.accountName || process.env.CHOMIKUJ_ACCOUNT || 'diweg68665';
+  const accountPassword = settings.chomikuj?.password || process.env.CHOMIKUJ_PASSWORD || 'QAZxsw321';
 
-  throw new Error(
-    `Plik "${cleanFilename}" znajduje się na chronionym serwerze Chomikuj.pl. Otwórz go w przeglądarce pod adresem: ${targetUrl} aby pobrać go ze swojego zalogowanego konta (${currentAccount}).`
-  );
+  console.log(`[Chomikuj] Rozpoczynanie autoryzowanego pobierania "${cleanFilename}" z konta ${accountLogin}...`);
+
+  // Step A: Visit homepage to obtain initial cookies and RequestVerificationToken
+  const homeResp = await client.request('https://chomikuj.pl');
+  const homeTokenMatch = homeResp.text.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/i);
+  const homeToken = homeTokenMatch ? homeTokenMatch[1] : '';
+
+  // Step B: Authenticate via TopBarLogin
+  if (accountLogin && accountPassword) {
+    const loginBody = `Login=${encodeURIComponent(accountLogin)}&Password=${encodeURIComponent(accountPassword)}&__RequestVerificationToken=${encodeURIComponent(homeToken || '')}`;
+    await client.request('https://chomikuj.pl/action/Login/TopBarLogin', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': 'https://chomikuj.pl/',
+      },
+      body: loginBody,
+    });
+  }
+
+  // Step C: Visit the file page as logged-in user
+  const pageResp = await client.request(targetUrl, {
+    headers: { 'Referer': 'https://chomikuj.pl/' },
+  });
+
+  // Check if file details page contains alternative preview docs link
+  const docsMatch = pageResp.text.match(/href="(\/\/[^"]*docs\d*\.chomikuj\.pl\/[^"]+)"/i);
+  if (docsMatch) {
+    return downloadChomikujFile(`https:${docsMatch[1]}`);
+  }
+
+  if (!resolvedFileId) {
+    const fidMatch = pageResp.text.match(/name="FileId"[^>]*value="(\d+)"/i) || pageResp.text.match(/fileid["':= ]+(\d+)/i);
+    if (fidMatch) resolvedFileId = fidMatch[1];
+  }
+
+  const pageTokenMatch = pageResp.text.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/i);
+  const fileToken = pageTokenMatch ? pageTokenMatch[1] : homeToken;
+
+  if (resolvedFileId) {
+    // Step D: Request DownloadContext to retrieve download license payload
+    const ctxBody = `fileId=${encodeURIComponent(resolvedFileId)}&__RequestVerificationToken=${encodeURIComponent(fileToken || '')}`;
+    const ctxResp = await client.request('https://chomikuj.pl/action/License/DownloadContext', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Referer': targetUrl,
+      },
+      body: ctxBody,
+    });
+
+    if (ctxResp.statusCode === 200) {
+      try {
+        const ctxJson = JSON.parse(ctxResp.text);
+        const htmlContent = ctxJson.Content || '';
+        const selMatch = htmlContent.match(/name="SerializedUserSelection"[^>]*value="([^"]+)"/i);
+        const orgMatch = htmlContent.match(/name="SerializedOrgFile"[^>]*value="([^"]+)"/i);
+
+        if (selMatch && orgMatch) {
+          // Step E: Confirm DownloadWarningAccept to get redirectUrl
+          const acceptBody = `FileId=${encodeURIComponent(resolvedFileId)}&SerializedUserSelection=${encodeURIComponent(selMatch[1])}&SerializedOrgFile=${encodeURIComponent(orgMatch[1])}&__RequestVerificationToken=${encodeURIComponent(fileToken || '')}`;
+          const acceptResp = await client.request('https://chomikuj.pl/action/License/DownloadWarningAccept', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json, text/javascript, */*; q=0.01',
+              'Referer': targetUrl,
+            },
+            body: acceptBody,
+          });
+
+          if (acceptResp.statusCode === 200) {
+            const acceptJson = JSON.parse(acceptResp.text);
+            const redirectUrl = acceptJson.redirectUrl;
+            if (redirectUrl) {
+              console.log(`[Chomikuj] Uzyskano bezpośredni link pobierania: ${redirectUrl.substring(0, 50)}...`);
+              const fileStreamResp = await client.request(redirectUrl, {
+                headers: { 'Referer': 'https://chomikuj.pl/' },
+              });
+
+              if (fileStreamResp.statusCode === 200 && fileStreamResp.buffer.length > 500) {
+                const buf = fileStreamResp.buffer;
+                const magic = buf.slice(0, 4);
+                const isEpubOrZip = magic[0] === 0x50 && magic[1] === 0x4b;
+                const isPdf = buf.slice(0, 4).toString('utf-8').startsWith('%PDF');
+                const finalExt = isPdf ? 'pdf' : isEpubOrZip ? 'epub' : detectedExt;
+                const finalName = `${rawFilename.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ._ -]/g, '_').trim()}.${finalExt}`;
+
+                console.log(`[Chomikuj] Pomyślnie pobrano książkę "${finalName}" (${(buf.length / 1024).toFixed(1)} KB)`);
+                return {
+                  buffer: buf,
+                  filename: finalName,
+                };
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn('[Chomikuj] Błąd w procedurze akceptacji pobierania:', e.message);
+      }
+    }
+  }
+
+  throw new Error(`Plik "${cleanFilename}" na Chomikuj wymaga płatnego transferu lub konto ${accountLogin} nie ma wystarczających uprawnień.`);
 }
+
+
 
