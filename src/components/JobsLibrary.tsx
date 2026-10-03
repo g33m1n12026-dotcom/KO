@@ -68,14 +68,14 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
   return (
     <div className="space-y-6">
       {/* Header bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border border-stone-200 rounded-2xl p-5 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 bg-white border border-stone-200 rounded-2xl p-3.5 sm:p-5 shadow-2xs">
         <div>
-          <h2 className="text-base font-bold text-stone-900 flex items-center gap-2">
-            <BookCheck className="w-5 h-5 text-stone-800" />
-            Kolejka zadań i Biblioteka gotowych EPUB
+          <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
+            <BookCheck className="w-4 h-4 sm:w-5 sm:h-5 text-stone-800" />
+            Biblioteka książek & Kolejka (OPDS)
           </h2>
-          <p className="text-xs text-stone-500 mt-1">
-            Wszystkie książki po ukończeniu tłumaczenia są natychmiast dostępne do pobrania przez wtyczkę na Kindle 10 lub bezpośrednio z przeglądarki.
+          <p className="text-[11px] text-stone-500 mt-0.5">
+            Książki są dostępne w katalogu OPDS na czytniku Kindle oraz do pobrania poniżej.
           </p>
         </div>
 

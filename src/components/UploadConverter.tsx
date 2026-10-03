@@ -64,22 +64,12 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
 
   return (
     <div className="space-y-6">
-      {/* Informative banner about Kindle 10 architecture */}
-      <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 text-amber-900 text-sm">
-        <div className="flex items-start gap-3">
-          <div className="p-1.5 bg-amber-100 rounded-lg text-amber-800 shrink-0">
-            <Cpu className="w-5 h-5" />
-          </div>
-          <div className="space-y-1">
-            <h4 className="font-semibold text-stone-900">
-              Jak to działa z Twoim Kindle 10 (512 MB RAM)?
-            </h4>
-            <p className="text-stone-600 leading-relaxed text-xs sm:text-sm">
-              Czytnik <strong>nigdy nie tłumaczy ani nie mieli PDF-a lokalnie</strong> — jego procesor 1 GHz i 512 MB RAM-u by tego nie przetrwały. Całą ciężką pracę (ekstrakcję tekstu z PDF, formatowanie akapitów, korektę literacką w AI i pakowanie do standardu EPUB 3) wykonuje ten serwer w chmurze.
-              Plik możesz wysłać <strong>bezpośrednio z czytnika</strong> (klikając w KOReaderze na dowolny plik PDF) lub <strong>wygodnie z telefonu/komputera poniżej</strong>.
-            </p>
-          </div>
-        </div>
+      {/* Compact informative banner */}
+      <div className="hidden sm:flex items-center gap-2.5 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-amber-900 text-xs">
+        <Cpu className="w-4 h-4 text-amber-700 shrink-0" />
+        <span className="leading-normal">
+          <strong>Optymalizacja Kindle:</strong> Cała konwersja PDF, formatowanie akapitów i korekta AI wykonywane są w chmurze, bez obciążania pamięci czytnika.
+        </span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -342,38 +332,17 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
           </form>
         </div>
 
-        {/* Side Card: Direct Kindle Usage Tips */}
+        {/* Side Card: Quick Usage Tips */}
         <div className="lg:col-span-4 space-y-4">
-          <div className="bg-stone-100/70 border border-stone-200 rounded-2xl p-5">
-            <h3 className="text-sm font-bold text-stone-900 mb-2">
-              Sposób 1: Bezpośrednio z Kindle 10
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 sm:p-5">
+            <h3 className="text-xs sm:text-sm font-bold text-stone-900 mb-2">
+              💡 Bezpośrednio z czytnika Kindle:
             </h3>
-            <ol className="text-xs text-stone-600 space-y-2 list-decimal list-inside leading-relaxed">
-              <li>
-                Pobierasz książkę (np. PDF z Z-Library) na czytnik.
-              </li>
-              <li>
-                W KOReaderze <strong>przytrzymujesz palec</strong> na pliku.
-              </li>
-              <li>
-                Wybierasz z menu: <span className="font-semibold text-stone-800">„AI: Przetłumacz na polski”</span>.
-              </li>
-              <li>
-                Wtyczka wysyła plik do tej chmury przez Wi-Fi i od razu zwalnia pamięć RAM czytnika.
-              </li>
-              <li>
-                Gdy wrócisz za chwilę, klikasz <span className="font-semibold text-stone-800">„Pobierz gotowy EPUB”</span>.
-              </li>
+            <ol className="text-xs text-stone-600 space-y-1.5 list-decimal list-inside leading-relaxed">
+              <li>W KOReaderze <strong>przytrzymaj palec</strong> na pliku PDF.</li>
+              <li>Wybierz <span className="font-semibold text-stone-800">„AI: Konwertuj / Przetłumacz”</span>.</li>
+              <li>Plik zostanie przetworzony w chmurze i pojawi się w Katalogu OPDS.</li>
             </ol>
-          </div>
-
-          <div className="bg-white border border-stone-200 rounded-2xl p-5">
-            <h3 className="text-sm font-bold text-stone-900 mb-2">
-              Sposób 2: Z telefonu lub komputera
-            </h3>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Możesz też upuścić plik w formularzu obok. Po ukończeniu zadania, Kindle z wtyczką sam pobierze gotowy plik, lub możesz zeskanować kod QR na ekranie.
-            </p>
           </div>
         </div>
       </div>

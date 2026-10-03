@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Cpu, Copy, Check, Wifi, ExternalLink, Download } from 'lucide-react';
+import { BookOpen, Copy, Check, Wifi, Sparkles, Search, BookMarked, FileText, Plug } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: string;
@@ -12,7 +12,6 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   serverUrl,
-  keysStatus,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -23,137 +22,73 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const navItems = [
-    { id: 'reader', label: '📱 Czytnik Moon+ & Pilot', icon: '📱' },
-    { id: 'convert', label: 'Tłumacz i Konwertuj', icon: '📄' },
-    { id: 'storybook', label: 'Książka na życzenie', icon: '✨' },
-    { id: 'search', label: 'Szukaj w sieci', icon: '🔍' },
-    { id: 'library', label: 'Kolejka i Biblioteka', icon: '📚' },
-    { id: 'plugin', label: 'Wtyczka Kindle 10', icon: '🔌' },
+    { id: 'search', label: 'Szukaj', fullLabel: 'Szukaj w sieci', icon: <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
+    { id: 'library', label: 'Książki', fullLabel: 'Biblioteka (OPDS)', icon: <BookMarked className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
+    { id: 'storybook', label: 'Kreator', fullLabel: 'Książka AI', icon: <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
+    { id: 'convert', label: 'Konwertuj', fullLabel: 'Konwerter', icon: <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
+    { id: 'reader', label: 'Czytnik', fullLabel: 'Czytnik Web', icon: <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
+    { id: 'plugin', label: 'Kindle', fullLabel: 'Wtyczka Kindle', icon: <Plug className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
   ];
 
   return (
-    <header className="border-b border-stone-200 bg-stone-50/80 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 py-3 sm:px-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          {/* Logo & Subtitle */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-stone-900 text-stone-100 flex items-center justify-center shadow-sm">
-              <BookOpen className="w-5 h-5" />
+    <header className="border-b border-stone-200/80 bg-white/95 backdrop-blur-md sticky top-0 z-40 shadow-xs">
+      <div className="max-w-6xl mx-auto px-2.5 sm:px-6 py-1 sm:py-2">
+        {/* Top compact bar */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Logo & title */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-stone-900 text-stone-100 flex items-center justify-center shrink-0">
+              <BookOpen className="w-3.5 h-3.5 text-amber-300" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold text-stone-900 tracking-tight">
-                  KOReader AI Cloud
-                </h1>
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-stone-200 text-stone-700">
-                  Kindle 10 Ready
-                </span>
-              </div>
-              <p className="text-xs text-stone-500">
-                Mostek chmurowy: konwersja PDF do EPUB, literackie tłumaczenie i wyszukiwarka
-              </p>
+            <div className="min-w-0 flex items-center gap-1.5">
+              <span className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight truncate">
+                KOReader Cloud
+              </span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" title="Serwer aktywny" />
             </div>
           </div>
 
-          {/* Connection Pill, APK Download & Keys */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Mobile App Install Button */}
-            <a
-              href="#reader"
-              onClick={(e) => {
-                // If there's an install prompt, try to trigger it
-                const deferredPrompt = (window as any).__pwaInstallPrompt;
-                if (deferredPrompt) {
-                  e.preventDefault();
-                  deferredPrompt.prompt();
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-medium rounded-lg transition active:scale-95 shadow-2xs"
-              title="Zainstaluj aplikację czytnika i asystenta na telefonie z Androidem (PWA)"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Aplikacja na telefon</span>
-            </a>
-
-            {/* Server URL for Kindle */}
-            <div
+          {/* Right actions: Server URL copy */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
               onClick={handleCopy}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-100 cursor-pointer transition shadow-2xs"
-              title="Kliknij, aby skopiować adres serwera do wpisania w Kindle"
+              className="flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 text-[11px] bg-stone-100/90 hover:bg-stone-200 border border-stone-200 rounded-md text-stone-700 transition cursor-pointer"
+              title="Kopiuj adres URL serwera"
             >
-              <Wifi className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-mono truncate max-w-[160px] sm:max-w-[220px]">
-                {serverUrl || 'Ładowanie adresu...'}
+              <Wifi className="w-3 h-3 text-emerald-600 shrink-0" />
+              <span className="font-mono text-[10px] hidden md:inline truncate max-w-[130px]">
+                {serverUrl.replace(/^https?:\/\//, '')}
+              </span>
+              <span className="text-[10px] font-medium">
+                {copied ? 'Skopiowano!' : 'URL'}
               </span>
               {copied ? (
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <Check className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
               ) : (
-                <Copy className="w-3.5 h-3.5 text-stone-400" />
+                <Copy className="w-2.5 h-2.5 text-stone-400 shrink-0 hidden sm:inline" />
               )}
-            </div>
-
-            {/* AI Providers Badges */}
-            <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-stone-600">
-              <span
-                className={`px-2 py-1 rounded-md border ${
-                  keysStatus.gemini
-                    ? 'bg-blue-50 text-blue-900 border-blue-200'
-                    : 'bg-stone-100 text-stone-400 border-stone-200'
-                }`}
-                title="Google Gemini (Szybki doradca i tłumaczenie)"
-              >
-                Gemini {keysStatus.gemini ? '●' : '○'}
-              </span>
-              <span
-                className={`px-2 py-1 rounded-md border ${
-                  keysStatus.openrouter
-                    ? 'bg-purple-50 text-purple-900 border-purple-200'
-                    : 'bg-stone-100 text-stone-400 border-stone-200'
-                }`}
-                title="OpenRouter (DeepSeek / Llama)"
-              >
-                DeepSeek {keysStatus.openrouter ? '●' : '○'}
-              </span>
-              <span
-                className={`px-2 py-1 rounded-md border ${
-                  keysStatus.claude
-                    ? 'bg-amber-50 text-amber-900 border-amber-200'
-                    : 'bg-stone-100 text-stone-400 border-stone-200'
-                }`}
-                title="Anthropic Claude 3.5 Sonnet (Do przekładu literackiego)"
-              >
-                Claude {keysStatus.claude ? '●' : '○'}
-              </span>
-              <span
-                className={`px-2 py-1 rounded-md border ${
-                  keysStatus.openai
-                    ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                    : 'bg-stone-100 text-stone-400 border-stone-200'
-                }`}
-                title="OpenAI GPT-4o (Struktury i tłumaczenie)"
-              >
-                GPT-4o {keysStatus.openai ? '●' : '○'}
-              </span>
-            </div>
+            </button>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <nav className="flex space-x-1 mt-3 border-t border-stone-200/60 pt-2 overflow-x-auto">
-          {navItems.map(item => {
+        {/* Clean, compact mobile-friendly navigation tab bar */}
+        <nav className="flex space-x-1 mt-1 pt-1 border-t border-stone-100 overflow-x-auto no-scrollbar scroll-smooth">
+          {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition flex items-center gap-1.5 ${
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-medium rounded-lg whitespace-nowrap transition flex items-center gap-1 cursor-pointer shrink-0 ${
                   isActive
                     ? 'bg-stone-900 text-white shadow-xs'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
                 }`}
               >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
+                {item.icon}
+                <span className="sm:hidden">{item.label}</span>
+                <span className="hidden sm:inline">{item.fullLabel}</span>
               </button>
             );
           })}

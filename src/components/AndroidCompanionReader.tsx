@@ -56,7 +56,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   onRefreshJobs,
 }) => {
   // Main view modes
-  const [activeSubTab, setActiveSubTab] = useState<'reader' | 'remote' | 'apk'>('reader');
+  const [activeSubTab, setActiveSubTab] = useState<'reader' | 'remote'>('reader');
 
   // ----------------------------------------------------
   // Reader State
@@ -133,22 +133,11 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       setChapters([
         {
           id: 'demo_1',
-          title: 'Wprowadzenie do KOReader AI Companion',
+          title: 'Wybierz książkę do czytania',
           content: `
-            <h2>Witaj w mobilnym czytniku i pilocie Kindle</h2>
-            <p>Ta aplikacja łączy funkcjonalność zaawansowanego czytnika ebooków (alternatywa dla Moon+ Reader) z bezprzewodowym pilotem dla Twojego czytnika Kindle z KOReaderem.</p>
-            <p>Możesz wgrać dowolny plik <strong>.EPUB</strong>, <strong>.CBZ</strong> lub <strong>.TXT</strong> z komputera/telefonu, otworzyć książki przetłumaczone przez AI lub wygenerowane e-booki.</p>
-            <p>Wybierz dowolną pozycję z biblioteki powyżej, aby natychmiast zanurzyć się w lekturze z ilustracjami i podziałem na rozdziały.</p>
-          `,
-        },
-        {
-          id: 'demo_2',
-          title: 'Rozdział 1: Bezprzewodowy transfer na Kindle',
-          content: `
-            <h2>Jak błyskawicznie przesłać książkę z komputera/telefonu na czytnik?</h2>
-            <p>W KOReaderze na czytniku Kindle wejdź w <strong>Menu główne</strong> ➔ <strong>Narzędzia</strong> ➔ <strong>Narzędzia dodatkowe</strong> ➔ <strong>Uruchom serwer bezprzewodowy</strong>.</p>
-            <p>KOReader wyświetli adres IP czytnika (np. <code>192.168.1.45:8080</code>). Wpisz ten adres w zakładce <em>Pilot Kindle</em> i kliknij <strong>Prześlij na czytnik</strong>.</p>
-            <p>Książka zostanie natychmiast wysłana prosto do pamięci Kindle bez podłączania żadnych kabli!</p>
+            <h2>Czytnik Web</h2>
+            <p>Wybierz dowolną pozycję z zakładki <strong>Książki</strong> lub pobierz nową w zakładce <strong>Szukaj</strong>.</p>
+            <p>Możesz także wgrać własny plik w formacie EPUB lub PDF, aby czytać go tutaj lub przesłać bezprzewodowo na Kindle.</p>
           `,
         },
       ]);
@@ -685,51 +674,38 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   return (
     <div className="space-y-4">
       {/* Navigation Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-stone-900 text-white rounded-2xl shadow-sm">
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+      <div className="flex items-center justify-between gap-2 p-1.5 bg-stone-900 text-white rounded-xl shadow-xs">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => setActiveSubTab('reader')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
               activeSubTab === 'reader'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
           >
-            <BookOpen className="w-4 h-4" />
-            <span>📖 Czytnik Moon+</span>
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Czytnik EPUB</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveSubTab('remote')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
               activeSubTab === 'remote'
                 ? 'bg-emerald-700 text-white shadow-xs'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
           >
-            <Wifi className="w-4 h-4" />
-            <span>📡 Pilot Kindle & Wi-Fi Beam</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('apk')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
-              activeSubTab === 'apk'
-                ? 'bg-blue-700 text-white shadow-xs'
-                : 'text-stone-300 hover:text-white hover:bg-stone-800'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            <span>📲 Pobierz APK / PWA</span>
+            <Wifi className="w-3.5 h-3.5" />
+            <span>Pilot Kindle Wi-Fi</span>
           </button>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] text-stone-300 pr-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>Serwer 24/7 Render: Aktywny</span>
+        <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-stone-300 pr-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <span>Serwer aktywny</span>
         </div>
       </div>
 
@@ -813,7 +789,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
               {/* Open File from Phone */}
               <label className="cursor-pointer px-2 py-1 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition flex items-center gap-1 text-[11px] font-medium shadow-xs">
                 <UploadCloud className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Wgraj z telefonu</span>
+                <span className="hidden sm:inline">Wgraj plik</span>
                 <input
                   type="file"
                   accept=".epub,.txt"
@@ -1140,84 +1116,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         </div>
       )}
 
-      {/* ==================================================== */}
-      {/* SUB-TAB 3: ANDROID APK GENERATION & PWA GUIDE */}
-      {/* ==================================================== */}
-      {activeSubTab === 'apk' && (
-        <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-xs space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center">
-              <Smartphone className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-stone-900">
-                Aplikacja na telefon Android (APK & PWA)
-              </h2>
-              <p className="text-xs text-stone-500">
-                Zainstaluj jako aplikację natywną na swoim telefonie
-              </p>
-            </div>
-          </div>
 
-          <div className="space-y-4">
-            {/* Option 1: Official Instant PWA Installation */}
-            <div className="p-5 rounded-xl border border-emerald-300 bg-emerald-50/60 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
-                  ZALECANA METODA • 100% KOMPATYBILNOŚCI
-                </span>
-                <span className="text-[11px] font-semibold text-emerald-800">
-                  Android & iOS • Bezpieczna
-                </span>
-              </div>
-              <h3 className="text-base font-bold text-stone-900">
-                📲 Zainstaluj aplikację na telefonie (PWA)
-              </h3>
-              <p className="text-xs text-stone-600 leading-relaxed">
-                Aplikacja działa jako pełnoprawna, certyfikowana aplikacja mobilna z obsługą pełnoekranową, dyktowaniem głosowym z mikrofonu, czytnikiem offline EPUB oraz pilotem Wi-Fi dla czytnika Kindle.
-              </p>
-
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const prompt = (window as any).__pwaInstallPrompt;
-                    if (prompt) {
-                      prompt.prompt();
-                    } else {
-                      alert('Aby zainstalować na telefonie:\n1. Otwórz tę stronę w Chrome lub przeglądarce telefonu.\n2. Dotknij menu (trzy kropki w prawym górnym rogu).\n3. Wybierz „Zainstaluj aplikację” lub „Dodaj do ekranu głównego”.');
-                    }
-                  }}
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-98 text-white font-bold text-sm flex items-center justify-center gap-2 transition shadow-md"
-                >
-                  <Download className="w-5 h-5" />
-                  <span>Zainstaluj aplikację na ekranie telefonu</span>
-                </button>
-              </div>
-
-              <div className="p-3 bg-white/90 border border-emerald-200 rounded-lg text-xs text-stone-700 space-y-1">
-                <div className="font-semibold text-stone-800">Instrukcja szybkiej instalacji w 10 sekund:</div>
-                <ol className="list-decimal list-inside space-y-1 text-[11px] text-stone-600 font-medium">
-                  <li>Otwórz na telefonie adres serwera: <code className="bg-stone-100 px-1 py-0.5 rounded">{serverUrl}</code></li>
-                  <li>W przeglądarce (Chrome, Samsung Internet, Firefox) kliknij <strong>trzy kropki (Menu)</strong>.</li>
-                  <li>Wybierz <strong>„Zainstaluj aplikację”</strong> lub <strong>„Dodaj do ekranu głównego”</strong>.</li>
-                  <li>Aplikacja otworzy się na pełnym ekranie z własną ikoną na pulpicie telefonu!</li>
-                </ol>
-              </div>
-            </div>
-
-            {/* Note regarding raw APK */}
-            <div className="p-4 rounded-xl border border-stone-200 bg-stone-50 space-y-2">
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700">
-                INFORMACJA TECHNICZNA O PLIKACH APK
-              </span>
-              <p className="text-xs text-stone-600 leading-relaxed">
-                Nowe wersje systemu Android (Android 11, 12, 13, 14, 15) ze względów bezpieczeństwa blokują instalację surowych, niesygnowanych kluczem deweloperskim pakietów APK (wyświetlając błąd „Problem z analizowaniem pakietu”). Dlatego oficjalnym, rekomendowanym przez Google standardem instalacji jest <strong>PWA (Powyższy przycisk)</strong> — gwarantuje natychmiastowe działanie, pełny ekran i zero ostrzeżeń bezpieczeństwa.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ==================================================== */}
       {/* MODAL: AI DICTIONARY / TRANSLATOR / EXPLAINER */}

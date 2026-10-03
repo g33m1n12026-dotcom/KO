@@ -13,8 +13,9 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('mode') === 'reader') return 'reader';
+      if (params.get('tab')) return params.get('tab') as string;
     }
-    return 'reader';
+    return 'search';
   });
   const [serverUrl, setServerUrl] = useState<string>(window.location.origin);
   const [keysStatus, setKeysStatus] = useState<{ openrouter: boolean; openai: boolean; claude: boolean; gemini?: boolean }>({
@@ -92,7 +93,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:px-6">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-2.5 py-3 sm:px-6 sm:py-6">
         {activeTab === 'reader' && (
           <AndroidCompanionReader
             serverUrl={serverUrl}

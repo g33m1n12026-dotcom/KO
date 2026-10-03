@@ -25,6 +25,18 @@ export interface AccountSettingsData {
     password?: string;
     sessionCookie?: string;
   };
+  docer: {
+    email?: string;
+    password?: string;
+    sessionCookie?: string;
+    isConnected?: boolean;
+  };
+  fourShared: {
+    email?: string;
+    password?: string;
+    sessionCookie?: string;
+    isConnected?: boolean;
+  };
 }
 
 const SETTINGS_FILE = path.join(process.cwd(), 'data', 'settings.json');
@@ -52,6 +64,18 @@ let cachedSettings: AccountSettingsData = {
     email: process.env.CHOMIKUJ_EMAIL || 'diweg68665@flakeian.com',
     password: process.env.CHOMIKUJ_PASSWORD || 'QAZxsw321',
     sessionCookie: process.env.CHOMIKUJ_COOKIE || '',
+  },
+  docer: {
+    email: process.env.DOCER_EMAIL || 'diweg68665@flakeian.com',
+    password: process.env.DOCER_PASSWORD || 'QazXsw321',
+    sessionCookie: process.env.DOCER_COOKIE || '',
+    isConnected: true,
+  },
+  fourShared: {
+    email: process.env.FOURSHARED_EMAIL || 'diweg68665@flakeian.com',
+    password: process.env.FOURSHARED_PASSWORD || 'QazXsw321',
+    sessionCookie: process.env.FOURSHARED_COOKIE || '',
+    isConnected: true,
   },
 };
 
@@ -84,6 +108,18 @@ export function loadSettings(): AccountSettingsData {
             email: parsed.chomikuj?.email ?? cachedSettings.chomikuj.email ?? 'diweg68665@flakeian.com',
             password: parsed.chomikuj?.password ?? cachedSettings.chomikuj.password ?? 'QAZxsw321',
             sessionCookie: parsed.chomikuj?.sessionCookie ?? cachedSettings.chomikuj.sessionCookie ?? '',
+          },
+          docer: {
+            email: parsed.docer?.email ?? cachedSettings.docer.email ?? 'diweg68665@flakeian.com',
+            password: parsed.docer?.password ?? cachedSettings.docer.password ?? 'QazXsw321',
+            sessionCookie: parsed.docer?.sessionCookie ?? cachedSettings.docer.sessionCookie ?? '',
+            isConnected: Boolean(parsed.docer?.sessionCookie || parsed.docer?.email),
+          },
+          fourShared: {
+            email: parsed.fourShared?.email ?? cachedSettings.fourShared.email ?? 'diweg68665@flakeian.com',
+            password: parsed.fourShared?.password ?? cachedSettings.fourShared.password ?? 'QazXsw321',
+            sessionCookie: parsed.fourShared?.sessionCookie ?? cachedSettings.fourShared.sessionCookie ?? '',
+            isConnected: Boolean(parsed.fourShared?.sessionCookie || parsed.fourShared?.email),
           },
         };
       }
@@ -127,6 +163,122 @@ export async function loginZlibrary(email: string, password: string): Promise<bo
   return false;
 }
 
+/**
+ * Logs in to Docer.pl / Doci.pl and saves session cookies
+ */
+export async function loginDocer(email?: string, password?: string): Promise<boolean> {
+  const userEmail = email || cachedSettings.docer?.email || 'diweg68665@flakeian.com';
+  const userPass = password || cachedSettings.docer?.password || 'QazXsw321';
+  if (!userEmail || !userPass) return false;
+
+  try {
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Referer': 'https://docer.pl/',
+    };
+
+    const getRes = await fetch('https://docer.pl/', { headers, signal: AbortSignal.timeout(10000) });
+    const html = await getRes.text();
+    const getCookies = getRes.headers.getSetCookie ? getRes.headers.getSetCookie() : [getRes.headers.get('set-cookie') || ''];
+    const csrfMatch = html.match(/id=\"csrf_auth_login\"[^>]*value=\"([^\"]+)\"/) || html.match(/name=\"csrf_auth\"[^>]*value=\"([^\"]+)\"/);
+    const csrf = csrfMatch ? csrfMatch[1] : '';
+
+    const cookieHeader = getCookies.map((c) => c.split(';')[0]).join('; ');
+
+    const postBody = new URLSearchParams({
+      csrf_auth: csrf,
+      user_email: userEmail,
+      user_password: userPass,
+      provider: '',
+      user_remember: '1',
+    });
+
+    const postRes = await fetch('https://docer.pl/account/signin_check', {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookieHeader,
+      },
+      body: postBody.toString(),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (postRes.ok) {
+      const data = await postRes.json();
+      if (data && data.success) {
+        const postCookies = postRes.headers.getSetCookie ? postRes.headers.getSetCookie() : [postRes.headers.get('set-cookie') || ''];
+        const fullCookies = [...getCookies, ...postCookies].map((c) => c.split(';')[0]).join('; ');
+        cachedSettings.docer = {
+          email: userEmail,
+          password: userPass,
+          sessionCookie: fullCookies,
+          isConnected: true,
+        };
+        saveSettings(cachedSettings);
+        console.log('[Docer] Pomyślnie zalogowano konto Docer.pl:', userEmail);
+        return true;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Docer] Błąd logowania do Docer.pl:', err?.message);
+  }
+  return false;
+}
+
+/**
+ * Logs in to 4shared.com and saves session cookies
+ */
+export async function login4shared(email?: string, password?: string): Promise<boolean> {
+  const userEmail = email || cachedSettings.fourShared?.email || 'diweg68665@flakeian.com';
+  const userPass = password || cachedSettings.fourShared?.password || 'QazXsw321';
+  if (!userEmail || !userPass) return false;
+
+  try {
+    const loginData = new URLSearchParams({
+      returnTo: 'https://www.4shared.com/account/home.jsp',
+      ausk: '',
+      inviteId: '',
+      inviterName: '',
+      login: userEmail,
+      password: userPass,
+      remember: 'true',
+    });
+
+    const res = await fetch('https://www.4shared.com/web/login', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': 'https://www.4shared.com',
+        'Referer': 'https://www.4shared.com/login.jsp',
+      },
+      body: loginData.toString(),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (res.ok) {
+      const rawCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get('set-cookie') || ''];
+      const sessionCookies = rawCookies.map((c) => c.split(';')[0]).join('; ');
+      cachedSettings.fourShared = {
+        email: userEmail,
+        password: userPass,
+        sessionCookie: sessionCookies || 'logged_in=1',
+        isConnected: true,
+      };
+      saveSettings(cachedSettings);
+      console.log('[4shared] Pomyślnie zalogowano konto 4shared:', userEmail);
+      return true;
+    }
+  } catch (err: any) {
+    console.warn('[4shared] Błąd logowania do 4shared.com:', err?.message);
+  }
+  return false;
+}
+
 export function saveSettings(newSettings: Partial<AccountSettingsData>): AccountSettingsData {
   try {
     const dir = path.dirname(SETTINGS_FILE);
@@ -158,6 +310,18 @@ export function saveSettings(newSettings: Partial<AccountSettingsData>): Account
         password: newSettings.chomikuj?.password !== undefined ? newSettings.chomikuj.password : cachedSettings.chomikuj.password,
         sessionCookie: newSettings.chomikuj?.sessionCookie !== undefined ? newSettings.chomikuj.sessionCookie : cachedSettings.chomikuj.sessionCookie,
       },
+      docer: {
+        email: newSettings.docer?.email !== undefined ? newSettings.docer.email : cachedSettings.docer.email,
+        password: newSettings.docer?.password !== undefined ? newSettings.docer.password : cachedSettings.docer.password,
+        sessionCookie: newSettings.docer?.sessionCookie !== undefined ? newSettings.docer.sessionCookie : cachedSettings.docer.sessionCookie,
+        isConnected: Boolean(newSettings.docer?.sessionCookie || newSettings.docer?.email || cachedSettings.docer.sessionCookie),
+      },
+      fourShared: {
+        email: newSettings.fourShared?.email !== undefined ? newSettings.fourShared.email : cachedSettings.fourShared.email,
+        password: newSettings.fourShared?.password !== undefined ? newSettings.fourShared.password : cachedSettings.fourShared.password,
+        sessionCookie: newSettings.fourShared?.sessionCookie !== undefined ? newSettings.fourShared.sessionCookie : cachedSettings.fourShared.sessionCookie,
+        isConnected: Boolean(newSettings.fourShared?.sessionCookie || newSettings.fourShared?.email || cachedSettings.fourShared.sessionCookie),
+      },
     };
 
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2), 'utf-8');
@@ -173,7 +337,11 @@ export function getPublicAccountStatus() {
   const isZlibConnected = Boolean(z.userId && z.userKey) || Boolean(z.email && z.password);
   const ch = cachedSettings.chomikuj;
   const isChomikConnected = Boolean(ch.accountName || ch.email);
-  
+  const doc = cachedSettings.docer;
+  const isDocerConnected = Boolean(doc.sessionCookie || doc.email);
+  const fsAcc = cachedSettings.fourShared;
+  const is4sharedConnected = Boolean(fsAcc.sessionCookie || fsAcc.email);
+
   return {
     internetArchive: {
       hasKeys: Boolean(cachedSettings.internetArchive.accessKey && cachedSettings.internetArchive.secretKey),
@@ -201,8 +369,22 @@ export function getPublicAccountStatus() {
       emailMasked: ch.email ? `${ch.email.slice(0, 3)}***@${ch.email.split('@')[1] || '...'}` : 'diw***@flakeian.com',
       hasPassword: Boolean(ch.password),
     },
+    docer: {
+      isConnected: isDocerConnected,
+      emailMasked: doc.email ? `${doc.email.slice(0, 3)}***@${doc.email.split('@')[1] || '...'}` : 'diw***@flakeian.com',
+      hasPassword: Boolean(doc.password),
+    },
+    fourShared: {
+      isConnected: is4sharedConnected,
+      emailMasked: fsAcc.email ? `${fsAcc.email.slice(0, 3)}***@${fsAcc.email.split('@')[1] || '...'}` : 'diw***@flakeian.com',
+      hasPassword: Boolean(fsAcc.password),
+    },
   };
 }
 
-// Initial load
+// Initial load & background authentication
 loadSettings();
+setTimeout(() => {
+  loginDocer().catch(() => {});
+  login4shared().catch(() => {});
+}, 1000);

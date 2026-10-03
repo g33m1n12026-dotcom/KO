@@ -19,6 +19,7 @@ export function getMainLua(defaultServerUrl: string = 'https://ko-zviz.onrender.
     Odciąża procesor i 512 MB RAM czytnika, przenosząc parsowanie, OCR i tłumaczenie do chmury.
 --]]
 
+local Device = require("device")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
@@ -307,58 +308,62 @@ end
 function AIBooks:addToMainMenu(menu_items)
     -- Główny wpis w Narzędziach (ikona klucza)
     menu_items.ai_books_main = {
-        text = _("📚 AI Książki, Komiksy i Tłumacz"),
+        text = _("📚 AI Książki & Tłumacz"),
         sorting_hint = "tools",
         sub_item_table = {
             {
-                text = _("⚡ 1. Katalog OPDS & Biblioteka (Pobieranie w tle - bez zacinania)"),
+                text = _("⚡ 1. Katalog OPDS (Pobierz książki)"),
                 callback = function() self:openNativeOpds() end,
             },
             {
-                text = _("⏳ 2. Książki w toku & Zadania chmury AI"),
-                callback = function() self:showTasksList() end,
-            },
-            {
-                text = _("🔍 3. Szukaj książki w sieci (Chomikuj, Z-Lib, Lektury)"),
+                text = _("🔍 2. Szukaj książki w sieci"),
                 callback = function() self:showSearchDialog() end,
             },
             {
-                text = _("💡 4. Doradca AI: Dobierz książkę na dziś"),
+                text = _("⏳ 3. Zadania w toku & Status"),
+                callback = function() self:showTasksList() end,
+            },
+            {
+                text = _("💡 4. Doradca AI"),
                 callback = function() self:showRecommendDialog() end,
             },
             {
-                text = _("📄 5. Przetłumacz lub konwertuj plik z czytnika"),
+                text = _("📄 5. Przetłumacz plik z czytnika"),
                 callback = function() self:showLocalFilesDialog() end,
             },
             {
-                text = _("✨ 6. Książka na życzenie (AI Storybook)"),
+                text = _("✨ 6. Książka na życzenie (Storybook)"),
                 callback = function() self:showStorybookDialog() end,
             },
             {
-                text = _("⚙️ 7. Ustawienia serwera i kont"),
+                text = _("⚙️ 7. Ustawienia serwera"),
                 callback = function() self:showSettingsDialog() end,
+            },
+            {
+                text = _("📱 Kod QR do przeglądarki"),
+                callback = function() self:showMobileQRCode() end,
             },
         },
     }
 
-    -- Skróty pod Lupką (Wyszukiwanie)
+    -- Skróty pod Lupką (Wyszukiwanie) - czyste i czytelne
     menu_items.ai_books_opds_quick = {
-        text = _("⚡ Katalog OPDS (Pobieranie w tle)"),
+        text = _("⚡ Katalog OPDS"),
         sorting_hint = "search",
         callback = function() self:openNativeOpds() end,
     }
-    menu_items.ai_books_tasks_quick = {
-        text = _("⏳ Książki w toku & Zadania chmury"),
-        sorting_hint = "search",
-        callback = function() self:showTasksList() end,
-    }
     menu_items.ai_books_search_quick = {
-        text = _("🔍 Szukaj książki w sieci (AI Przekład)"),
+        text = _("🔍 Szukaj książki w sieci"),
         sorting_hint = "search",
         callback = function() self:showSearchDialog() end,
     }
+    menu_items.ai_books_tasks_quick = {
+        text = _("⏳ Zadania w toku"),
+        sorting_hint = "search",
+        callback = function() self:showTasksList() end,
+    }
     menu_items.ai_books_advisor_quick = {
-        text = _("💡 Doradca AI: Dobierz książkę"),
+        text = _("💡 Doradca AI"),
         sorting_hint = "search",
         callback = function() self:showRecommendDialog() end,
     }
@@ -1233,20 +1238,12 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
             end,
         })
         table.insert(actionItems, {
-            text = _("🔄 2. Pobierz ponownie prosto na czytnik"),
-            callback = function() self:downloadCompletedFile(task) end,
-        })
-        table.insert(actionItems, {
-            text = _("⚡ 3. Otwórz w Katalogu OPDS KOReadera"),
+            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera"),
             callback = function() self:openNativeOpds() end,
         })
     elseif task.status == "completed" and task.outputEpubFilename then
         table.insert(actionItems, {
-            text = _("📥 1. Pobierz teraz na czytnik (Bezpieczne pobieranie w tle)"),
-            callback = function() self:downloadCompletedFile(task) end,
-        })
-        table.insert(actionItems, {
-            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera (Wbudowana przeglądarka)"),
+            text = _("⚡ 1. Otwórz w Katalogu OPDS (Pobieranie natywne w tle - bez zacinania)"),
             callback = function() self:openNativeOpds() end,
         })
     else
@@ -1307,138 +1304,57 @@ function AIBooks:deleteServerTask(task)
     UIManager:show(confirm)
 end
 
--- Bezpieczne pobieranie pliku EPUB / CBZ prosto do pamięci Kindle z weryfikacją poprawności (nigdy nie zawiesza czytnika)
-function AIBooks:downloadCompletedFile(task)
-    self:ensureTargetDir()
-    local rawFilename = task.outputEpubFilename or "ksiazka.epub"
-    local filename = rawFilename:gsub("[^a-zA-Z0-9._-]", "_")
-    local dest_path = self.target_folder .. "/" .. filename
-    local temp_path = dest_path .. ".download.tmp"
+-- Wyświetlanie kodu QR prowadzącego do aplikacji mobilnej w przeglądarce telefonu
+function AIBooks:showMobileQRCode()
+    local mobile_url = self.server_url .. "/?mobile=1"
 
-    local info = InfoMessage:new{
-        text = _("Pobieranie e-booka...\\nAI_Books/") .. filename:sub(1, 25) .. _("\\nProszę czekać..."),
-    }
-    UIManager:show(info)
+    -- 1. Oficjalny natywny widżet QRMessage w KOReaderze (qrencode)
+    local ok_qr, QRMessage = pcall(require, "ui/widget/qrmessage")
+    if ok_qr and QRMessage then
+        local Screen = Device.screen
+        local qr_size = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.70)
+        local qr = QRMessage:new{
+            text = mobile_url,
+            width = qr_size,
+            height = qr_size,
+        }
+        UIManager:show(qr)
+        return
+    end
 
-    -- scheduleIn(0.5) pozwala KOReaderowi zamknąć menu i odświeżyć ekran e-ink przed rozpoczęciem transferu
-    UIManager:scheduleIn(0.5, function()
-        self:withNetwork(function()
-            local f = io.open(temp_path, "wb")
-            if not f then
-                pcall(function() UIManager:close(info) end)
-                UIManager:show(InfoMessage:new{ text = _("Błąd zapisu w folderze: ") .. dest_path, timeout = 3 })
-                return
-            end
-
-            local download_url = self.server_url .. "/api/koreader/download/" .. task.id
-            local code, headers, status
-
-            -- 1. Użyj oficjalnego OPDSClient KOReadera jeśli dostępny (identyczna architektura co OPDS, bez zawieszania)
-            local ok_client, OPDSClient = pcall(require, "plugins/opds.koplugin/opdsclient")
-            if not ok_client or not OPDSClient then
-                ok_client, OPDSClient = pcall(require, "opdsclient")
-            end
-            local CookieJar = pcall(require, "cookiejar") and require("cookiejar") or nil
-
-            local socketutil = pcall(require, "socketutil") and require("socketutil") or nil
-            if socketutil and socketutil.set_timeout then
-                socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT or 15, socketutil.FILE_TOTAL_TIMEOUT or 60)
-            end
-
-            if ok_client and OPDSClient and OPDSClient.new then
-                local client = OPDSClient:new{ cookie_jar = CookieJar and CookieJar:new() or nil }
-                code, headers, status = client:request{
-                    url = download_url,
-                    method = "GET",
-                    headers = {
-                        ["Accept-Encoding"] = "identity",
-                        ["bypass-tunnel-reminder"] = "1",
-                        ["Connection"] = "close",
-                        ["User-Agent"] = "KOReader-AIBooks/2.0",
-                    },
-                    sink = ltn12.sink.file(f),
+    -- 2. Natywny widżet QRWidget
+    local ok_qrw, QRWidget = pcall(require, "ui/widget/qrwidget")
+    if ok_qrw and QRWidget then
+        local Screen = Device.screen
+        local qr_size = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.65)
+        local qr = QRWidget:new{
+            text = mobile_url,
+            width = qr_size,
+            height = qr_size,
+        }
+        local ButtonTable = require("ui/widget/buttontable")
+        local dialog
+        dialog = Dialog:new{
+            title = _("📱 Zeskanuj telefonem"),
+            qr,
+            buttons = {
+                {
+                    {
+                        text = _("Zamknij"),
+                        callback = function() UIManager:close(dialog) end,
+                    }
                 }
-            else
-                local res
-                res, code, headers, status = doHttpRequest{
-                    url = download_url,
-                    method = "GET",
-                    headers = {
-                        ["Accept-Encoding"] = "identity",
-                        ["Connection"] = "close",
-                    },
-                    sink = ltn12.sink.file(f),
-                }
-            end
+            }
+        }
+        UIManager:show(dialog)
+        return
+    end
 
-            f:close()
-
-            if socketutil and socketutil.reset_timeout then
-                socketutil:reset_timeout()
-            end
-
-            pcall(function() UIManager:close(info) end)
-
-            if code == 200 then
-                -- Weryfikacja sygnatury pliku e-booka (chroni czytnik przed zawieszeniem i śmieciami HTML)
-                local check_f = io.open(temp_path, "rb")
-                local magic = check_f and check_f:read(4) or ""
-                local file_size = check_f and check_f:seek("end") or 0
-                if check_f then check_f:close() end
-
-                local is_zip_epub = magic:sub(1, 2) == "PK"
-                local is_pdf = magic:sub(1, 4) == "%PDF"
-                local is_html_error = magic:sub(1, 1) == "<" or magic:sub(1, 1) == "{"
-
-                if is_html_error or file_size < 1000 or (not is_zip_epub and not is_pdf and not filename:lower():match("%.mobi$") and not filename:lower():match("%.txt$")) then
-                    os.remove(temp_path)
-                    collectgarbage("step", 20)
-                    UIManager:show(InfoMessage:new{
-                        text = _("⚠️ Błąd: Pobrany plik nie jest prawidłowym e-bookiem!\\nSerwer zwrócił stronę WWW lub błąd zamiast książki.\\nSpróbuj wybrać inną wersję z listy wyszukiwania."),
-                        timeout = 5
-                    })
-                    return
-                end
-
-                -- Plik jest prawidłowym e-bookiem!
-                os.remove(dest_path)
-                os.rename(temp_path, dest_path)
-                collectgarbage("step", 20)
-
-                -- Odśwież listę plików w KOReader bez konieczności restartu czytnika
-                pcall(function()
-                    local ok_fm, FileManager = pcall(require, "apps/filemanager/filemanager")
-                    if ok_fm and FileManager and FileManager.instance then
-                        FileManager.instance:updateFolder()
-                    end
-                end)
-
-                local confirm = ConfirmBox:new{
-                    text = _("✅ Plik pobrany pomyślnie!\\nZapisano w: ") .. dest_path .. _("\\n\\nCzy chcesz go teraz otworzyć w czytniku?"),
-                    ok_text = _("Otwórz teraz"),
-                    cancel_text = _("Później"),
-                    ok_callback = function()
-                        local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
-                        if ok_reader and ReaderUI and ReaderUI.showReader then
-                            ReaderUI:showReader(dest_path)
-                        else
-                            local ok_evt, Event = pcall(require, "ui/event")
-                            if ok_evt and Event then
-                                UIManager:broadcastEvent(Event:new("OpenFile", dest_path))
-                            end
-                        end
-                    end,
-                }
-                UIManager:nextTick(function()
-                    UIManager:show(confirm)
-                end)
-            else
-                os.remove(temp_path)
-                collectgarbage("collect")
-                self:handleHttpError(code, status)
-            end
-        end)
-    end)
+    -- 3. Czytelny fallback tekstowy z adresem serwera
+    local InfoMessage = require("ui/widget/infomessage")
+    UIManager:show(InfoMessage:new{
+        text = _("📱 Wyszukiwarka książek na telefon:\\n\\n") .. mobile_url .. _("\\n\\nOtwórz ten adres w smartfonie, aby wygodnie wyszukiwać książki i pobierać je na czytnik przez OPDS."),
+    })
 end
 
 -- Ustawienia adresu serwera z czytelnym opisem i statusem kont

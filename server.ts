@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import dotenv from 'dotenv';
+import QRCode from 'qrcode';
 import { createServer as createViteServer } from 'vite';
 
 import { getAvailableKeys, recommendBooksByDescription, getAIAssist } from './server/ai';
@@ -29,7 +30,7 @@ import {
   stopTunnel,
   getTunnelStatus,
 } from './server/tunnel';
-import { getPublicAccountStatus, saveSettings, loginZlibrary } from './server/settings';
+import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared } from './server/settings';
 
 dotenv.config();
 
@@ -181,6 +182,12 @@ async function startServer() {
       const saved = saveSettings(req.body);
       if (req.body.zlibrary?.email && req.body.zlibrary?.password && (!saved.zlibrary.userKey || !saved.zlibrary.userId)) {
         await loginZlibrary(req.body.zlibrary.email, req.body.zlibrary.password);
+      }
+      if (req.body.docer?.email && req.body.docer?.password) {
+        await loginDocer(req.body.docer.email, req.body.docer.password);
+      }
+      if (req.body.fourShared?.email && req.body.fourShared?.password) {
+        await login4shared(req.body.fourShared.email, req.body.fourShared.password);
       }
       res.json({ success: true, status: getPublicAccountStatus() });
     } catch (err: any) {
@@ -347,6 +354,43 @@ async function startServer() {
       }
     }
     return res.status(404).json({ error: 'Plik APK nie został jeszcze wygenerowany' });
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: QR Code for Mobile Web App on Smartphones
+  // ----------------------------------------------------
+  app.get(['/api/koreader/qr.png', '/api/qr.png'], async (req, res) => {
+    try {
+      const baseUrl = getAppBaseUrl(req);
+      const targetUrl = (typeof req.query.url === 'string' && req.query.url.trim())
+        ? req.query.url.trim()
+        : `${baseUrl}/?mobile=1`;
+
+      const pngBuffer = await QRCode.toBuffer(targetUrl, {
+        type: 'png',
+        width: 380,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      });
+
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Content-Length', pngBuffer.length);
+      res.send(pngBuffer);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Nie udało się wygenerować kodu QR' });
+    }
+  });
+
+  app.get(['/api/koreader/qr', '/api/qr'], (req, res) => {
+    const baseUrl = getAppBaseUrl(req);
+    const targetUrl = (typeof req.query.url === 'string' && req.query.url.trim())
+      ? req.query.url.trim()
+      : `${baseUrl}/?mobile=1`;
+    res.json({ url: targetUrl });
   });
 
   // ----------------------------------------------------

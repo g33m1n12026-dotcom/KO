@@ -26,8 +26,8 @@ interface BookSearcherProps {
 }
 
 export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) => {
-  // Subtab navigation (removed unused directUrl tab)
-  const [subTab, setSubTab] = useState<'advisor' | 'search' | 'mirrors'>('advisor');
+  // Subtab navigation (defaults to search for instant access)
+  const [subTab, setSubTab] = useState<'advisor' | 'search' | 'mirrors'>('search');
 
   // Common settings
   const [selectedEngine, setSelectedEngine] = useState<'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini'>('auto');
@@ -54,6 +54,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
   const [mirrors, setMirrors] = useState<ShadowLibraryMirror[]>([]);
   const [selectedMirrorCategory, setSelectedMirrorCategory] = useState<string>('all');
   const [mirrorSearchQuery, setMirrorSearchQuery] = useState('');
+  const [showAllBases, setShowAllBases] = useState(false);
 
   // Ordering in progress tracking
   const [orderingId, setOrderingId] = useState<string | null>(null);
@@ -232,39 +233,39 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
           {/* Subtab Buttons */}
           <div className="flex flex-wrap items-center gap-1.5 p-1 bg-stone-100 rounded-xl">
             <button
-              onClick={() => setSubTab('advisor')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-medium flex items-center gap-2 transition ${
-                subTab === 'advisor'
-                  ? 'bg-white text-stone-900 shadow-2xs font-semibold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <Lightbulb className="w-4 h-4 text-amber-500" />
-              <span>Doradca AI: "Opisz na co masz ochotę"</span>
-            </button>
-
-            <button
               onClick={() => setSubTab('search')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-medium flex items-center gap-2 transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
                 subTab === 'search'
                   ? 'bg-white text-stone-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <Search className="w-4 h-4 text-stone-700" />
-              <span>Wyszukiwarka książek</span>
+              <Search className="w-3.5 h-3.5 text-stone-700" />
+              <span>Wyszukiwarka</span>
+            </button>
+
+            <button
+              onClick={() => setSubTab('advisor')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
+                subTab === 'advisor'
+                  ? 'bg-white text-stone-900 shadow-2xs font-semibold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span>Doradca AI</span>
             </button>
 
             <button
               onClick={() => setSubTab('mirrors')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-medium flex items-center gap-2 transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
                 subTab === 'mirrors'
                   ? 'bg-white text-stone-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <Globe className="w-4 h-4 text-sky-600" />
-              <span>Baza Mirrorów (Anna's, Z-Lib, LibGen)</span>
+              <Globe className="w-3.5 h-3.5 text-sky-600" />
+              <span>Bazy książek (21)</span>
             </button>
           </div>
 
@@ -274,13 +275,13 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
             <select
               value={selectedEngine}
               onChange={(e) => setSelectedEngine(e.target.value as any)}
-              className="text-xs px-2.5 py-1.5 rounded-lg border border-stone-200 bg-stone-50 text-stone-800 focus:outline-none"
+              className="text-xs px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border border-stone-200 bg-stone-50 text-stone-800 focus:outline-none"
             >
-              <option value="auto">✨ Smart Auto (Gemini + DeepSeek / Claude)</option>
-              <option value="gemini">⚡ Google Gemini</option>
-              <option value="openrouter">🌐 DeepSeek / OpenRouter</option>
-              <option value="claude">🏛️ Claude 3.5 Sonnet</option>
-              <option value="openai">🤖 OpenAI GPT-4o-mini</option>
+              <option value="auto">✨ Smart Auto</option>
+              <option value="gemini">⚡ Gemini</option>
+              <option value="openrouter">🌐 DeepSeek</option>
+              <option value="claude">🏛️ Claude 3.5</option>
+              <option value="openai">🤖 GPT-4o-mini</option>
             </select>
           </div>
         </div>
@@ -629,26 +630,27 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
       {/* SUBTAB 2: REGULAR REPOSITORY SEARCH (GUTENBERG, OPENLIBRARY, ETC.)         */}
       {/* ========================================================================= */}
       {subTab === 'search' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-stone-200 rounded-2xl p-6 shadow-2xs">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div className="space-y-4">
+          <div className="bg-white border border-stone-200 rounded-xl p-3 sm:p-5 shadow-2xs">
+            <div className="flex items-center justify-between gap-2 mb-2.5">
               <div>
-                <h2 className="text-base font-bold text-stone-900 flex items-center gap-2">
-                  <Globe className="w-5 h-5 text-stone-700" />
-                  Wyszukiwarka książek z natychmiastowym pobieraniem
+                <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-stone-700" />
+                  Wyszukiwarka książek
                 </h2>
-                <p className="text-xs text-stone-500 mt-1">
-                  Automatycznie przeszukuje światowe bazy (LibGen, Archive.org, Gutenberg, Wolne Lektury, OpenLibrary). System rozpoznaje oficjalne zagraniczne tytuły dzieła (np. po angielsku, niemiecku, rosyjsku, chińsku) i pozwala przetłumaczyć całą książkę na polski jednym kliknięciem.
+                <p className="text-[11px] text-stone-500">
+                  Docer, Chomikuj, Polona, Z-Lib, 4shared lub bezpośredni link
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsAccountsModalOpen(true)}
-                className="shrink-0 px-3 py-1.5 rounded-xl border border-stone-200 hover:border-stone-300 bg-stone-50 hover:bg-stone-100 text-stone-700 text-xs font-semibold flex items-center gap-1.5 transition self-start sm:self-auto cursor-pointer shadow-2xs"
-                title="Skonfiguruj darmowe konto Internet Archive lub klucz Anna's Archive VIP"
+                className="shrink-0 px-2 py-1 rounded-lg border border-stone-200 hover:border-stone-300 bg-stone-50 hover:bg-stone-100 text-stone-700 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                title="Skonfiguruj konta serwisów (Docer, 4shared, Chomikuj, Z-Lib)"
               >
                 <Key className="w-3.5 h-3.5 text-amber-600" />
-                <span>Konta i klucze repozytoriów</span>
+                <span className="hidden sm:inline">Konta i logowanie</span>
+                <span className="sm:hidden">Konta</span>
               </button>
             </div>
 
@@ -658,37 +660,87 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                 e.preventDefault();
                 handleSearch();
               }}
-              className="flex gap-2"
+              className="flex gap-1.5"
             >
               <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Wpisz tytuł lub autora (np. Czy androidy śnią o elektrycznych owcach, Buszujący w zbożu, Władca Pierścieni)..."
-                  className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-800 bg-stone-50/50"
+                  placeholder="Wpisz tytuł, autora lub wklej link..."
+                  className="w-full pl-9 pr-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-800 bg-stone-50/50"
                 />
               </div>
               <button
                 type="submit"
                 disabled={isSearching || !query.trim()}
-                className="px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-sm font-medium transition disabled:bg-stone-300 flex items-center gap-2 shrink-0 shadow-xs cursor-pointer"
+                className="px-3 sm:px-4 py-1.5 sm:py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition disabled:bg-stone-300 flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer"
               >
                 {isSearching ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
-                  <Search className="w-4 h-4" />
+                  <Search className="w-3.5 h-3.5" />
                 )}
                 <span>Szukaj</span>
               </button>
             </form>
 
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-stone-500">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span>
-                <strong>Szukanie wielojęzyczne aktywne:</strong> Wpisz polski tytuł — system sam sprawdzi, jak dana książka została oficjalnie wydana za granicą i znajdzie egzemplarze w dowolnym języku.
-              </span>
+            {/* Quick 1-click external source buttons (compact and collapsible) */}
+            <div className="mt-2.5 pt-2 border-t border-stone-100">
+              <div className="flex items-center justify-between text-[11px] text-stone-500 mb-1">
+                <span className="font-semibold text-stone-700">⚡ Szybkie bazy:</span>
+                <button
+                  type="button"
+                  onClick={() => setShowAllBases(!showAllBases)}
+                  className="text-[10px] text-stone-500 hover:text-stone-900 font-semibold cursor-pointer underline flex items-center gap-0.5"
+                >
+                  {showAllBases ? 'Zwiń ▴' : 'Wszystkie bazy (21) ▾'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1 py-0.5">
+                {[
+                  { name: 'Docer.pl', url: `https://docer.pl/show/?q=${encodeURIComponent(query || 'książki')}`, badge: 'PL' },
+                  { name: 'Doci.pl', url: `https://doci.pl/show/?q=${encodeURIComponent(query || 'książki')}`, badge: 'PL' },
+                  { name: 'Chomikuj', url: `https://chomikuj.pl/action/SearchFiles?FileName=${encodeURIComponent(query || 'książki')}`, badge: 'PL' },
+                  { name: '4shared', url: `https://www.4shared.com/web/q#query=${encodeURIComponent(query || 'książki')}`, badge: 'Pliki' },
+                  { name: 'Polona (BN)', url: `https://polona.pl/search/?query=${encodeURIComponent(query || 'książki')}`, badge: 'Wolne' },
+                  { name: 'Z-Library PL', url: `https://pl.1lib.sk/s/${encodeURIComponent(query || 'książki')}`, badge: 'Shadow' },
+                  ...(showAllBases
+                    ? [
+                        { name: 'Wolne Lektury', url: `https://wolnelektury.pl/katalog/szukaj/?q=${encodeURIComponent(query || 'książki')}`, badge: 'Wolne' },
+                        { name: 'Anna’s Archive', url: `https://annas-archive.gl/search?q=${encodeURIComponent(query || 'książki')}`, badge: 'Giga' },
+                        { name: 'LibGen', url: `https://libgen.li/index.php?req=${encodeURIComponent(query || 'książki')}`, badge: 'Global' },
+                        { name: 'Woblink', url: `https://woblink.com/katalog/ebooki/darmowe?q=${encodeURIComponent(query || '')}`, badge: 'Sklep' },
+                        { name: 'Helion', url: `https://helion.pl/kategorie/darmowe`, badge: 'Sklep' },
+                        { name: 'Publio', url: `https://publio.pl/szukaj,q.html?q=${encodeURIComponent(query || '')}`, badge: 'Sklep' },
+                        { name: 'Baza Szmidta', url: `http://www.bazaebokow.robertjszmidt.pl/ebooki_r`, badge: 'Sci-Fi' },
+                        { name: 'Open Library', url: `https://openlibrary.org/search?q=${encodeURIComponent(query || 'books')}`, badge: 'Global' },
+                        { name: 'Gutenberg', url: `https://www.gutenberg.org/ebooks/search/?query=${encodeURIComponent(query || 'books')}`, badge: 'Wolne' },
+                        { name: 'PDF Drive', url: `https://www.pdfdrive.com/search?q=${encodeURIComponent(query || 'books')}`, badge: 'PDF' },
+                        { name: 'Baen Free', url: `https://www.baen.com/allbooks/category/index/id/2012`, badge: 'Sci-Fi' },
+                        { name: 'Ebook Hunter', url: `https://ebook-hunter.org/?s=${encodeURIComponent(query || 'books')}`, badge: 'EPUB' },
+                        { name: 'PDF Books World', url: `https://www.pdfbooksworld.com/?s=${encodeURIComponent(query || 'books')}`, badge: 'PDF' },
+                        { name: 'ReadAnyBook', url: `https://www.readanybook.com/search?q=${encodeURIComponent(query || 'books')}`, badge: 'Online' },
+                        { name: 'Złote Myśli', url: `https://www.zlotemysli.pl/kategorie/20/darmowe-ebooki.html`, badge: 'Biznes' },
+                      ]
+                    : []),
+                ].map((s, idx) => (
+                  <a
+                    key={idx}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 transition"
+                  >
+                    <span>{s.name}</span>
+                    <span className="text-[9px] px-1 py-0.1 bg-white rounded text-stone-500 font-semibold border border-stone-200">
+                      {s.badge}
+                    </span>
+                    <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
+                  </a>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1056,13 +1108,6 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                 Autor: {item.author}
                               </div>
 
-                              {item.language.toUpperCase() !== 'PL' && (
-                                <div className="text-[11px] text-amber-900 bg-amber-50/80 border border-amber-200/70 px-2 py-1 rounded-lg flex items-center gap-1.5 font-medium">
-                                  <Sparkles className="w-3 h-3 text-amber-600 shrink-0" />
-                                  <span>Wydanie obcojęzyczne • Kliknij <strong>Przetłumacz na polski</strong>, aby AI przygotowało polski EPUB.</span>
-                                </div>
-                              )}
-
                               {item.description && (
                                 <p className="text-xs text-stone-500 line-clamp-2">
                                   {item.description}
@@ -1223,101 +1268,100 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                               }
 
                               return (
-                                <div className="mt-4 pt-3 border-t border-stone-100 space-y-2.5">
-                                  {/* Suggestion banner */}
-                                  <div className="text-[11px] font-medium text-amber-900 bg-amber-50/80 border border-amber-200/70 px-2.5 py-1 rounded-lg flex items-center justify-between">
-                                    <span>{suggestion}</span>
-                                    <span className="text-[10px] text-stone-500 font-normal">
-                                      {item.downloadUrl ? 'Plik dostępny' : 'Tylko metadane'}
-                                    </span>
-                                  </div>
+                                <div className="mt-3 pt-2.5 border-t border-stone-100 flex flex-wrap items-center justify-between gap-1.5">
+                                  {/* Action Buttons */}
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {/* Option 1: Pobierz (jeśli PL lub bezpośredni) */}
+                                    {isPl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOrder(item, 'original')}
+                                        disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                          !item.downloadUrl
+                                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                            : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
+                                        }`}
+                                        title="Pobierz plik ze źródła"
+                                      >
+                                        {orderingId === `${item.id}_original` ? (
+                                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                          <Download className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>{isEpub ? 'Pobierz EPUB' : 'Pobierz plik'}</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOrder(item, 'translate')}
+                                        disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                          !item.downloadUrl
+                                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                            : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
+                                        }`}
+                                        title="Literacki przekład AI na język polski"
+                                      >
+                                        {orderingId === `${item.id}_translate` ? (
+                                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                        )}
+                                        <span>Przetłumacz na PL</span>
+                                      </button>
+                                    )}
 
-                                  {/* 3 Action Buttons */}
-                                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                    {/* Option 1: Pobierz oryginał */}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOrder(item, 'original')}
-                                      disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
-                                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition active:scale-95 ${
-                                        !item.downloadUrl
-                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                          : bestMode === 'original'
-                                          ? 'bg-emerald-700 hover:bg-emerald-800 text-white ring-2 ring-emerald-400/50 shadow-xs'
-                                          : 'bg-stone-100 hover:bg-stone-200 text-stone-800'
-                                      }`}
-                                      title="Pobiera plik ze źródła dokładnie w takim formacie i języku, w jakim się znajduje (bez AI)"
-                                    >
-                                      {orderingId === `${item.id}_original` ? (
-                                        <div className="w-3 h-3 border-2 border-stone-400 border-t-stone-800 rounded-full animate-spin" />
-                                      ) : (
-                                        <Download className="w-3.5 h-3.5" />
-                                      )}
-                                      <span>
-                                        {isEpub || (item.format || '').toLowerCase().includes('mobi')
-                                          ? 'Pobierz gotowy e-book (bez konwersji)'
-                                          : 'Pobierz oryginał (bez konwersji)'}
-                                      </span>
-                                    </button>
+                                    {/* Option 2: Lekki EPUB z PDF */}
+                                    {isPdf && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOrder(item, 'epub_clean')}
+                                        disabled={!item.downloadUrl || orderingId === `${item.id}_epub_clean`}
+                                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-50 text-sky-900 hover:bg-sky-100 border border-sky-200 flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                                        title="Konwertuje PDF na lekki format czytnikowy EPUB"
+                                      >
+                                        {orderingId === `${item.id}_epub_clean` ? (
+                                          <div className="w-3 h-3 border-2 border-sky-400 border-t-sky-800 rounded-full animate-spin" />
+                                        ) : (
+                                          <BookOpen className="w-3.5 h-3.5 text-sky-700" />
+                                        )}
+                                        <span>EPUB z PDF</span>
+                                      </button>
+                                    )}
 
-                                    {/* Option 2: Lekki EPUB dla e-ink */}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOrder(item, 'epub_clean')}
-                                      disabled={!item.downloadUrl || orderingId === `${item.id}_epub_clean`}
-                                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition active:scale-95 ${
-                                        !item.downloadUrl
-                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                          : bestMode === 'epub_clean'
-                                          ? 'bg-sky-700 hover:bg-sky-800 text-white ring-2 ring-sky-400/50 shadow-xs'
-                                          : 'bg-stone-100 hover:bg-stone-200 text-stone-800'
-                                      }`}
-                                      title={isPdf ? 'Zalecane dla PDF: konwertuje sztywny skan/PDF na płynny tekst e-ink' : 'Konwertuje plik na lekki e-ink EPUB w razie potrzeby'}
-                                    >
-                                      {orderingId === `${item.id}_epub_clean` ? (
-                                        <div className="w-3 h-3 border-2 border-stone-400 border-t-stone-800 rounded-full animate-spin" />
-                                      ) : (
-                                        <BookOpen className="w-3.5 h-3.5" />
-                                      )}
-                                      <span>Lekki EPUB (dla PDF/skanu)</span>
-                                    </button>
+                                    {/* Option 3: Pobierz oryginał jeśli język obcy */}
+                                    {!isPl && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOrder(item, 'original')}
+                                        disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
+                                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                                        title="Pobierz plik w języku oryginalnym bez tłumaczenia"
+                                      >
+                                        <Download className="w-3 h-3 text-stone-500" />
+                                        <span>Oryginał {item.language}</span>
+                                      </button>
+                                    )}
 
-                                    {/* Option 3: Przetłumacz na polski */}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOrder(item, 'translate')}
-                                      disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
-                                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition active:scale-95 ${
-                                        !item.downloadUrl
-                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                          : bestMode === 'translate'
-                                          ? 'bg-stone-900 hover:bg-stone-800 text-white ring-2 ring-amber-400/50 shadow-xs'
-                                          : 'bg-stone-100 hover:bg-stone-200 text-stone-800'
-                                      }`}
-                                      title={isPl ? 'Książka jest już po polsku, ale możesz wymusić ponowny przekład' : 'Literacki przekład AI na język polski'}
-                                    >
-                                      {orderingId === `${item.id}_translate` ? (
-                                        <div className="w-3 h-3 border-2 border-stone-400 border-t-stone-800 rounded-full animate-spin" />
-                                      ) : (
-                                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                                      )}
-                                      <span>Przetłumacz na polski</span>
-                                    </button>
-
-                                    {/* Duck.ai Free Assistant & Analysis */}
+                                    {/* Duck.ai Free Assistant */}
                                     <a
                                       href={`https://duck.ai/?q=${encodeURIComponent(
                                         `Przeanalizuj książkę "${item.title}" (autor: ${item.author || 'nieznany'}). O czym jest ta książka, jakie są główne motywy i zarys fabuły? Odpowiedz po polsku.`
                                       )}`}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition active:scale-95 bg-orange-50/90 hover:bg-orange-100 text-orange-950 border border-orange-200"
-                                      title="Otwórz bezpłatny czat Duck.ai (GPT-4o/Claude/Llama) z analizą tej książki bez logowania"
+                                      className="px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition active:scale-95 bg-orange-50/80 hover:bg-orange-100 text-orange-950 border border-orange-200"
+                                      title="O czym jest ta książka? Otwórz szybką analizę"
                                     >
                                       <span>🧠</span>
-                                      <span>Duck.ai Analiza</span>
-                                      <ExternalLink className="w-3 h-3 text-orange-600" />
+                                      <span className="hidden sm:inline">O czym jest?</span>
+                                      <ExternalLink className="w-2.5 h-2.5 text-orange-600" />
                                     </a>
+                                  </div>
+
+                                  <div className="text-[10px] text-stone-400">
+                                    {item.downloadUrl ? '✅ Plik dostępny' : 'ℹ️ Tylko link'}
                                   </div>
                                 </div>
                               );
@@ -1353,13 +1397,15 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
               {/* Mirror Category Filter */}
               <div className="flex flex-wrap gap-1 p-1 bg-stone-100 rounded-xl">
                 {[
-                  { id: 'all', label: 'Wszystkie' },
-                  { id: 'chomikuj', label: '🐹 Chomikuj.pl' },
+                  { id: 'all', label: 'Wszystkie (21 baz)' },
+                  { id: 'polish_docs', label: '🇵🇱 Docer, Doci & Chomikuj' },
+                  { id: 'polish_free', label: '📚 Polona & Wolne Lektury' },
+                  { id: 'polish_stores', label: '🛒 Woblink, Helion & Publio' },
+                  { id: 'zlib', label: '📖 Z-Library & 1lib' },
                   { id: 'annas', label: "Anna's Archive" },
-                  { id: 'zlib', label: 'Z-Library' },
                   { id: 'libgen', label: 'LibGen' },
-                  { id: 'scihub', label: 'Sci-Hub' },
-                  { id: 'decentralized', label: 'IPFS / Web3' },
+                  { id: 'global_free', label: '🌍 Gutenberg & OpenLibrary' },
+                  { id: 'file_search', label: '🔍 4shared & PDF Drive' },
                 ].map((cat) => (
                   <button
                     key={cat.id}

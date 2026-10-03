@@ -1,15 +1,151 @@
 import { ShadowLibraryMirror } from '../src/types';
 
 /**
- * Curated list of verified mirrors and shadow libraries specified by the user:
- * - Anna's Archive (annas-archive.gl, annas-archive.pk, annas-archive.gd, software.annas-archive.gl)
- * - Z-Library / 1lib (z-library.sk, 1lib.sk, z-lib.gl, z-lib.gd, go-to-library.sk, library-access.sk, welib.org, yqrii5.org, wbsg8v.xyz)
- * - LibGen (libgen.li, libgen.vg, libgen.bz, libgen.gl, libgen.la)
- * - Decentralized / IPFS / Memory of the World (libstc.nexus, liber3.eth.limo, library.memoryoftheworld.org)
- * - Sci-Hub & Academic (sci-hub.ru, sci-hub.su, sci-hub.st, sci-hub.red, sci-hub.box, sci-net.xyz)
+ * Curated list of verified mirrors, open repositories, and Polish ebook sources:
+ * - Docer & Doci (docer.pl, doci.pl, docer.tips)
+ * - Chomikuj (chomikuj.pl)
+ * - Polskie bazy darmowe (Polona.pl, WolneLektury.pl, Robert J. Szmidt bazaebokow.robertjszmidt.pl, Ebooks43.pl, Złote Myśli)
+ * - Polskie księgarnie z darmowymi e-bookami (Woblink.com, Helion.pl, Publio.pl)
+ * - Shadow Libraries (Anna's Archive, Z-Library / pl.1lib.sk, LibGen, Sci-Hub, Memory of the World, Liber3)
+ * - Wyszukiwarki plików i książek (4shared.com, PDF Drive, Ebook Hunter, Open Library, Project Gutenberg, Baen Free Library, PDFBooksWorld, ReadAnyBook, ESSPC)
  */
 export const SHADOW_LIBRARY_MIRRORS: ShadowLibraryMirror[] = [
-  // Anna's Archive mirrors
+  // 1. Polskie bazy dokumentów i e-booków
+  {
+    id: 'docer-pl',
+    name: 'Docer.pl',
+    category: 'polish_docs',
+    domain: 'docer.pl',
+    searchUrlTemplate: 'https://docer.pl/show/?q={query}',
+    description: 'Największa polska baza dokumentów, podręczników i e-booków (PDF, EPUB, MOBI, DOC).',
+    isPrimary: true,
+  },
+  {
+    id: 'doci-pl',
+    name: 'Doci.pl',
+    category: 'polish_docs',
+    domain: 'doci.pl',
+    searchUrlTemplate: 'https://doci.pl/show/?q={query}',
+    description: 'Bliźniacza polska platforma wymiany e-booków i publikacji z bezpośrednimi linkami.',
+    isPrimary: true,
+  },
+  {
+    id: 'docer-tips',
+    name: 'Docer.tips',
+    category: 'polish_docs',
+    domain: 'docer.tips',
+    searchUrlTemplate: 'https://docer.tips/show/?q={query}',
+    description: 'Międzynarodowy i alternatywny mirror bazy Docer.',
+  },
+  {
+    id: 'chomikuj',
+    name: 'Chomikuj.pl',
+    category: 'polish_docs',
+    domain: 'chomikuj.pl',
+    searchUrlTemplate: 'https://chomikuj.pl/action/SearchFiles?FileName={query}',
+    description: 'Kultowy polski dysk internetowy z setkami tysięcy książek (EPUB, MOBI, PDF).',
+    isPrimary: true,
+  },
+
+  // 2. Polskie legalne bazy darmowych e-booków
+  {
+    id: 'polona-pl',
+    name: 'Polona (Biblioteka Narodowa)',
+    category: 'polish_free',
+    domain: 'polona.pl',
+    searchUrlTemplate: 'https://polona.pl/search/?query={query}',
+    description: 'Cyfrowe zbiory Biblioteki Narodowej: miliony książek, czasopism, starodruków i rękopisów.',
+    isPrimary: true,
+  },
+  {
+    id: 'wolnelektury',
+    name: 'Wolne Lektury',
+    category: 'polish_free',
+    domain: 'wolnelektury.pl',
+    searchUrlTemplate: 'https://wolnelektury.pl/katalog/szukaj/?q={query}',
+    description: 'Darmowa polska biblioteka szkolna i klasyka literatury w formatach EPUB, MOBI, PDF i audiobook.',
+    isPrimary: true,
+  },
+  {
+    id: 'szmidt-baza',
+    name: 'Baza Ebooków (R.J. Szmidt)',
+    category: 'polish_free',
+    domain: 'bazaebokow.robertjszmidt.pl',
+    searchUrlTemplate: 'http://www.bazaebokow.robertjszmidt.pl/ebooki_r',
+    description: 'Katalog e-booków i fantastyki prowadzony przez pisarza Roberta J. Szmidta.',
+  },
+  {
+    id: 'ebooks43-pl',
+    name: 'Ebooks43.pl',
+    category: 'polish_free',
+    domain: 'ebooks43.pl',
+    searchUrlTemplate: 'https://www.ebooks43.pl/',
+    description: 'Polska platforma i katalog darmowych e-booków do czytania online i pobrania.',
+  },
+  {
+    id: 'zlotemysli-pl',
+    name: 'Złote Myśli (Darmowe)',
+    category: 'polish_free',
+    domain: 'zlotemysli.pl',
+    searchUrlTemplate: 'https://www.zlotemysli.pl/kategorie/20/darmowe-ebooki.html',
+    description: 'Kolekcja bezpłatnych e-booków o rozwoju osobistym, motywacji, psychologii i biznesie.',
+  },
+
+  // 3. Polskie księgarnie z legalnymi darmowymi e-bookami
+  {
+    id: 'woblink-darmowe',
+    name: 'Woblink (Darmowe E-booki)',
+    category: 'polish_stores',
+    domain: 'woblink.com',
+    searchUrlTemplate: 'https://woblink.com/katalog/ebooki/darmowe?q={query}',
+    description: 'Tysiące bezpłatnych e-booków promocyjnych, klasyki i fragmentów od polskich wydawców.',
+    isPrimary: true,
+  },
+  {
+    id: 'helion-darmowe',
+    name: 'Helion (Darmowe Publikacje)',
+    category: 'polish_stores',
+    domain: 'helion.pl',
+    searchUrlTemplate: 'https://helion.pl/kategorie/darmowe',
+    description: 'Bezpłatne e-booki informatyczne, podręczniki, poradniki i fragmenty wydawnictwa Helion.',
+  },
+  {
+    id: 'publio-darmowe',
+    name: 'Publio (Darmowe)',
+    category: 'polish_stores',
+    domain: 'publio.pl',
+    searchUrlTemplate: 'https://publio.pl/audiobooki,e-booki,darmowe.html',
+    description: 'Darmowe e-booki i audiobooki w księgarni Publio (Agory).',
+  },
+
+  // 4. Z-Library & 1lib (w tym polski mirror)
+  {
+    id: 'pl-1lib-sk',
+    name: 'Z-Library Polska (pl.1lib.sk)',
+    category: 'zlib',
+    domain: 'pl.1lib.sk',
+    searchUrlTemplate: 'https://pl.1lib.sk/s/{query}',
+    description: 'Dedykowany polskojęzyczny węzeł dostępowy Z-Library.',
+    isPrimary: true,
+  },
+  {
+    id: 'zlib-sk',
+    name: 'Z-Library (SK)',
+    category: 'zlib',
+    domain: 'z-library.sk',
+    searchUrlTemplate: 'https://z-library.sk/s/{query}',
+    description: 'Główny europejski mirror Z-Library.',
+  },
+  {
+    id: '1lib-sk',
+    name: '1lib (SK Mirror)',
+    category: 'zlib',
+    domain: '1lib.sk',
+    searchUrlTemplate: 'https://1lib.sk/s/{query}',
+    description: 'Lustro Z-Library w domenie 1lib.',
+  },
+
+  // 5. Anna's Archive
   {
     id: 'annas-gl',
     name: "Anna's Archive (Giga)",
@@ -21,112 +157,21 @@ export const SHADOW_LIBRARY_MIRRORS: ShadowLibraryMirror[] = [
   },
   {
     id: 'annas-pk',
-    name: "Anna's Archive (PK Mirror)",
+    name: "Anna's Archive (PK)",
     category: 'annas',
     domain: 'annas-archive.pk',
     searchUrlTemplate: 'https://annas-archive.pk/search?q={query}',
     description: 'Szybki alternatywny mirror Anna’s Archive.',
   },
-  {
-    id: 'annas-gd',
-    name: "Anna's Archive (GD Mirror)",
-    category: 'annas',
-    domain: 'annas-archive.gd',
-    searchUrlTemplate: 'https://annas-archive.gd/search?q={query}',
-    description: 'Dodatkowy mirror domenowy Anna’s Archive.',
-  },
-  {
-    id: 'annas-software',
-    name: "Anna's Archive Software",
-    category: 'annas',
-    domain: 'software.annas-archive.gl',
-    searchUrlTemplate: 'https://software.annas-archive.gl/search?q={query}',
-    description: 'Baza oprogramowania, kodu i danych Anna’s Archive.',
-  },
 
-  // Z-Library mirrors
-  {
-    id: 'zlib-sk',
-    name: 'Z-Library (SK)',
-    category: 'zlib',
-    domain: 'z-library.sk',
-    searchUrlTemplate: 'https://z-library.sk/s/{query}',
-    description: 'Główny oficjalny mirror Z-Library dla Europy.',
-    isPrimary: true,
-  },
-  {
-    id: '1lib-sk',
-    name: '1lib (SK Mirror)',
-    category: 'zlib',
-    domain: '1lib.sk',
-    searchUrlTemplate: 'https://1lib.sk/s/{query}',
-    description: 'Lustro Z-Library w domenie 1lib.',
-  },
-  {
-    id: 'zlib-gl',
-    name: 'Z-Lib (GL)',
-    category: 'zlib',
-    domain: 'z-lib.gl',
-    searchUrlTemplate: 'https://z-lib.gl/s/{query}',
-    description: 'Globalny mirror dostępowy Z-Library.',
-  },
-  {
-    id: 'zlib-gd',
-    name: 'Z-Lib (GD)',
-    category: 'zlib',
-    domain: 'z-lib.gd',
-    searchUrlTemplate: 'https://z-lib.gd/s/{query}',
-    description: 'Alternatywna domena Z-Library.',
-  },
-  {
-    id: 'zlib-goto',
-    name: 'Go-To Library (SK)',
-    category: 'zlib',
-    domain: 'go-to-library.sk',
-    searchUrlTemplate: 'https://go-to-library.sk/s/{query}',
-    description: 'Bramka przekierowująca Z-Library.',
-  },
-  {
-    id: 'zlib-access',
-    name: 'Library Access (SK)',
-    category: 'zlib',
-    domain: 'library-access.sk',
-    searchUrlTemplate: 'https://library-access.sk/s/{query}',
-    description: 'Bezpośredni węzeł dostępowy Z-Library.',
-  },
-  {
-    id: 'zlib-welib',
-    name: 'WeLib',
-    category: 'zlib',
-    domain: 'welib.org',
-    searchUrlTemplate: 'https://welib.org/s/{query}',
-    description: 'Alternatywny interfejs biblioteczny WeLib.',
-  },
-  {
-    id: 'zlib-yqrii5',
-    name: 'Z-Lib Node (yqrii5)',
-    category: 'zlib',
-    domain: 'yqrii5.org',
-    searchUrlTemplate: 'https://yqrii5.org/s/{query}',
-    description: 'Zapasowy węzeł serwerowy Z-Library.',
-  },
-  {
-    id: 'zlib-wbsg8v',
-    name: 'Z-Lib Node (wbsg8v)',
-    category: 'zlib',
-    domain: 'wbsg8v.xyz',
-    searchUrlTemplate: 'https://wbsg8v.xyz/s/{query}',
-    description: 'Lekki węzeł lustrzany Z-Library.',
-  },
-
-  // LibGen (Library Genesis)
+  // 6. Library Genesis (LibGen)
   {
     id: 'libgen-li',
     name: 'LibGen (.li)',
     category: 'libgen',
     domain: 'libgen.li',
     searchUrlTemplate: 'https://libgen.li/index.php?req={query}',
-    description: 'Najpopularniejszy i stabilny mirror Library Genesis.',
+    description: 'Stabilny mirror Library Genesis dla książek naukowych i beletrystyki.',
     isPrimary: true,
   },
   {
@@ -135,161 +180,256 @@ export const SHADOW_LIBRARY_MIRRORS: ShadowLibraryMirror[] = [
     category: 'libgen',
     domain: 'libgen.vg',
     searchUrlTemplate: 'https://libgen.vg/index.php?req={query}',
-    description: 'Szybki mirror Library Genesis dla literatury i artykułów.',
-  },
-  {
-    id: 'libgen-bz',
-    name: 'LibGen (.bz)',
-    category: 'libgen',
-    domain: 'libgen.bz',
-    searchUrlTemplate: 'https://libgen.bz/index.php?req={query}',
-    description: 'Mirror Library Genesis w domenie .bz.',
-  },
-  {
-    id: 'libgen-gl',
-    name: 'LibGen (.gl)',
-    category: 'libgen',
-    domain: 'libgen.gl',
-    searchUrlTemplate: 'https://libgen.gl/index.php?req={query}',
-    description: 'Globalny mirror LibGen.',
-  },
-  {
-    id: 'libgen-la',
-    name: 'LibGen (.la)',
-    category: 'libgen',
-    domain: 'libgen.la',
-    searchUrlTemplate: 'https://libgen.la/index.php?req={query}',
-    description: 'Dedykowany mirror LibGen w Ameryce Łacińskiej.',
+    description: 'Alternatywny mirror LibGen.',
   },
 
-  // Decentralized / IPFS / Memory of the World
+  // 7. Globalne otwarte bazy literatury i domena publiczna
   {
-    id: 'libstc-nexus',
-    name: 'Nexus / STC',
-    category: 'decentralized',
-    domain: 'libstc.nexus',
-    searchUrlTemplate: 'https://libstc.nexus/#/search?q={query}',
-    description: 'Zdecentralizowana sieć STC (Standard Template Construct / Nexus).',
+    id: 'openlibrary',
+    name: 'Open Library (Internet Archive)',
+    category: 'global_free',
+    domain: 'openlibrary.org',
+    searchUrlTemplate: 'https://openlibrary.org/search?q={query}',
+    description: 'Otwarty katalog milionów książek z pożyczaniem i darmowymi wersjami EPUB/PDF.',
+    isPrimary: true,
   },
   {
-    id: 'liber3',
-    name: 'Liber3 (IPFS Web3)',
-    category: 'decentralized',
-    domain: 'liber3.eth.limo',
-    searchUrlTemplate: 'https://liber3.eth.limo/#/search?q={query}',
-    description: 'Zdecentralizowana biblioteka IPFS/ENS na blockchainie Ethereum.',
+    id: 'gutenberg',
+    name: 'Project Gutenberg',
+    category: 'global_free',
+    domain: 'gutenberg.org',
+    searchUrlTemplate: 'https://www.gutenberg.org/ebooks/search/?query={query}',
+    description: 'Ponad 70 000 darmowych e-booków w domenie publicznej bez zabezpieczeń DRM.',
     isPrimary: true,
+  },
+  {
+    id: 'baen-free',
+    name: 'Baen Free Library',
+    category: 'global_free',
+    domain: 'baen.com',
+    searchUrlTemplate: 'https://www.baen.com/allbooks/category/index/id/2012',
+    description: 'Oficjalna darmowa biblioteka fantastyki i science-fiction od wydawnictwa Baen Books.',
+  },
+  {
+    id: 'pdfbooksworld',
+    name: 'PDF Books World',
+    category: 'global_free',
+    domain: 'pdfbooksworld.com',
+    searchUrlTemplate: 'https://www.pdfbooksworld.com/?s={query}',
+    description: 'Wysokiej jakości sformatowane książki PDF z profesjonalną typografią i ilustracjami.',
+  },
+  {
+    id: 'readanybook',
+    name: 'ReadAnyBook',
+    category: 'global_free',
+    domain: 'readanybook.com',
+    searchUrlTemplate: 'https://www.readanybook.com/search?q={query}',
+    description: 'Baza książek online z możliwością czytania w przeglądarce i pobierania.',
+  },
+  {
+    id: 'esspc-ebooks',
+    name: 'ESSPC Ebooks',
+    category: 'global_free',
+    domain: 'esspc-ebooks.com',
+    searchUrlTemplate: 'https://esspc-ebooks.com/',
+    description: 'Kolekcja publikacji, podręczników i monografii naukowych.',
+  },
+
+  // 8. Wyszukiwarki plików i zdecentralizowane biblioteki
+  {
+    id: '4shared',
+    name: '4shared Files',
+    category: 'file_search',
+    domain: '4shared.com',
+    searchUrlTemplate: 'https://www.4shared.com/web/q#query={query}',
+    description: 'Globalny dysk sieciowy z wielką liczbą udostępnionych plików EPUB, MOBI i PDF.',
+    isPrimary: true,
+  },
+  {
+    id: 'pdfdrive',
+    name: 'PDF Drive',
+    category: 'file_search',
+    domain: 'pdfdrive.com',
+    searchUrlTemplate: 'https://www.pdfdrive.com/search?q={query}',
+    description: 'Wyszukiwarka ponad 75 milionów plików i podręczników PDF.',
+    isPrimary: true,
+  },
+  {
+    id: 'ebook-hunter',
+    name: 'Ebook Hunter',
+    category: 'file_search',
+    domain: 'ebook-hunter.org',
+    searchUrlTemplate: 'https://ebook-hunter.org/?s={query}',
+    description: 'Wyszukiwarka nowości książkowych i bestsellerów w formatach cyfrowych.',
   },
   {
     id: 'memoryoftheworld',
     name: 'Memory of the World',
-    category: 'decentralized',
+    category: 'file_search',
     domain: 'library.memoryoftheworld.org',
     searchUrlTemplate: 'https://library.memoryoftheworld.org/#/search/{query}',
     description: 'Niezależna biblioteka publiczna (Memory of the World / Marcell).',
   },
-
-  // Sci-Hub & Academic
+  {
+    id: 'liber3',
+    name: 'Liber3 (IPFS Web3)',
+    category: 'file_search',
+    domain: 'liber3.eth.limo',
+    searchUrlTemplate: 'https://liber3.eth.limo/#/search?q={query}',
+    description: 'Zdecentralizowana biblioteka IPFS/ENS na blockchainie Ethereum.',
+  },
   {
     id: 'scihub-st',
     name: 'Sci-Hub (.st)',
-    category: 'scihub',
+    category: 'file_search',
     domain: 'sci-hub.st',
     searchUrlTemplate: 'https://sci-hub.st/{query}',
-    description: 'Baza milionów artykułów naukowych, monografii i publikacji.',
-    isPrimary: true,
-  },
-  {
-    id: 'scihub-ru',
-    name: 'Sci-Hub (.ru)',
-    category: 'scihub',
-    domain: 'sci-hub.ru',
-    searchUrlTemplate: 'https://sci-hub.ru/{query}',
-    description: 'Pierwotny węzeł Sci-Hub.',
-  },
-  {
-    id: 'scihub-su',
-    name: 'Sci-Hub (.su)',
-    category: 'scihub',
-    domain: 'sci-hub.su',
-    searchUrlTemplate: 'https://sci-hub.su/{query}',
-    description: 'Alternatywny mirror Sci-Hub .su.',
-  },
-  {
-    id: 'scihub-red',
-    name: 'Sci-Hub (.red)',
-    category: 'scihub',
-    domain: 'sci-hub.red',
-    searchUrlTemplate: 'https://sci-hub.red/{query}',
-    description: 'Mirror dostępowy Sci-Hub Red.',
-  },
-  {
-    id: 'scihub-box',
-    name: 'Sci-Hub (.box)',
-    category: 'scihub',
-    domain: 'sci-hub.box',
-    searchUrlTemplate: 'https://sci-hub.box/{query}',
-    description: 'Mirror domenowy Sci-Hub Box.',
-  },
-  {
-    id: 'scinet',
-    name: 'Sci-Net (.xyz)',
-    category: 'scihub',
-    domain: 'sci-net.xyz',
-    searchUrlTemplate: 'https://sci-net.xyz/{query}',
-    description: 'Portal wymiany publikacji naukowych Sci-Net.',
-  },
-  {
-    id: 'chomikuj',
-    name: 'Chomikuj.pl',
-    category: 'chomikuj',
-    domain: 'chomikuj.pl',
-    searchUrlTemplate: 'https://chomikuj.pl/action/SearchFiles?FileName={query}',
-    description: 'Polska platforma wymiany plików i dokumentów (EPUB, PDF, MOBI, DOC).',
-    isPrimary: true,
+    description: 'Baza milionów artykułów naukowych, monografii i publikacji akademickich.',
   },
 ];
 
 /**
  * Generate deep search links for a given book title or query across key repositories
  */
-export function generateMirrorSearchLinks(query: string): { name: string; url: string; category: string }[] {
+export function generateMirrorSearchLinks(query: string): { name: string; url: string; category: string; badge?: string }[] {
   const enc = encodeURIComponent(query.trim());
   return [
+    // Polskie bazy dokumentów
+    {
+      name: 'Docer.pl',
+      url: `https://docer.pl/show/?q=${enc}`,
+      category: 'polish_docs',
+      badge: 'PL',
+    },
+    {
+      name: 'Doci.pl',
+      url: `https://doci.pl/show/?q=${enc}`,
+      category: 'polish_docs',
+      badge: 'PL',
+    },
     {
       name: 'Chomikuj.pl',
       url: `https://chomikuj.pl/action/SearchFiles?FileName=${enc}`,
-      category: 'chomikuj',
+      category: 'polish_docs',
+      badge: 'PL',
+    },
+    {
+      name: '4shared',
+      url: `https://www.4shared.com/web/q#query=${enc}`,
+      category: 'file_search',
+      badge: 'PL/EN',
+    },
+
+    // Polskie oficjalne bazy
+    {
+      name: 'Polona (BN)',
+      url: `https://polona.pl/search/?query=${enc}`,
+      category: 'polish_free',
+      badge: 'PL Wolne',
+    },
+    {
+      name: 'Wolne Lektury',
+      url: `https://wolnelektury.pl/katalog/szukaj/?q=${enc}`,
+      category: 'polish_free',
+      badge: 'PL Wolne',
+    },
+    {
+      name: 'Woblink (Darmowe)',
+      url: `https://woblink.com/katalog/ebooki/darmowe?q=${enc}`,
+      category: 'polish_stores',
+      badge: 'Sklep',
+    },
+    {
+      name: 'Publio (Darmowe)',
+      url: `https://publio.pl/szukaj,q.html?q=${enc}`,
+      category: 'polish_stores',
+      badge: 'Sklep',
+    },
+    {
+      name: 'Helion (Darmowe)',
+      url: `https://helion.pl/kategorie/darmowe`,
+      category: 'polish_stores',
+      badge: 'Sklep',
+    },
+    {
+      name: 'Złote Myśli',
+      url: `https://www.zlotemysli.pl/kategorie/20/darmowe-ebooki.html`,
+      category: 'polish_free',
+      badge: 'Darmowe',
+    },
+    {
+      name: 'Baza R.J. Szmidt',
+      url: `http://www.bazaebokow.robertjszmidt.pl/ebooki_r`,
+      category: 'polish_free',
+      badge: 'Sci-Fi',
+    },
+
+    // Shadow Libraries & Globalne
+    {
+      name: 'Z-Library (pl.1lib.sk)',
+      url: `https://pl.1lib.sk/s/${enc}`,
+      category: 'zlib',
+      badge: 'Shadow',
     },
     {
       name: "Anna's Archive",
       url: `https://annas-archive.gl/search?q=${enc}`,
       category: 'annas',
-    },
-    {
-      name: 'Z-Library',
-      url: `https://z-library.sk/s/${enc}`,
-      category: 'zlib',
+      badge: 'Giga',
     },
     {
       name: 'LibGen (.li)',
       url: `https://libgen.li/index.php?req=${enc}`,
       category: 'libgen',
+      badge: 'Shadow',
     },
     {
-      name: 'Liber3 (IPFS)',
-      url: `https://liber3.eth.limo/#/search?q=${enc}`,
-      category: 'decentralized',
+      name: 'Open Library',
+      url: `https://openlibrary.org/search?q=${enc}`,
+      category: 'global_free',
+      badge: 'Archive',
     },
     {
-      name: 'Sci-Hub',
-      url: `https://sci-hub.st/${enc}`,
-      category: 'scihub',
+      name: 'Project Gutenberg',
+      url: `https://www.gutenberg.org/ebooks/search/?query=${enc}`,
+      category: 'global_free',
+      badge: 'Public Domain',
+    },
+    {
+      name: 'PDF Drive',
+      url: `https://www.pdfdrive.com/search?q=${enc}`,
+      category: 'file_search',
+      badge: 'PDF',
+    },
+    {
+      name: 'Ebook Hunter',
+      url: `https://ebook-hunter.org/?s=${enc}`,
+      category: 'file_search',
+      badge: 'EPUB',
+    },
+    {
+      name: 'PDF Books World',
+      url: `https://www.pdfbooksworld.com/?s=${enc}`,
+      category: 'global_free',
+      badge: 'PDF',
+    },
+    {
+      name: 'ReadAnyBook',
+      url: `https://www.readanybook.com/search?q=${enc}`,
+      category: 'global_free',
+      badge: 'Online',
+    },
+    {
+      name: 'Baen Free Library',
+      url: `https://www.baen.com/allbooks/category/index/id/2012`,
+      category: 'global_free',
+      badge: 'Sci-Fi',
     },
     {
       name: 'Memory of the World',
       url: `https://library.memoryoftheworld.org/#/search/${enc}`,
-      category: 'decentralized',
+      category: 'file_search',
+      badge: 'Web3',
     },
   ];
 }

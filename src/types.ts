@@ -94,7 +94,19 @@ export interface BookRecommendation {
 export interface ShadowLibraryMirror {
   id: string;
   name: string;
-  category: 'annas' | 'zlib' | 'libgen' | 'scihub' | 'decentralized' | 'open' | 'chomikuj';
+  category:
+    | 'annas'
+    | 'zlib'
+    | 'libgen'
+    | 'scihub'
+    | 'decentralized'
+    | 'open'
+    | 'chomikuj'
+    | 'polish_docs'
+    | 'polish_free'
+    | 'polish_stores'
+    | 'global_free'
+    | 'file_search';
   domain: string;
   searchUrlTemplate: string;
   description: string;
@@ -132,6 +144,16 @@ export interface AccountSettings {
   chomikuj?: {
     isConnected?: boolean;
     accountName?: string;
+    emailMasked?: string;
+    hasPassword?: boolean;
+  };
+  docer?: {
+    isConnected?: boolean;
+    emailMasked?: string;
+    hasPassword?: boolean;
+  };
+  fourShared?: {
+    isConnected?: boolean;
     emailMasked?: string;
     hasPassword?: boolean;
   };

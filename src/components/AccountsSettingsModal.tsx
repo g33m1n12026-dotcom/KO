@@ -22,11 +22,18 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
   const [chomikEmail, setChomikEmail] = useState('');
   const [chomikPassword, setChomikPassword] = useState('');
 
+  const [docerEmail, setDocerEmail] = useState('');
+  const [docerPassword, setDocerPassword] = useState('');
+  const [fourSharedEmail, setFourSharedEmail] = useState('');
+  const [fourSharedPassword, setFourSharedPassword] = useState('');
+
   const [accountStatus, setAccountStatus] = useState<{
     internetArchive: { hasKeys: boolean; hasCookie: boolean; accessKeyMasked?: string };
     zlibrary?: { isConnected: boolean; emailMasked?: string; userName?: string; downloadsToday?: number; downloadsLimit?: number };
     annasArchive: { hasKey: boolean; fastDownloadKeyMasked?: string };
     chomikuj?: { isConnected: boolean; accountName?: string; emailMasked?: string; hasPassword?: boolean };
+    docer?: { isConnected: boolean; emailMasked?: string; hasPassword?: boolean };
+    fourShared?: { isConnected: boolean; emailMasked?: string; hasPassword?: boolean };
   } | null>(null);
 
   useEffect(() => {
@@ -78,6 +85,14 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
             email: chomikEmail.trim() || undefined,
             password: chomikPassword.trim() || undefined,
           },
+          docer: {
+            email: docerEmail.trim() || undefined,
+            password: docerPassword.trim() || undefined,
+          },
+          fourShared: {
+            email: fourSharedEmail.trim() || undefined,
+            password: fourSharedPassword.trim() || undefined,
+          },
         }),
       });
 
@@ -98,6 +113,10 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
       setChomikAccount('');
       setChomikEmail('');
       setChomikPassword('');
+      setDocerEmail('');
+      setDocerPassword('');
+      setFourSharedEmail('');
+      setFourSharedPassword('');
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       setErrorMsg(err.message || 'Wystąpił błąd podczas zapisu');
@@ -423,6 +442,132 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
               <span>Profil użytkownika: <a href={`https://chomikuj.pl/${accountStatus?.chomikuj?.accountName || 'diweg68665'}`} target="_blank" rel="noreferrer" className="underline font-medium text-stone-800 hover:text-amber-800">chomikuj.pl/{accountStatus?.chomikuj?.accountName || 'diweg68665'}</a></span>
               <a href="https://chomikuj.pl" target="_blank" rel="noreferrer" className="underline hover:text-stone-800 flex items-center gap-1">
                 Otwórz Chomikuj.pl <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Section 5: Docer.pl & Doci.pl */}
+          <div className="p-4 sm:p-5 bg-sky-50/40 border border-sky-200/80 rounded-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📄</span>
+                <div>
+                  <h4 className="font-bold text-stone-900 text-sm">Docer.pl & Doci.pl</h4>
+                  <p className="text-[11px] text-stone-500">Polska baza dokumentów, e-booków i publikacji</p>
+                </div>
+              </div>
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border self-start sm:self-auto ${
+                  accountStatus?.docer?.isConnected
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-stone-100 text-stone-600 border-stone-200'
+                }`}
+              >
+                {accountStatus?.docer?.isConnected
+                  ? `✅ Konto aktywne: ${accountStatus.docer.emailMasked || 'diw***@flakeian.com'}`
+                  : '⚪ Wpisz dane konta Docer'}
+              </span>
+            </div>
+
+            <p className="text-stone-600 leading-relaxed text-xs">
+              Połączone konto umożliwia logowanie i pobieranie dokumentów PDF, EPUB oraz MOBI z Docer.pl i Doci.pl bez ograniczeń pobierania.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                  Adres e-mail:
+                </label>
+                <input
+                  type="email"
+                  value={docerEmail}
+                  onChange={(e) => setDocerEmail(e.target.value)}
+                  placeholder={accountStatus?.docer?.emailMasked || 'diweg68665@flakeian.com'}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-1 focus:ring-stone-900 font-mono text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                  Hasło:
+                </label>
+                <input
+                  type="password"
+                  value={docerPassword}
+                  onChange={(e) => setDocerPassword(e.target.value)}
+                  placeholder={accountStatus?.docer?.hasPassword ? '••••••••••••' : 'Wpisz hasło'}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-1 focus:ring-stone-900 font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="pt-1 flex items-center justify-between text-[11px] text-stone-500">
+              <span>Platforma: Docer.pl / Doci.pl</span>
+              <a href="https://docer.pl" target="_blank" rel="noreferrer" className="underline hover:text-stone-800 flex items-center gap-1">
+                Otwórz Docer.pl <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Section 6: 4shared.com */}
+          <div className="p-4 sm:p-5 bg-stone-50/70 border border-stone-200 rounded-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📁</span>
+                <div>
+                  <h4 className="font-bold text-stone-900 text-sm">4shared.com</h4>
+                  <p className="text-[11px] text-stone-500">Globalna baza udostępnionych plików e-booków</p>
+                </div>
+              </div>
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border self-start sm:self-auto ${
+                  accountStatus?.fourShared?.isConnected
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-stone-100 text-stone-600 border-stone-200'
+                }`}
+              >
+                {accountStatus?.fourShared?.isConnected
+                  ? `✅ Konto aktywne: ${accountStatus.fourShared.emailMasked || 'diw***@flakeian.com'}`
+                  : '⚪ Wpisz dane konta 4shared'}
+              </span>
+            </div>
+
+            <p className="text-stone-600 leading-relaxed text-xs">
+              Logowanie do 4shared pozwala na wyszukiwanie plików i natychmiastowe pobieranie bez odliczania sekund oczekiwania.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                  Adres e-mail:
+                </label>
+                <input
+                  type="email"
+                  value={fourSharedEmail}
+                  onChange={(e) => setFourSharedEmail(e.target.value)}
+                  placeholder={accountStatus?.fourShared?.emailMasked || 'diweg68665@flakeian.com'}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-1 focus:ring-stone-900 font-mono text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                  Hasło:
+                </label>
+                <input
+                  type="password"
+                  value={fourSharedPassword}
+                  onChange={(e) => setFourSharedPassword(e.target.value)}
+                  placeholder={accountStatus?.fourShared?.hasPassword ? '••••••••••••' : 'Wpisz hasło'}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-1 focus:ring-stone-900 font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="pt-1 flex items-center justify-between text-[11px] text-stone-500">
+              <span>Platforma: 4shared.com</span>
+              <a href="https://www.4shared.com" target="_blank" rel="noreferrer" className="underline hover:text-stone-800 flex items-center gap-1">
+                Otwórz 4shared.com <ExternalLink className="w-2.5 h-2.5" />
               </a>
             </div>
           </div>
