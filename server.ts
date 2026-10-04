@@ -11,6 +11,7 @@ import {
   getAllJobs,
   getJobById,
   createUploadJob,
+  createDirectFileJob,
   createSearchOrderJob,
   createStorybookJob,
   getEpubFilePath,
@@ -30,7 +31,7 @@ import {
   stopTunnel,
   getTunnelStatus,
 } from './server/tunnel';
-import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared } from './server/settings';
+import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared, testAllAccounts } from './server/settings';
 
 dotenv.config();
 
@@ -115,10 +116,11 @@ async function startServer() {
           data.recommendations.map(async (rec) => {
             try {
               const q = rec.searchQuery || `${rec.author} ${rec.title}`;
-              const found = await findDirectBookDownload(q);
+              const found = await findDirectBookDownload(q, 'PL');
               if (found) {
                 rec.downloadUrl = found.downloadUrl;
                 rec.downloadFormat = found.format;
+                if (found.language) rec.downloadLanguage = found.language;
               }
             } catch {
               // Ignore individual mirror lookup timeout
@@ -192,6 +194,15 @@ async function startServer() {
       res.json({ success: true, status: getPublicAccountStatus() });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Nie udało się zapisać ustawień kont' });
+    }
+  });
+
+  app.get('/api/settings/accounts/test', async (_req, res) => {
+    try {
+      const results = await testAllAccounts();
+      res.json({ results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd testowania kont' });
     }
   });
 
@@ -296,6 +307,42 @@ async function startServer() {
       } catch (err: any) {
         console.error('Błąd podczas uploadu:', err);
         res.status(500).json({ error: err.message || 'Błąd przetwarzania pliku' });
+      }
+    }
+  );
+
+  // Direct upload for instant OPDS publishing (no heavy conversion, ready on Kindle immediately)
+  app.post(
+    ['/api/upload-direct', '/api/koreader/upload-direct'],
+    upload.single('file'),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: 'Nie przesłano żadnego pliku' });
+        }
+
+        const originalname = req.file.originalname || 'ksiazka.epub';
+        const extMatch = originalname.match(/\.(epub|pdf|mobi|cbz|txt|azw3|fb2)$/i);
+        const ext = extMatch ? extMatch[1].toLowerCase() : 'epub';
+
+        const cleanTitle = (req.body.title || originalname.replace(/\.[^/.]+$/, '')).replace(/[_.-]+/g, ' ').trim();
+        const safeFilename = `${sanitizeToAsciiFilename(cleanTitle)}_${Date.now()}.${ext}`;
+        const outputPath = path.join(process.cwd(), 'data', 'epubs', safeFilename);
+
+        fs.writeFileSync(outputPath, req.file.buffer);
+
+        const job = createDirectFileJob(
+          cleanTitle,
+          safeFilename,
+          ext as any,
+          req.file.buffer.length,
+          req.body.author
+        );
+
+        res.status(201).json(job);
+      } catch (err: any) {
+        console.error('Błąd bezpośredniego uploadu do OPDS:', err);
+        res.status(500).json({ error: err.message || 'Błąd zapisu pliku' });
       }
     }
   );

@@ -36,6 +36,9 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
     fourShared?: { isConnected: boolean; emailMasked?: string; hasPassword?: boolean };
   } | null>(null);
 
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string; latencyMs?: number }> | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
     fetchStatus();
@@ -54,6 +57,30 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
       console.warn('Nie udało się pobrać statusu kont:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTestAccounts = async () => {
+    setIsTesting(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/settings/accounts/test');
+      if (res.ok) {
+        const data = await res.json();
+        const map: Record<string, { ok: boolean; message: string; latencyMs?: number }> = {};
+        for (const r of data.results || []) {
+          map[r.account] = { ok: r.ok, message: r.message, latencyMs: r.latencyMs };
+        }
+        setTestResults(map);
+        setSuccessMsg('Test wszystkich połączeń z kontami został ukończony!');
+        setTimeout(() => setSuccessMsg(null), 5000);
+      } else {
+        throw new Error('Błąd serwera podczas testowania kont');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Wystąpił błąd podczas testowania kont');
+    } finally {
+      setIsTesting(false);
     }
   };
 
@@ -259,17 +286,32 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
                 <span className="text-base">📖</span>
                 <h4 className="font-bold text-stone-900 text-sm">Z-Library (z-library.sk / singlelogin.rs)</h4>
               </div>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border self-start sm:self-auto ${
-                  accountStatus?.zlibrary?.isConnected
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    : 'bg-stone-100 text-stone-600 border-stone-200'
-                }`}
-              >
-                {accountStatus?.zlibrary?.isConnected
-                  ? `✅ Połączono: ${accountStatus.zlibrary.userName || 'Konto'} (${accountStatus.zlibrary.emailMasked || ''}) • Pobrano dziś: ${accountStatus.zlibrary.downloadsToday || 0}/${accountStatus.zlibrary.downloadsLimit || 10}`
-                  : '⚪ Niepołączono (brak loginu)'}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
+                {testResults?.zlibrary && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                      testResults.zlibrary.ok
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : 'bg-rose-100 text-rose-900 border-rose-300'
+                    }`}
+                  >
+                    {testResults.zlibrary.ok
+                      ? `✓ Test OK (${testResults.zlibrary.latencyMs}ms)`
+                      : `✗ Test: ${testResults.zlibrary.message}`}
+                  </span>
+                )}
+                <span
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                    accountStatus?.zlibrary?.isConnected
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-stone-100 text-stone-600 border-stone-200'
+                  }`}
+                >
+                  {accountStatus?.zlibrary?.isConnected
+                    ? `✅ Połączono: ${accountStatus.zlibrary.userName || 'Konto'} (${accountStatus.zlibrary.emailMasked || ''}) • Pobrano dziś: ${accountStatus.zlibrary.downloadsToday || 0}/${accountStatus.zlibrary.downloadsLimit || 10}`
+                    : '⚪ Niepołączono (brak loginu)'}
+                </span>
+              </div>
             </div>
 
             <div className="text-stone-600 space-y-1.5 leading-relaxed bg-white p-3.5 rounded-xl border border-stone-200">
@@ -380,17 +422,32 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
                   <p className="text-[11px] text-stone-500">Przeszukiwanie bazy e-booków, lektur i dokumentów</p>
                 </div>
               </div>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border self-start sm:self-auto ${
-                  accountStatus?.chomikuj?.isConnected
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    : 'bg-stone-100 text-stone-600 border-stone-200'
-                }`}
-              >
-                {accountStatus?.chomikuj?.isConnected
-                  ? `✅ Konto aktywne: ${accountStatus.chomikuj.accountName || 'waxap40816'}`
-                  : '⚪ Wpisz dane konta Chomikuj'}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
+                {testResults?.chomikuj && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                      testResults.chomikuj.ok
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : 'bg-rose-100 text-rose-900 border-rose-300'
+                    }`}
+                  >
+                    {testResults.chomikuj.ok
+                      ? `✓ Test OK (${testResults.chomikuj.latencyMs}ms)`
+                      : `✗ Test: ${testResults.chomikuj.message}`}
+                  </span>
+                )}
+                <span
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                    accountStatus?.chomikuj?.isConnected
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-stone-100 text-stone-600 border-stone-200'
+                  }`}
+                >
+                  {accountStatus?.chomikuj?.isConnected
+                    ? `✅ Konto aktywne: ${accountStatus.chomikuj.accountName || 'waxap40816'}`
+                    : '⚪ Wpisz dane konta Chomikuj'}
+                </span>
+              </div>
             </div>
 
             <p className="text-stone-600 leading-relaxed text-xs">
@@ -456,17 +513,32 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
                   <p className="text-[11px] text-stone-500">Polska baza dokumentów, e-booków i publikacji</p>
                 </div>
               </div>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border self-start sm:self-auto ${
-                  accountStatus?.docer?.isConnected
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    : 'bg-stone-100 text-stone-600 border-stone-200'
-                }`}
-              >
-                {accountStatus?.docer?.isConnected
-                  ? `✅ Konto aktywne: ${accountStatus.docer.emailMasked || 'diw***@flakeian.com'}`
-                  : '⚪ Wpisz dane konta Docer'}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
+                {testResults?.docer && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                      testResults.docer.ok
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : 'bg-rose-100 text-rose-900 border-rose-300'
+                    }`}
+                  >
+                    {testResults.docer.ok
+                      ? `✓ Test OK (${testResults.docer.latencyMs}ms)`
+                      : `✗ Test: ${testResults.docer.message}`}
+                  </span>
+                )}
+                <span
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                    accountStatus?.docer?.isConnected
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-stone-100 text-stone-600 border-stone-200'
+                  }`}
+                >
+                  {accountStatus?.docer?.isConnected
+                    ? `✅ Konto aktywne: ${accountStatus.docer.emailMasked || 'diw***@flakeian.com'}`
+                    : '⚪ Wpisz dane konta Docer'}
+                </span>
+              </div>
             </div>
 
             <p className="text-stone-600 leading-relaxed text-xs">
@@ -519,18 +591,32 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
                   <p className="text-[11px] text-stone-500">Globalna baza udostępnionych plików e-booków</p>
                 </div>
               </div>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border self-start sm:self-auto ${
-                  accountStatus?.fourShared?.isConnected
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    : 'bg-stone-100 text-stone-600 border-stone-200'
-                }`}
-              >
-                {accountStatus?.fourShared?.isConnected
-                  ? `✅ Konto aktywne: ${accountStatus.fourShared.emailMasked || 'diw***@flakeian.com'}`
-                  : '⚪ Wpisz dane konta 4shared'}
-              </span>
-            </div>
+              <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
+                {testResults?.fourShared && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                      testResults.fourShared.ok
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : 'bg-rose-100 text-rose-900 border-rose-300'
+                    }`}
+                  >
+                    {testResults.fourShared.ok
+                      ? `✓ Test OK (${testResults.fourShared.latencyMs}ms)`
+                      : `✗ Test: ${testResults.fourShared.message}`}
+                  </span>
+                )}
+                <span
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                    accountStatus?.fourShared?.isConnected
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-stone-100 text-stone-600 border-stone-200'
+                  }`}
+                >
+                  {accountStatus?.fourShared?.isConnected
+                    ? `✅ Konto aktywne: ${accountStatus.fourShared.emailMasked || 'diw***@flakeian.com'}`
+                    : '⚪ Wpisz dane konta 4shared'}
+                </span>
+              </div>
 
             <p className="text-stone-600 leading-relaxed text-xs">
               Logowanie do 4shared pozwala na wyszukiwanie plików i natychmiastowe pobieranie bez odliczania sekund oczekiwania.
@@ -574,18 +660,34 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 sm:p-5 border-t border-stone-200 bg-white flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-medium text-stone-600 hover:bg-stone-100 transition cursor-pointer"
-          >
-            Zamknij
-          </button>
+        <div className="p-4 sm:p-5 border-t border-stone-200 bg-stone-50/50 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl text-xs font-medium text-stone-600 hover:bg-stone-200 transition cursor-pointer"
+            >
+              Zamknij
+            </button>
+
+            <button
+              type="button"
+              disabled={isTesting || saving}
+              onClick={handleTestAccounts}
+              className="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 border border-amber-300 font-semibold text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-50"
+            >
+              {isTesting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700" />
+              ) : (
+                <span>🧪</span>
+              )}
+              <span>{isTesting ? 'Testowanie kont...' : 'Przetestuj wszystkie konta'}</span>
+            </button>
+          </div>
 
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || isTesting}
             onClick={handleSave}
             className="px-5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold text-xs flex items-center gap-2 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
           >

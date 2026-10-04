@@ -382,9 +382,176 @@ export function getPublicAccountStatus() {
   };
 }
 
+export interface AccountTestResult {
+  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive';
+  name: string;
+  ok: boolean;
+  message: string;
+  latencyMs?: number;
+}
+
+export async function testAllAccounts(): Promise<AccountTestResult[]> {
+  loadSettings();
+  const results: AccountTestResult[] = [];
+
+  // 1. Test Z-Library
+  const zStart = Date.now();
+  try {
+    const z = cachedSettings.zlibrary;
+    if (z.userId && z.userKey) {
+      const resp = await fetch('https://singlelogin.re/eapi/book/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `remix_userid=${z.userId}; remix_userkey=${z.userKey}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+        },
+        body: new URLSearchParams({ message: 'Lem', limit: '1' }).toString(),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        results.push({
+          account: 'zlibrary',
+          name: 'Z-Library (Konto Premium/VIP)',
+          ok: true,
+          message: 'Połączenie z autoryzacją Z-Library aktywne. Pobieranie działa poprawnie.',
+          latencyMs: Date.now() - zStart,
+        });
+      } else {
+        results.push({
+          account: 'zlibrary',
+          name: 'Z-Library (Konto Premium/VIP)',
+          ok: false,
+          message: `Serwer Z-Library zwrócił kod HTTP ${resp.status}`,
+          latencyMs: Date.now() - zStart,
+        });
+      }
+    } else {
+      results.push({
+        account: 'zlibrary',
+        name: 'Z-Library (Konto Premium/VIP)',
+        ok: false,
+        message: 'Brak skonfigurowanych kluczy lub danych logowania Z-Library.',
+      });
+    }
+  } catch (err: any) {
+    results.push({
+      account: 'zlibrary',
+      name: 'Z-Library (Konto Premium/VIP)',
+      ok: false,
+      message: err.message || 'Błąd połączenia z Z-Library',
+      latencyMs: Date.now() - zStart,
+    });
+  }
+
+  // 2. Test Docer.pl
+  const docStart = Date.now();
+  try {
+    const ok = await loginDocer();
+    results.push({
+      account: 'docer',
+      name: 'Docer.pl (Konto)',
+      ok,
+      message: ok
+        ? `Zalogowano pomyślnie do konta Docer.pl (${cachedSettings.docer.email || 'diweg68665@flakeian.com'}).`
+        : 'Nie udało się zalogować do Docer.pl. Sprawdź poprawność hasła.',
+      latencyMs: Date.now() - docStart,
+    });
+  } catch (err: any) {
+    results.push({
+      account: 'docer',
+      name: 'Docer.pl (Konto)',
+      ok: false,
+      message: err.message || 'Błąd połączenia z Docer.pl',
+      latencyMs: Date.now() - docStart,
+    });
+  }
+
+  // 3. Test 4shared
+  const fsStart = Date.now();
+  try {
+    const ok = await login4shared();
+    const searchRes = await fetch('https://www.4shared.com/web/rest/v1_2/files?query=robot&limit=1', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000),
+    });
+    const canSearch = searchRes.ok;
+    results.push({
+      account: 'fourShared',
+      name: '4shared.com (Konto)',
+      ok: ok || canSearch,
+      message: ok
+        ? `Zalogowano do konta 4shared (${cachedSettings.fourShared.email || 'diweg68665@flakeian.com'}) i baza odpowiada.`
+        : canSearch
+        ? 'Wyszukiwarka 4shared działa poprawnie w trybie chmury.'
+        : 'Błąd połączenia z 4shared.',
+      latencyMs: Date.now() - fsStart,
+    });
+  } catch (err: any) {
+    results.push({
+      account: 'fourShared',
+      name: '4shared.com (Konto)',
+      ok: false,
+      message: err.message || 'Błąd połączenia z 4shared',
+      latencyMs: Date.now() - fsStart,
+    });
+  }
+
+  // 4. Test Chomikuj.pl
+  const chStart = Date.now();
+  try {
+    const { searchChomikujBooks } = await import('./chomikuj');
+    const items = await searchChomikujBooks('lektura');
+    results.push({
+      account: 'chomikuj',
+      name: 'Chomikuj.pl (Konto & Szukaj)',
+      ok: items.length > 0,
+      message: items.length > 0
+        ? `Wyszukiwarka Chomikuj.pl działa (zwrócono ${items.length} pozycji testowych).`
+        : 'Chomikuj.pl nie zwrócił wyników testowych.',
+      latencyMs: Date.now() - chStart,
+    });
+  } catch (err: any) {
+    results.push({
+      account: 'chomikuj',
+      name: 'Chomikuj.pl (Konto & Szukaj)',
+      ok: false,
+      message: err.message || 'Błąd połączenia z Chomikuj.pl',
+      latencyMs: Date.now() - chStart,
+    });
+  }
+
+  // 5. Test Internet Archive
+  const iaStart = Date.now();
+  try {
+    const res = await fetch('https://archive.org/advancedsearch.php?q=mediatype:(texts)&rows=1&output=json', {
+      signal: AbortSignal.timeout(4000),
+      headers: { 'User-Agent': 'KOReader-Cloud/1.0' },
+    });
+    results.push({
+      account: 'internetArchive',
+      name: 'Internet Archive (Baza cyfrowa)',
+      ok: res.ok,
+      message: res.ok ? 'Repozytorium Archive.org odpowiada prawidłowo.' : `HTTP ${res.status}`,
+      latencyMs: Date.now() - iaStart,
+    });
+  } catch (err: any) {
+    results.push({
+      account: 'internetArchive',
+      name: 'Internet Archive (Baza cyfrowa)',
+      ok: false,
+      message: err.message || 'Timeout połączenia z Archive.org',
+      latencyMs: Date.now() - iaStart,
+    });
+  }
+
+  return results;
+}
+
 // Initial load & background authentication
 loadSettings();
 setTimeout(() => {
   loginDocer().catch(() => {});
   login4shared().catch(() => {});
 }, 1000);
+

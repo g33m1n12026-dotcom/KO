@@ -487,51 +487,339 @@ function AIBooks:showLocalFileActionDialog(filePath)
 end
 
 -- Książka na życzenie (AI Storybook / Poradnik)
+-- Książka na życzenie (Formularz AI Storybook / Poradnik)
 function AIBooks:showStorybookDialog()
-    local input
-    input = InputDialog:new{
-        title = _("✨ Książka na życzenie (AI Storybook)"),
-        input_hint = _("Wpisz temat, fabułę lub tytuł..."),
-        description = _("Opisz o czym ma być książka (powieść, streszczenie lub poradnik):"),
-        buttons = {
-            {
-                {
-                    text = _("Anuluj"),
-                    id = "close",
-                    callback = function()
-                        UIManager:close(input)
-                    end,
-                },
-                {
-                    text = _("Stwórz książkę"),
-                    is_enter_default = true,
-                    callback = function()
-                        local prompt = input:getInputText()
-                        UIManager:close(input)
-                        if prompt and prompt:gsub("%s+", "") ~= "" then
-                            self:withNetwork(function()
-                                self:performStorybookCreation(prompt)
-                            end)
-                        end
-                    end,
-                },
-            },
-        },
-    }
-    UIManager:show(input)
-    if input.onShowKeyboard then input:onShowKeyboard() end
+    self:showStorybookFormDialog()
 end
 
-function AIBooks:performStorybookCreation(promptText)
+function AIBooks:showStorybookFormDialog()
+    local f = self.storybook_form or {
+        title = "",
+        prompt = "",
+        type = "story",
+        genre = "Sci-Fi / Przygoda",
+        characters = "",
+        targetAudience = "Wszyscy (Dla każdego)",
+        targetAudienceKey = "all",
+        chapterCount = 4,
+        includeIllustrations = true,
+    }
+    self.storybook_form = f
+
+    local promptPreview = (f.prompt and f.prompt ~= "") and (f.prompt:sub(1, 26) .. (f.prompt:len() > 26 and "..." or "")) or _("[Kliknij, aby wpisać]")
+    local titlePreview = (f.title and f.title ~= "") and f.title:sub(1, 30) or _("[Automatyczny wg fabuły]")
+    local typeLabel = f.type == "story" and "Opowiadanie / Powieść" or f.type == "summary" and "Streszczenie książki" or "Poradnik / Instrukcja"
+    local charPreview = (f.characters and f.characters ~= "") and f.characters:sub(1, 26) or _("[Dowolni / wg fabuły]")
+    local illuLabel = f.includeIllustrations and "Włączone (Ryciny)" or "Wyłączone"
+
+    local items = {
+        {
+            text = _("📝 1. Opis fabuły / Temat (wymagane):\\n   ") .. promptPreview,
+            callback = function()
+                local inp
+                inp = InputDialog:new{
+                    title = _("Fabuła / Temat książki"),
+                    input = f.prompt,
+                    input_hint = _("Opisz o czym ma być książka..."),
+                    buttons = {
+                        {
+                            { text = _("Wróć"), callback = function() UIManager:close(inp) end },
+                            {
+                                text = _("Zapisz"),
+                                is_enter_default = true,
+                                callback = function()
+                                    f.prompt = inp:getInputText() or ""
+                                    UIManager:close(inp)
+                                    self:showStorybookFormDialog()
+                                end,
+                            },
+                        },
+                    },
+                }
+                UIManager:show(inp)
+                if inp.onShowKeyboard then inp:onShowKeyboard() end
+            end,
+        },
+        {
+            text = _("📌 2. Tytuł książki:\\n   ") .. titlePreview,
+            callback = function()
+                local inp
+                inp = InputDialog:new{
+                    title = _("Tytuł książki"),
+                    input = f.title,
+                    input_hint = _("Wpisz tytuł lub zostaw puste dla AI..."),
+                    buttons = {
+                        {
+                            { text = _("Wróć"), callback = function() UIManager:close(inp) end },
+                            {
+                                text = _("Zapisz"),
+                                is_enter_default = true,
+                                callback = function()
+                                    f.title = inp:getInputText() or ""
+                                    UIManager:close(inp)
+                                    self:showStorybookFormDialog()
+                                end,
+                            },
+                        },
+                    },
+                }
+                UIManager:show(inp)
+                if inp.onShowKeyboard then inp:onShowKeyboard() end
+            end,
+        },
+        {
+            text = _("🎭 3. Typ książki:\\n   ") .. typeLabel,
+            callback = function() self:showStorybookTypeChoice() end,
+        },
+        {
+            text = _("📚 4. Gatunek literacki:\\n   ") .. f.genre,
+            callback = function() self:showStorybookGenreChoice() end,
+        },
+        {
+            text = _("👥 5. Główni bohaterowie:\\n   ") .. charPreview,
+            callback = function()
+                local inp
+                inp = InputDialog:new{
+                    title = _("Bohaterowie"),
+                    input = f.characters,
+                    input_hint = _("np. Wiktor (były detektyw), Nova (android)..."),
+                    buttons = {
+                        {
+                            { text = _("Wróć"), callback = function() UIManager:close(inp) end },
+                            {
+                                text = _("Zapisz"),
+                                is_enter_default = true,
+                                callback = function()
+                                    f.characters = inp:getInputText() or ""
+                                    UIManager:close(inp)
+                                    self:showStorybookFormDialog()
+                                end,
+                            },
+                        },
+                    },
+                }
+                UIManager:show(inp)
+                if inp.onShowKeyboard then inp:onShowKeyboard() end
+            end,
+        },
+        {
+            text = _("🎯 6. Grupa odbiorców:\\n   ") .. f.targetAudience,
+            callback = function() self:showStorybookAudienceChoice() end,
+        },
+        {
+            text = _("📏 7. Długość / Liczba rozdziałów:\\n   ") .. tostring(f.chapterCount) .. _(" rozdziałów"),
+            callback = function() self:showStorybookChaptersChoice() end,
+        },
+        {
+            text = _("🎨 8. Ilustracje AI:\\n   ") .. illuLabel,
+            callback = function()
+                f.includeIllustrations = not f.includeIllustrations
+                self:showStorybookFormDialog()
+            end,
+        },
+        {
+            text = _("🚀 9. Gotowe szablony (Cyberpunk, Bajka, itp.)"),
+            callback = function() self:showStorybookPresetsChoice() end,
+        },
+        {
+            text = _("✨ ➔ STWÓRZ KSIĄŻKĘ NA ŻYCZENIE"),
+            callback = function()
+                if not f.prompt or f.prompt:gsub("%s+", "") == "" then
+                    UIManager:show(InfoMessage:new{ text = _("⚠️ Wpisz najpierw opis fabuły lub temat książki (Pole 1).") })
+                    return
+                end
+                self:withNetwork(function()
+                    self:performStorybookCreationFromForm(f)
+                end)
+            end,
+        },
+        {
+            text = _("❌ Wróć do menu"),
+            callback = function() end,
+        },
+    }
+
+    local menu = Menu:new{
+        title = _("✨ Formularz: Książka na życzenie"),
+        item_table = items,
+    }
+    UIManager:show(menu)
+end
+
+function AIBooks:showStorybookTypeChoice()
+    local f = self.storybook_form
+    local types = {
+        { id = "story", text = _("📖 Powieść / Opowiadanie literackie") },
+        { id = "summary", text = _("📚 Streszczenie i omówienie lektury/książki") },
+        { id = "guide", text = _("🛠️ Poradnik / Przewodnik instruktażowy") },
+    }
+    local items = {}
+    for _, t in ipairs(types) do
+        table.insert(items, {
+            text = t.text,
+            callback = function()
+                f.type = t.id
+                self:showStorybookFormDialog()
+            end,
+        })
+    end
+    UIManager:show(Menu:new{ title = _("Wybierz typ książki:"), item_table = items })
+end
+
+function AIBooks:showStorybookGenreChoice()
+    local f = self.storybook_form
+    local genres = {
+        "Sci-Fi / Cyberpunk",
+        "Kryminał / Thriller",
+        "Fantasy / Magia",
+        "Baśń / Bajka dla dzieci",
+        "Powieść historyczna",
+        "Horror / Groza",
+        "Obyczajowa / Romans",
+        "Rozwój osobisty / Psychologia",
+        "Technologia / Przewodnik",
+    }
+    local items = {}
+    for _, g in ipairs(genres) do
+        table.insert(items, {
+            text = g,
+            callback = function()
+                f.genre = g
+                self:showStorybookFormDialog()
+            end,
+        })
+    end
+    UIManager:show(Menu:new{ title = _("Wybierz gatunek:"), item_table = items })
+end
+
+function AIBooks:showStorybookAudienceChoice()
+    local f = self.storybook_form
+    local audiences = {
+        { key = "all", label = "Wszyscy (Dla każdego)" },
+        { key = "adults", label = "Dorośli (Głębokie motywy)" },
+        { key = "young_adults", label = "Młodzież (Young Adult)" },
+        { key = "children", label = "Dzieci (Ciepły i prosty język)" },
+    }
+    local items = {}
+    for _, a in ipairs(audiences) do
+        table.insert(items, {
+            text = a.label,
+            callback = function()
+                f.targetAudience = a.label
+                f.targetAudienceKey = a.key
+                self:showStorybookFormDialog()
+            end,
+        })
+    end
+    UIManager:show(Menu:new{ title = _("Grupa docelowa:"), item_table = items })
+end
+
+function AIBooks:showStorybookChaptersChoice()
+    local f = self.storybook_form
+    local chapters = {
+        { count = 3, label = "3 rozdziały (Szybkie czytanie / Nowela)" },
+        { count = 4, label = "4 rozdziały (Standardowa długość)" },
+        { count = 6, label = "6 rozdziałów (Dłuższa wciągająca historia)" },
+        { count = 8, label = "8 rozdziałów (Powieść wielowątkowa)" },
+        { count = 10, label = "10 rozdziałów (Rozbudowana saga)" },
+    }
+    local items = {}
+    for _, c in ipairs(chapters) do
+        table.insert(items, {
+            text = c.label,
+            callback = function()
+                f.chapterCount = c.count
+                self:showStorybookFormDialog()
+            end,
+        })
+    end
+    UIManager:show(Menu:new{ title = _("Liczba rozdziałów:"), item_table = items })
+end
+
+function AIBooks:showStorybookPresetsChoice()
+    local f = self.storybook_form
+    local presets = {
+        {
+            label = "🚀 Cyberpunk Noir 'Neonowy Świt'",
+            type = "story",
+            title = "Neonowy Świt",
+            prompt = "Detektyw bada sprawę zaginionego androida o ludzkiej duszy w deszczowej Warszawie roku 2089.",
+            genre = "Sci-Fi / Cyberpunk",
+            characters = "Wiktor (cyniczny były gliniarz), Nova (model syntetyka)",
+            audience = "Dorośli (Głębokie motywy)",
+            audienceKey = "adults",
+            chapters = 4,
+        },
+        {
+            label = "🦊 Bajka 'Lisek, który policzył gwiazdy'",
+            type = "story",
+            title = "Lisek, który policzył gwiazdy",
+            prompt = "Ciepła i mądra opowieść na dobranoc o małym lisku, który chciał dowiedzieć się, skąd bierze się światło gwiazd.",
+            genre = "Baśń / Bajka dla dzieci",
+            characters = "Rudy (ciekawy świata lisek), Barnaba (mądra sowa)",
+            audience = "Dzieci (Ciepły i prosty język)",
+            audienceKey = "children",
+            chapters = 3,
+        },
+        {
+            label = "📚 Streszczenie 'Atomowe Nawyki'",
+            type = "summary",
+            title = "Przewodnik: Atomowe Nawyki",
+            prompt = "Wyczerpujące streszczenie i podręcznik wdrażania książki 'Atomic Habits' Jamesa Cleara. Omówienie pętli nawyku, 4 praw zmiany i ćwiczenia.",
+            genre = "Rozwój osobisty / Psychologia",
+            characters = "",
+            audience = "Wszyscy (Dla każdego)",
+            audienceKey = "all",
+            chapters = 5,
+        },
+        {
+            label = "🛠️ Poradnik 'Sekrety KOReadera'",
+            type = "guide",
+            title = "Sekrety KOReadera na Kindle",
+            prompt = "Praktyczny poradnik konfiguracji, skrótów gestów, czytania nocnego, formatów EPUB i synchronizacji w KOReaderze na Kindle.",
+            genre = "Technologia / Przewodnik",
+            characters = "",
+            audience = "Wszyscy (Dla każdego)",
+            audienceKey = "all",
+            chapters = 4,
+        },
+    }
+
+    local items = {}
+    for _, p in ipairs(presets) do
+        table.insert(items, {
+            text = p.label,
+            callback = function()
+                f.title = p.title
+                f.prompt = p.prompt
+                f.type = p.type
+                f.genre = p.genre
+                f.characters = p.characters
+                f.targetAudience = p.audience
+                f.targetAudienceKey = p.audienceKey
+                f.chapterCount = p.chapters
+                UIManager:show(InfoMessage:new{ text = _("Wczytano szablon: ") .. p.title, timeout = 1.5 })
+                self:showStorybookFormDialog()
+            end,
+        })
+    end
+    UIManager:show(Menu:new{ title = _("Wybierz gotowy szablon:"), item_table = items })
+end
+
+function AIBooks:performStorybookCreationFromForm(f)
     local info = InfoMessage:new{ text = _("Zlecanie tworzenia książki w chmurze AI...") }
     UIManager:show(info)
 
     UIManager:nextTick(function()
         local payload = json.encode({
-            prompt = promptText,
-            type = "story",
-            chapterCount = 4,
-            includeIllustrations = true,
+            title = (f.title and f.title ~= "") and f.title or nil,
+            prompt = f.prompt,
+            type = f.type or "story",
+            genre = f.genre,
+            characters = (f.characters and f.characters ~= "") and f.characters or nil,
+            targetAudience = f.targetAudienceKey or "all",
+            chapterCount = f.chapterCount or 4,
+            includeIllustrations = f.includeIllustrations == true,
             engine = "auto",
         })
 
@@ -551,7 +839,7 @@ function AIBooks:performStorybookCreation(promptText)
 
         if code == 200 or code == 201 then
             UIManager:show(InfoMessage:new{
-                text = _("✅ Zlecenie przyjęte!\\n\\nAI pisze Twoją książkę rozdział po rozdziale i generuje ryciny.\\n\\nPostęp możesz śledzić w menu 'Moje zadania'. Po ukończeniu pobierzesz ją bezpośrednio do folderu AI_Books na czytniku."),
+                text = _("✅ Zlecenie przyjęte!\\n\\nAI pisze Twoją książkę rozdział po rozdziale i generuje ilustracje.\\n\\nPostęp możesz śledzić w menu 'Moje zadania'. Po ukończeniu pobierzesz ją bezpośrednio na czytnik lub otworzysz w OPDS."),
             })
         else
             self:handleHttpError(code, status)
@@ -1217,6 +1505,69 @@ function AIBooks:renderTasksMenu(tasks)
     UIManager:show(menu)
 end
 
+-- Bezpośrednie pobieranie pliku z serwera na pamięć czytnika Kindle
+function AIBooks:downloadTaskFileDirectly(task, dest_path)
+    self:ensureTargetDir()
+    local titleDisplay = (task.title or "książkę"):sub(1, 35)
+    local info = InfoMessage:new{
+        text = _("Pobieranie e-booka bezpośrednio na czytnik Kindle...\\n") .. titleDisplay .. _("\\nProszę czekać..."),
+    }
+    UIManager:show(info)
+
+    self:withNetwork(function()
+        local file, err = io.open(dest_path, "wb")
+        if not file then
+            UIManager:close(info)
+            UIManager:show(InfoMessage:new{ text = _("Błąd zapisu pliku na czytniku: ") .. tostring(err) })
+            return
+        end
+
+        local download_url = self.server_url .. "/api/download/" .. task.id
+        local res, code, headers, status = doHttpRequest{
+            url = download_url,
+            method = "GET",
+            sink = ltn12.sink.file(file),
+        }
+        file:close()
+        UIManager:close(info)
+
+        if code == 200 then
+            local check = io.open(dest_path, "rb")
+            local sz = check and check:seek("end") or 0
+            if check then check:close() end
+
+            if sz > 500 then
+                local confirm = ConfirmBox:new{
+                    text = _("✅ Książka została pomyślnie pobrana na czytnik!\\n\\nTytuł: ") .. titleDisplay .. _("\\nPlik: ") .. dest_path .. _("\\nRozmiar: ") .. string.format("%.1f KB", sz / 1024) .. _("\\n\\nCzy chcesz otworzyć ją teraz w czytniku?"),
+                    ok_text = _("Otwórz"),
+                    cancel_text = _("Zostaw na potem"),
+                    ok_callback = function()
+                        local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
+                        if ok_reader and ReaderUI and ReaderUI.showReader then
+                            ReaderUI:showReader(dest_path)
+                        else
+                            local ok_evt, Event = pcall(require, "ui/event")
+                            if ok_evt and Event then
+                                UIManager:broadcastEvent(Event:new("OpenFile", dest_path))
+                            end
+                        end
+                    end,
+                    cancel_callback = function()
+                        self:showTasksList(true)
+                    end,
+                }
+                UIManager:show(confirm)
+            else
+                os.remove(dest_path)
+                UIManager:show(InfoMessage:new{ text = _("Błąd: Pobrany plik jest pusty.") })
+            end
+        else
+            os.remove(dest_path)
+            self:handleHttpError(code, status)
+        end
+    end)
+end
+
 -- Szybkie menu akcji dla konkretnej pozycji
 function AIBooks:showTaskActionMenu(task, is_local, dest_path)
     local title = task.title or "Książka"
@@ -1238,12 +1589,24 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
             end,
         })
         table.insert(actionItems, {
-            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera"),
+            text = _("🔄 2. Pobierz ponownie z chmury (zastąp plik)"),
+            callback = function()
+                self:downloadTaskFileDirectly(task, dest_path)
+            end,
+        })
+        table.insert(actionItems, {
+            text = _("⚡ 3. Otwórz w Katalogu OPDS KOReadera"),
             callback = function() self:openNativeOpds() end,
         })
     elseif task.status == "completed" and task.outputEpubFilename then
         table.insert(actionItems, {
-            text = _("⚡ 1. Otwórz w Katalogu OPDS (Pobieranie natywne w tle - bez zacinania)"),
+            text = _("📥 1. Pobierz plik bezpośrednio na czytnik (do folderu AI_Books)\\n[Zapisze plik w czytniku i zaoferuje natychmiastowe otwarcie]"),
+            callback = function()
+                self:downloadTaskFileDirectly(task, dest_path)
+            end,
+        })
+        table.insert(actionItems, {
+            text = _("⚡ 2. Otwórz w Katalogu OPDS (Pobieranie natywne w tle)"),
             callback = function() self:openNativeOpds() end,
         })
     else

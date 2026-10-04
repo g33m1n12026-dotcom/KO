@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X, Smartphone, UploadCloud } from 'lucide-react';
 import { Job } from '../types';
 
 interface JobsLibraryProps {
@@ -16,6 +16,40 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] = useState<{ id: string; title: string } | null>(null);
+
+  // Local phone file upload to OPDS
+  const [isUploadingDirect, setIsUploadingDirect] = useState(false);
+  const [directUploadSuccess, setDirectUploadSuccess] = useState<string | null>(null);
+  const [directUploadError, setDirectUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDirectFileUpload = async (file: File) => {
+    setIsUploadingDirect(true);
+    setDirectUploadSuccess(null);
+    setDirectUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload-direct', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Błąd wgrywania pliku' }));
+        throw new Error(err.error || 'Nie udało się wgrać pliku');
+      }
+      const createdJob: Job = await res.json();
+      setLocalJobs((prev) => [createdJob, ...prev]);
+      setDirectUploadSuccess(`Wgrano "${file.name}"! Książka jest natychmiast dostępna w OPDS czytnika.`);
+      onRefresh();
+      setTimeout(() => setDirectUploadSuccess(null), 6000);
+    } catch (err: any) {
+      setDirectUploadError(err.message || 'Błąd wysyłania pliku');
+    } finally {
+      setIsUploadingDirect(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     setLocalJobs(jobs);
@@ -79,16 +113,62 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".epub,.pdf,.mobi,.cbz,.txt,.azw3,.fb2"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleDirectFileUpload(e.target.files[0]);
+              }
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploadingDirect}
+            className="px-3 py-1.5 rounded-lg border border-stone-800 text-white bg-stone-900 hover:bg-stone-800 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-xs disabled:opacity-60"
+          >
+            {isUploadingDirect ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Wgrywanie...</span>
+              </>
+            ) : (
+              <>
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Wgraj z telefonu do OPDS</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={onRefresh}
-            className="px-3.5 py-1.5 rounded-lg border border-stone-200 text-stone-700 bg-stone-50 hover:bg-stone-100 text-xs font-medium flex items-center gap-1.5 transition active:scale-95"
+            className="px-3 py-1.5 rounded-lg border border-stone-200 text-stone-700 bg-stone-50 hover:bg-stone-100 text-xs font-medium flex items-center gap-1.5 transition active:scale-95"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>Odśwież status</span>
+            <span className="hidden sm:inline">Odśwież status</span>
           </button>
         </div>
       </div>
+
+      {/* Upload Alerts */}
+      {directUploadSuccess && (
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-medium animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{directUploadSuccess}</span>
+        </div>
+      )}
+
+      {directUploadError && (
+        <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-medium">
+          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{directUploadError}</span>
+        </div>
+      )}
 
       {/* Active Jobs Section */}
       {activeJobs.length > 0 && (

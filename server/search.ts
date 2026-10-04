@@ -30,6 +30,70 @@ export function normalizeLanguageCode(raw: string, title?: string): string {
 }
 
 /**
+ * Searches 4shared.com cloud files repository for books and documents (.epub, .pdf, .mobi, .cbz, .txt, .doc, .docx).
+ */
+export async function search4sharedBooks(query: string): Promise<BookSearchResult[]> {
+  if (!query || !query.trim()) return [];
+  const cleanQ = query.trim();
+  const searchResults: BookSearchResult[] = [];
+
+  try {
+    const urls = [
+      `https://www.4shared.com/web/rest/v1_2/files?query=${encodeURIComponent(cleanQ)}`,
+      `https://www.4shared.com/web/rest/v1_2/files?query=${encodeURIComponent(cleanQ + ' epub')}`,
+    ];
+
+    const seenIds = new Set<string>();
+
+    for (const u of urls) {
+      try {
+        const resp = await fetch(u, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(3500),
+        });
+
+        if (resp.ok) {
+          const data: any = await resp.json();
+          if (Array.isArray(data.files)) {
+            for (const f of data.files) {
+              if (!f.id || seenIds.has(f.id)) continue;
+              const name = f.name || '';
+              const extMatch = name.match(/\.(epub|pdf|mobi|cbz|txt|azw3|docx?)$/i);
+              if (!extMatch) continue;
+
+              seenIds.add(f.id);
+              const format = extMatch[1].toUpperCase() === 'DOCX' ? 'DOC' : extMatch[1].toUpperCase();
+              const isPl = /[ąćęłńóśźż]/i.test(name) || /polsk|lektur|wydani/i.test(name);
+              const cleanTitle = name.replace(/\.[^/.]+$/, '').replace(/[_.-]+/g, ' ').trim();
+              const sizeMb = f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : undefined;
+
+              searchResults.push({
+                id: `4shared_${f.id}`,
+                title: cleanTitle,
+                author: '4shared',
+                language: isPl ? 'PL' : normalizeLanguageCode('EN', name),
+                format,
+                source: '📁 4shared (Chmura plików)',
+                description: `Plik z bazy 4shared. Rozmiar: ${sizeMb || 'b.d.'}, Format: ${format}.`,
+                downloadUrl: f.downloadPage || `https://www.4shared.com/s/f${f.id}`,
+                mirrorLinks: generateMirrorSearchLinks(cleanTitle),
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+  } catch (err: any) {
+    console.warn('Błąd wyszukiwania 4shared:', err?.message);
+  }
+
+  return searchResults;
+}
+
+/**
  * Searches for books via Gutendex (Project Gutenberg API), OpenLibrary,
  * and attaches deep links to shadow libraries (Anna's Archive, Z-Library, LibGen, Sci-Hub, Liber3).
  * Automatically resolves multilingual editions and author names across languages.
@@ -105,8 +169,8 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
   const englishQuery = multiMeta.titles.en ? encodeURIComponent(multiMeta.titles.en) : null;
   const polishQuery = multiMeta.titles.pl ? multiMeta.titles.pl : query.trim();
 
-  // Run WolneLektury, OpenLibrary, Gutenberg, LibGen, Archive.org, Z-Library, and Chomikuj.pl concurrently
-  const [wolneLekturyItems, olDocs, gutenbergItems, libgenItems, archiveDocs, zlibItems, chomikujItems] = await Promise.all([
+  // Run WolneLektury, OpenLibrary, Gutenberg, LibGen, Archive.org, Z-Library, Chomikuj.pl, and 4shared concurrently
+  const [wolneLekturyItems, olDocs, gutenbergItems, libgenItems, archiveDocs, zlibItems, chomikujItems, fourSharedItems] = await Promise.all([
     // 0. Wolne Lektury (Polish Free Books Repository with direct EPUB/PDF)
     (async () => {
       try {
@@ -400,11 +464,28 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
         return [];
       }
     })(),
+
+    // 7. 4shared.com (Cloud document search for EPUB/PDF/MOBI)
+    (async () => {
+      try {
+        const qToSearch = polishQuery || query.trim();
+        return await search4sharedBooks(qToSearch);
+      } catch {
+        return [];
+      }
+    })(),
   ]);
 
   // Process Chomikuj.pl results
   if (Array.isArray(chomikujItems)) {
     for (const item of chomikujItems) {
+      results.push(item);
+    }
+  }
+
+  // Process 4shared results
+  if (Array.isArray(fourSharedItems)) {
+    for (const item of fourSharedItems) {
       results.push(item);
     }
   }
@@ -764,11 +845,15 @@ export async function resolveDirectDownloadUrl(url: string): Promise<string> {
  * Automatically find and return direct download URL for a given book query
  * by searching LibGen, Gutenberg, and Archive.org mirrors with relevance scoring.
  */
-export async function findDirectBookDownload(query: string): Promise<{ downloadUrl: string; title: string; format: string } | null> {
+export async function findDirectBookDownload(
+  query: string,
+  preferredLang: string = 'PL'
+): Promise<{ downloadUrl: string; title: string; format: string; language?: string } | null> {
   const results = await searchOnlineBooks(query);
   const qWords = query.toLowerCase().replace(/[^a-z0-9]/gi, ' ').split(/\s+/).filter(w => w.length >= 3);
+  const isQueryPolish = /[ąćęłńóśźż]/i.test(query) || preferredLang === 'PL';
 
-  // Score candidates: prefer open shadow mirrors and direct EPUBs
+  // Score candidates: strongly prioritize exact language matches (e.g. Polish)
   const scored = results
     .filter(r => Boolean(r.downloadUrl && !r.downloadUrl.includes('katalog/lektura/')))
     .map(r => {
@@ -778,10 +863,20 @@ export async function findDirectBookDownload(query: string): Promise<{ downloadU
         if (haystack.includes(w)) score += 30;
       }
       if (r.title.toLowerCase().includes(query.toLowerCase())) score += 50;
-      if (r.format?.toUpperCase().includes('EPUB')) score += 30;
-      if (r.source.includes('Z-Library')) score += 50;
-      if (r.source.includes('LibGen') || r.source.includes('Shadow')) score += 25;
-      if (r.source.includes('Wolne Lektury')) score += 20;
+
+      // Priorytet języka wydania
+      const isPlBook = r.language === 'PL' || /[ąćęłńóśźż]/.test(r.title);
+      if (isQueryPolish) {
+        if (isPlBook) score += 300; // Ogromny priorytet dla polskiego wydania
+        else score -= 150; // Kara dla wydań obcojęzycznych, gdy szukamy po polsku
+      }
+
+      if (r.format?.toUpperCase().includes('EPUB')) score += 40;
+      if (r.source.includes('Chomikuj')) score += 60;
+      if (r.source.includes('4shared')) score += 40;
+      if (r.source.includes('Wolne Lektury')) score += 50;
+      if (r.source.includes('Z-Library')) score += 30;
+      if (r.source.includes('LibGen') || r.source.includes('Shadow')) score += 20;
       if (r.source.includes('Archive') && !r.isLendingDRM) score += 10;
       return { item: r, score };
     })
@@ -794,6 +889,7 @@ export async function findDirectBookDownload(query: string): Promise<{ downloadU
     downloadUrl: best.downloadUrl,
     title: best.title,
     format: best.format || 'EPUB',
+    language: best.language,
   };
 }
 
@@ -812,14 +908,14 @@ export async function fetchRemoteBookBuffer(
       return await downloadChomikujFile(url);
     } catch (chomikErr: any) {
       console.warn('Pobieranie z Chomikuj wymagało transferu lub autoryzacji:', chomikErr.message);
-      onLog?.(`[Chomikuj] Plik na Chomikuj jest chroniony lub wymaga transferu konta. Automatyczne przeszukiwanie innych repozytoriów (Z-Library, Anna's Archive, LibGen) w poszukiwaniu otwartej wersji EPUB/PDF...`);
+      onLog?.(`[Chomikuj] Plik na Chomikuj jest chroniony lub wymaga transferu konta. Automatyczne przeszukiwanie innych repozytoriów (Z-Library, 4shared, Wolne Lektury, LibGen) w poszukiwaniu otwartej polskiej wersji EPUB/PDF...`);
 
       const searchTarget = (bookTitle || url.split('/').pop()?.replace(/,\d+\.[a-zA-Z0-9]+$/, '').replace(/[_+]+/g, ' ') || 'ksiazka')
         .replace(/[-_.]+/g, ' ')
         .trim();
-      const alt = await findDirectBookDownload(searchTarget);
-      if (alt && alt.downloadUrl && !alt.downloadUrl.includes('chomikuj.pl')) {
-        onLog?.(`[Chomikuj -> Mirror] Znaleziono wydanie w repozytorium alternatywnym: "${alt.title}" (${alt.format}). Pobieranie...`);
+      const alt = await findDirectBookDownload(searchTarget, 'PL');
+      if (alt && alt.downloadUrl && !alt.downloadUrl.includes('chomikuj.pl') && alt.language === 'PL') {
+        onLog?.(`[Chomikuj -> Mirror] Znaleziono polskie wydanie w repozytorium alternatywnym: "${alt.title}" (${alt.format}). Pobieranie...`);
         let altDirectUrl = await resolveDirectDownloadUrl(alt.downloadUrl);
         let altReferer = alt.downloadUrl.startsWith('http') ? alt.downloadUrl : 'https://z-library.sk/';
 
@@ -843,42 +939,7 @@ export async function fetchRemoteBookBuffer(
         }
       }
 
-      // If Polish title search didn't find an open mirror, check known multilingual translations
-      const altCandidates = [
-        searchTarget.replace(/dziki robot/gi, 'The Wild Robot'),
-        searchTarget.replace(/mikołajek/gi, 'Le Petit Nicolas'),
-        searchTarget.replace(/karolcia/gi, 'Karolcia Krüger'),
-      ];
-
-      for (const altQuery of altCandidates) {
-        if (altQuery !== searchTarget) {
-          onLog?.(`[Chomikuj -> Mirror Światowy] Sprawdzanie otwartego wydania: "${altQuery}"...`);
-          const intlAlt = await findDirectBookDownload(altQuery);
-          if (intlAlt && intlAlt.downloadUrl && !intlAlt.downloadUrl.includes('chomikuj.pl')) {
-            const intlDirectUrl = await resolveDirectDownloadUrl(intlAlt.downloadUrl);
-            if (intlDirectUrl && !intlDirectUrl.startsWith('zlib://')) {
-              const intlResp = await fetch(intlDirectUrl, {
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                  Referer: 'https://z-library.sk/',
-                },
-                signal: AbortSignal.timeout(30000),
-              });
-              if (intlResp.ok) {
-                const intlBuf = Buffer.from(await intlResp.arrayBuffer());
-                if (intlBuf.length > 1000) {
-                  const ext = intlAlt.format.toLowerCase().includes('pdf') ? 'pdf' : 'epub';
-                  const cleanName = `${(bookTitle || intlAlt.title).replace(/[^a-zA-Z0-9_-]/g, '_')}.${ext}`;
-                  return { buffer: intlBuf, filename: cleanName };
-                }
-              }
-            }
-          }
-        }
-      }
-
-      throw new Error(`Plik "${bookTitle || searchTarget}" na Chomikuj wymaga płatnego transferu, a mirrory alternatywne nie zawierają jeszcze otwartej kopii. Wybierz inne źródło z listy wyników wyszukiwania.`);
+      throw new Error(`Plik "${bookTitle || searchTarget}" na Chomikuj wymaga płatnego transferu punktów, a w darmowych mirrorach nie ma jeszcze otwartej polskiej kopii. Wybierz inną pozycję z wyszukiwarki.`);
     }
   }
 

@@ -9,7 +9,7 @@ interface UploadConverterProps {
 
 export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, serverUrl }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [conversionMode, setConversionMode] = useState<'translate' | 'epub_clean' | 'comic_cbz'>('translate');
+  const [conversionMode, setConversionMode] = useState<'translate' | 'epub_clean' | 'comic_cbz' | 'opds_direct'>('translate');
   const [engine, setEngine] = useState<'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini'>('auto');
   const [targetLang, setTargetLang] = useState<string>('Polish');
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -43,7 +43,8 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
       formData.append('engine', engine);
       formData.append('targetLang', conversionMode === 'translate' ? targetLang : 'none');
 
-      const resp = await fetch('/api/convert', {
+      const endpoint = conversionMode === 'opds_direct' ? '/api/upload-direct' : '/api/convert';
+      const resp = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -145,7 +146,7 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
               <label className="block text-xs font-semibold text-stone-700">
                 Wybierz cel i format wynikowy
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <button
                   type="button"
                   onClick={() => setConversionMode('translate')}
@@ -157,10 +158,10 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
                 >
                   <div>
                     <div className="font-semibold text-xs sm:text-sm flex items-center gap-1.5 mb-1">
-                      🌐 Tłumacz na polski + EPUB
+                      🌐 Tłumacz na PL
                     </div>
                     <div className={`text-[11px] leading-relaxed ${conversionMode === 'translate' ? 'text-stone-300' : 'text-stone-500'}`}>
-                      Literacki przekład AI na polski ze spisem treści i podziałem na rozdziały.
+                      Literacki przekład AI na polski ze spisem treści i rozdziałami.
                     </div>
                   </div>
                   <div className={`mt-2 text-[10px] font-mono ${conversionMode === 'translate' ? 'text-stone-300' : 'text-stone-400'}`}>
@@ -179,14 +180,14 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
                 >
                   <div>
                     <div className="font-semibold text-xs sm:text-sm flex items-center gap-1.5 mb-1">
-                      📖 Lekki EPUB (bez tłumaczenia)
+                      📖 Lekki EPUB
                     </div>
                     <div className={`text-[11px] leading-relaxed ${conversionMode === 'epub_clean' ? 'text-stone-300' : 'text-stone-500'}`}>
-                      Idealne na ciężkie skany książek. Usuwa zacięcia, dodaje skalowanie czcionki.
+                      Idealne na skany PDF. Usuwa zacięcia, dodaje skalowanie czcionki.
                     </div>
                   </div>
                   <div className={`mt-2 text-[10px] font-mono ${conversionMode === 'epub_clean' ? 'text-stone-300' : 'text-stone-400'}`}>
-                    Wyjście: .epub (oryginał)
+                    Wyjście: .epub
                   </div>
                 </button>
 
@@ -201,14 +202,36 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
                 >
                   <div>
                     <div className="font-semibold text-xs sm:text-sm flex items-center gap-1.5 mb-1">
-                      🎨 Format komiksowy (CBZ)
+                      🎨 Komiks CBZ
                     </div>
                     <div className={`text-[11px] leading-relaxed ${conversionMode === 'comic_cbz' ? 'text-stone-300' : 'text-stone-500'}`}>
-                      Dla komiksów i mangi. Wyciąga strony, kompresuje pod e-ink, zero lagów na Kindle.
+                      Dla mangi i komiksów. Kompresja pod ekran Kindle e-ink.
                     </div>
                   </div>
                   <div className={`mt-2 text-[10px] font-mono ${conversionMode === 'comic_cbz' ? 'text-stone-300' : 'text-stone-400'}`}>
-                    Wyjście: .cbz (e-ink mode)
+                    Wyjście: .cbz
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setConversionMode('opds_direct')}
+                  className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                    conversionMode === 'opds_direct'
+                      ? 'border-stone-900 bg-stone-900 text-white shadow-xs'
+                      : 'border-stone-200 bg-white text-stone-800 hover:border-stone-300'
+                  }`}
+                >
+                  <div>
+                    <div className="font-semibold text-xs sm:text-sm flex items-center gap-1.5 mb-1">
+                      ⚡ Wgraj do OPDS
+                    </div>
+                    <div className={`text-[11px] leading-relaxed ${conversionMode === 'opds_direct' ? 'text-stone-300' : 'text-stone-500'}`}>
+                      Wgrywa plik z telefonu bez zmian wprost do katalogu czytnika.
+                    </div>
+                  </div>
+                  <div className={`mt-2 text-[10px] font-mono ${conversionMode === 'opds_direct' ? 'text-stone-300' : 'text-stone-400'}`}>
+                    Natywne OPDS
                   </div>
                 </button>
               </div>
@@ -319,7 +342,9 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
                 <>
                   <Sparkles className="w-4 h-4 text-amber-300" />
                   <span>
-                    {conversionMode === 'comic_cbz'
+                    {conversionMode === 'opds_direct'
+                      ? 'Wgraj plik bezpośrednio do OPDS czytnika'
+                      : conversionMode === 'comic_cbz'
                       ? 'Konwertuj na komiks CBZ'
                       : conversionMode === 'epub_clean'
                       ? 'Konwertuj na lekki EPUB'

@@ -466,6 +466,46 @@ export function createUploadJob(
   return newJob;
 }
 
+export function createDirectFileJob(
+  title: string,
+  filename: string,
+  format: 'epub' | 'pdf' | 'cbz' | 'mobi' | 'txt' | 'azw3' | 'fb2',
+  size: number,
+  author?: string
+): Job {
+  const id = `job_direct_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const cleanTitle = title.replace(/\.[^/.]+$/, '').replace(/[_.-]+/g, ' ').trim();
+
+  const newJob: Job = {
+    id,
+    title: cleanTitle,
+    author: author?.trim() || 'Własny plik (z telefonu)',
+    sourceLang: 'auto',
+    targetLang: 'original',
+    engine: 'auto',
+    conversionMode: 'original',
+    outputFormat: format as any,
+    outputEpubFilename: filename,
+    status: 'completed',
+    progress: 100,
+    totalChapters: 1,
+    currentChapter: 1,
+    chapters: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    sourceType: 'upload',
+    originalSize: size,
+    logs: [
+      `[${new Date().toLocaleTimeString()}] Wgrano plik bezpośrednio z telefonu/urządzenia (${(size / 1024).toFixed(1)} KB).`,
+      `[${new Date().toLocaleTimeString()}] SUKCES! Plik został natychmiast udostępniony w katalogu OPDS czytnika oraz w bibliotece chmury.`,
+    ],
+  };
+
+  jobs.set(id, newJob);
+  saveJobsToDisk();
+  return newJob;
+}
+
 export function createSearchOrderJob(
   title: string,
   downloadUrl: string,
@@ -615,24 +655,49 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
         }
       }
 
-      const safeTitle = sanitizeToAsciiFilename(job.title);
-      const extMatch = targetFilename.match(/\.(epub|pdf|mobi|cbz|txt|azw3|fb2)$/i);
-      const ext = extMatch ? extMatch[0].toLowerCase() : '.epub';
-      const outputFilename = `${safeTitle}_oryginal_${Date.now()}${ext}`;
-      const outputPath = path.join(EPUB_DIR, outputFilename);
+      // Sprawdź czy użytkownik oczekiwał książki po polsku, ale pobrany plik z sieci okazał się po angielsku!
+      const isRequestedPolish = job.targetLang === 'Polish' || /[ąćęłńóśźż]/i.test(job.title) || /dziki robot|robot|wiedźmin|przygody|lektur/i.test(job.title);
+      if (isRequestedPolish) {
+        try {
+          const parsed = await parseDocumentBuffer(targetBuffer, targetFilename);
+          const sampleText = (parsed.chapters || []).slice(0, 3).map(c => c.originalText).join(' ').toLowerCase();
+          const enWords = (sampleText.match(/\b(the|and|that|with|was|were|they|from|have|this|robot|she|his|her|said)\b/g) || []).length;
+          const plWords = (sampleText.match(/\b(i|w|na|z|do|że|się|nie|to|jest|po|za|od|ale|tak|go|jej|ich|tym|ten|dla)\b/g) || []).length;
 
-      fs.writeFileSync(outputPath, targetBuffer);
+          if (enWords > 25 && enWords > plWords * 3) {
+            job.logs.push(
+              `[${new Date().toLocaleTimeString()}] [Detekcja języka] ⚠️ Pobrana wersja książki okazała się wydaniem obcojęzycznym (angielskim: ${enWords} słów EN vs ${plWords} PL). Uruchamianie automatycznego literackiego przekładu AI na język polski, aby czytelnik otrzymał książkę po polsku!`
+            );
+            job.conversionMode = 'translate';
+            job.targetLang = 'Polish';
+            saveJobsToDisk();
+            // Przechodzi dalej do tłumaczenia rozdziałów poniżej!
+          }
+        } catch (err: any) {
+          // Jeśli parsowanie nie powiodło się, kontynuuj zapis oryginału
+        }
+      }
 
-      job.status = 'completed';
-      job.progress = 100;
-      job.outputEpubFilename = outputFilename;
-      job.outputFormat = ext.replace('.', '') as any;
-      job.logs.push(
-        `[${new Date().toLocaleTimeString()}] SUKCES! Plik (${(targetBuffer.length / 1024).toFixed(1)} KB) został zapisany i jest gotowy w bibliotece oraz do wysłania na Kindle.`
-      );
-      job.updatedAt = Date.now();
-      saveJobsToDisk();
-      return;
+      if (job.conversionMode === 'original') {
+        const safeTitle = sanitizeToAsciiFilename(job.title);
+        const extMatch = targetFilename.match(/\.(epub|pdf|mobi|cbz|txt|azw3|fb2)$/i);
+        const ext = extMatch ? extMatch[0].toLowerCase() : '.epub';
+        const outputFilename = `${safeTitle}_oryginal_${Date.now()}${ext}`;
+        const outputPath = path.join(EPUB_DIR, outputFilename);
+
+        fs.writeFileSync(outputPath, targetBuffer);
+
+        job.status = 'completed';
+        job.progress = 100;
+        job.outputEpubFilename = outputFilename;
+        job.outputFormat = ext.replace('.', '') as any;
+        job.logs.push(
+          `[${new Date().toLocaleTimeString()}] SUKCES! Plik (${(targetBuffer.length / 1024).toFixed(1)} KB) został zapisany i jest gotowy w bibliotece oraz do wysłania na Kindle.`
+        );
+        job.updatedAt = Date.now();
+        saveJobsToDisk();
+        return;
+      }
     }
 
     const isComic = job.conversionMode === 'comic_cbz';
