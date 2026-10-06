@@ -1463,9 +1463,15 @@ function AIBooks:orderBookProcessing(item, conversionMode)
         UIManager:close(info)
 
         if code == 200 or code == 201 then
-            UIManager:show(InfoMessage:new{
-                text = _("✅ Zlecenie przyjęte przez serwer w chmurze!\\nPostęp sprawdzisz w 'Moje zadania'."),
-            })
+            local confirm = ConfirmBox:new{
+                text = _("✅ Zlecenie przyjęte przez serwer w chmurze!\\n\\nKsiążka: ") .. (item.title or ""):sub(1, 35) .. _("\\n\\nSerwer pobiera i przygotowuje plik w chmurze.\\nCzy chcesz przejść do 'Zadań w chmurze', aby monitorować postęp i pobrać ją w tle?"),
+                ok_text = _("Pokaż zadania"),
+                cancel_text = _("Zostań tutaj"),
+                ok_callback = function()
+                    self:showTasksList(true)
+                end,
+            }
+            UIManager:show(confirm)
         else
             self:handleHttpError(code, status)
         end
@@ -1596,7 +1602,16 @@ function AIBooks:renderTasksMenu(tasks)
             is_local = true
         end
 
+        local part_path = dest_path .. ".part"
+        local part_file = io.open(part_path, "r")
+        local is_downloading = false
+        if part_file then
+            part_file:close()
+            is_downloading = true
+        end
+
         local status_str = is_local and "📖 Pobrany na Kindle"
+            or is_downloading and "⏳ Pobieranie w tle..."
             or t.status == "completed" and "✅ Gotowy do pobrania"
             or t.status == "translating" and ("⏳ Tłumaczenie (" .. (t.progress or 0) .. "%) - " .. (t.currentChapter or 0) .. "/" .. (t.totalChapters or 0))
             or t.status == "extracting" and "📄 Analiza treści..."
@@ -1631,16 +1646,22 @@ function AIBooks:renderTasksMenu(tasks)
     UIManager:show(menu)
 end
 
--- Bezpośrednie pobieranie pliku z serwera na pamięć czytnika Kindle
+-- Całkowicie asynchroniczne, nieblokujące pobieranie pliku na czytnik (NIGDY nie zawiesza KOReadera!)
 function AIBooks:downloadTaskFileDirectly(task, dest_path)
     self:ensureTargetDir()
     local rawFilename = task.outputEpubFilename or (task.title and (task.title:gsub("[^a-zA-Z0-9._-]", "_") .. ".epub")) or "ksiazka.epub"
     local cleanName = rawFilename:gsub("[^a-zA-Z0-9._-]", "_")
     local actual_dest = dest_path or (self.target_folder .. "/" .. cleanName)
+    local part_dest = actual_dest .. ".part"
+    local pid_file = actual_dest .. ".pid"
+    local stat_file = actual_dest .. ".stat"
 
     local titleDisplay = (task.title or "książkę"):sub(1, 35)
+
+    -- Szybki nieblokujący toast z krótkim timeoutem (nie blokuje e-inku)
     local info = InfoMessage:new{
-        text = _("Pobieranie e-booka bezpośrednio na czytnik...\\n") .. titleDisplay .. _("\\nProszę czekać..."),
+        text = _("⚡ Pobieranie w tle rozpoczęte!\\n") .. titleDisplay .. _("\\n\\nMożesz swobodnie korzystać z czytnika — proces pobiera w tle bez zawieszania!"),
+        timeout = 3,
     }
     UIManager:show(info)
 
@@ -1648,69 +1669,132 @@ function AIBooks:downloadTaskFileDirectly(task, dest_path)
         local clean_server = (self.server_url or ""):gsub("/+$", "")
         local download_url = clean_server .. "/api/download/" .. task.id
 
-        -- 1. Try native Lua HTTP streaming to file
-        local file, err = io.open(actual_dest, "wb")
-        local downloaded_ok = false
-        if file then
-            local res, code, headers, status = doHttpRequest{
-                url = download_url,
-                method = "GET",
-                sink = ltn12.sink.file(file),
-            }
-            file:close()
+        -- Wyczyść ewentualne stare pliki tymczasowe
+        os.remove(part_dest)
+        os.remove(pid_file)
+        os.remove(stat_file)
 
-            local check = io.open(actual_dest, "rb")
-            local sz = check and check:seek("end") or 0
-            if check then check:close() end
+        -- Uruchom proces curl/wget w TLE (&), dzięki czemu wątek UI KOReadera wraca NATYCHMIAST (w 3 ms)
+        local script = string.format(
+            'sh -c \'echo "RUNNING" > "%s"; ' ..
+            'if command -v curl >/dev/null 2>&1; then ' ..
+            '  curl -L -k -s -S --connect-timeout 10 -m 300 -H "bypass-tunnel-reminder: 1" -o "%s" "%s"; EC=$?; ' ..
+            'elif command -v wget >/dev/null 2>&1; then ' ..
+            '  wget -q --no-check-certificate --timeout=15 -t 3 --header="bypass-tunnel-reminder: 1" -O "%s" "%s"; EC=$?; ' ..
+            'else EC=127; fi; ' ..
+            'if [ $EC -eq 0 ] && [ -s "%s" ]; then ' ..
+            '  mv -f "%s" "%s"; echo "SUCCESS" > "%s"; ' ..
+            'else rm -f "%s"; echo "FAILED:$EC" > "%s"; fi\' & echo $! > "%s"',
+            stat_file,
+            part_dest, download_url,
+            part_dest, download_url,
+            part_dest,
+            part_dest, actual_dest, stat_file,
+            part_dest, stat_file,
+            pid_file
+        )
 
-            if code == 200 and sz > 500 then
-                downloaded_ok = true
+        os.execute(script)
+
+        -- Asynchroniczny monitor z UIManager:scheduleIn (co sekundę sprawdza stan bez blokowania ekranu)
+        local elapsed = 0
+        local checkTicker
+        checkTicker = function()
+            elapsed = elapsed + 1
+
+            local status = "RUNNING"
+            local sf = io.open(stat_file, "r")
+            if sf then
+                status = sf:read("*line") or "RUNNING"
+                sf:close()
             end
-        end
 
-        -- 2. Fallback to system curl if socket failed or yielded 0 bytes
-        if not downloaded_ok then
-            local curl_cmd = string.format('curl -L -s -k --connect-timeout 15 -H "bypass-tunnel-reminder: 1" -o "%s" "%s"', actual_dest, download_url)
-            os.execute(curl_cmd)
-            local check2 = io.open(actual_dest, "rb")
-            local sz2 = check2 and check2:seek("end") or 0
-            if check2 then check2:close() end
-            if sz2 > 500 then
-                downloaded_ok = true
-            end
-        end
+            -- Sukces: plik pobrany i przeniesiony do folderu docelowego
+            if status == "SUCCESS" then
+                os.remove(pid_file)
+                os.remove(stat_file)
 
-        UIManager:close(info)
+                local final_check = io.open(actual_dest, "rb")
+                local final_sz = final_check and final_check:seek("end") or 0
+                if final_check then final_check:close() end
 
-        local final_check = io.open(actual_dest, "rb")
-        local final_sz = final_check and final_check:seek("end") or 0
-        if final_check then final_check:close() end
-
-        if downloaded_ok and final_sz > 500 then
-            local confirm = ConfirmBox:new{
-                text = _("✅ Książka została pomyślnie pobrana na czytnik!\\n\\nTytuł: ") .. titleDisplay .. _("\\nPlik: ") .. actual_dest .. _("\\nRozmiar: ") .. string.format("%.1f KB", final_sz / 1024) .. _("\\n\\nCzy chcesz otworzyć ją teraz w czytniku?"),
-                ok_text = _("Otwórz"),
-                cancel_text = _("Zostaw na potem"),
-                ok_callback = function()
-                    local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
-                    if ok_reader and ReaderUI and ReaderUI.showReader then
-                        ReaderUI:showReader(actual_dest)
-                    else
-                        local ok_evt, Event = pcall(require, "ui/event")
-                        if ok_evt and Event then
-                            UIManager:broadcastEvent(Event:new("OpenFile", actual_dest))
+                local confirm = ConfirmBox:new{
+                    text = _("✅ Książka została pomyślnie pobrana na czytnik!\\n\\nTytuł: ") .. titleDisplay ..
+                           _("\\nPlik: ") .. actual_dest ..
+                           _("\\nRozmiar: ") .. string.format("%.1f KB", final_sz / 1024) ..
+                           _("\\n\\nCzy chcesz otworzyć ją teraz w KOReaderze?"),
+                    ok_text = _("Otwórz teraz"),
+                    cancel_text = _("Zostaw na potem"),
+                    ok_callback = function()
+                        local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
+                        if ok_reader and ReaderUI and ReaderUI.showReader then
+                            ReaderUI:showReader(actual_dest)
+                        else
+                            local ok_evt, Event = pcall(require, "ui/event")
+                            if ok_evt and Event then
+                                UIManager:broadcastEvent(Event:new("OpenFile", actual_dest))
+                            end
                         end
+                    end,
+                    cancel_callback = function()
+                        self:showTasksList(true)
+                    end,
+                }
+                UIManager:show(confirm)
+                return
+            end
+
+            -- Błąd pobierania (np. brak curl lub błąd sieci)
+            if status:match("^FAILED") then
+                os.remove(pid_file)
+                os.remove(stat_file)
+                os.remove(part_dest)
+
+                local confirm_fallback = ConfirmBox:new{
+                    text = _("Pobieranie w tle napotkało błąd sieci lub brak narzędzia curl.\\n\\nCzy chcesz otworzyć wbudowany Katalog OPDS KOReadera, który pobiera w tle natywnym menedżerem czytnika?"),
+                    ok_text = _("Otwórz OPDS"),
+                    cancel_text = _("Zamknij"),
+                    ok_callback = function()
+                        self:openNativeOpds()
+                    end,
+                }
+                UIManager:show(confirm_fallback)
+                return
+            end
+
+            -- Sprawdź timeout (np. 5 minut pobierania lub 40 s bez żadnego pobranego bajtu)
+            local cur_size = 0
+            local pf = io.open(part_dest, "rb")
+            if pf then
+                cur_size = pf:seek("end") or 0
+                pf:close()
+            end
+
+            if elapsed > 300 or (elapsed > 40 and cur_size == 0) then
+                local pf2 = io.open(pid_file, "r")
+                if pf2 then
+                    local pid = pf2:read("*line")
+                    pf2:close()
+                    if pid and pid:match("^%d+$") then
+                        os.execute("kill -9 " .. pid .. " 2>/dev/null")
                     end
-                end,
-                cancel_callback = function()
-                    self:showTasksList(true)
-                end,
-            }
-            UIManager:show(confirm)
-        else
-            os.remove(actual_dest)
-            UIManager:show(InfoMessage:new{ text = _("Błąd pobierania: nie udało się zapisać pliku książki na czytniku.\\nSprawdź połączenie WiFi lub skorzystaj z Katalogu OPDS.") })
+                end
+                os.remove(pid_file)
+                os.remove(stat_file)
+                os.remove(part_dest)
+
+                UIManager:show(InfoMessage:new{
+                    text = _("Przekroczono limit czasu pobierania.\\nSprawdź połączenie Wi-Fi na czytniku lub pobierz przez Katalog OPDS."),
+                })
+                return
+            end
+
+            -- Kontynuuj sprawdzanie za 1 sekundę
+            UIManager:scheduleIn(1.0, checkTicker)
         end
+
+        -- Pierwsze sprawdzenie za 1 sekundę
+        UIManager:scheduleIn(1.0, checkTicker)
     end)
 end
 
@@ -1735,7 +1819,7 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
             end,
         })
         table.insert(actionItems, {
-            text = _("🔄 2. Pobierz ponownie z chmury (zastąp plik)"),
+            text = _("🔄 2. Pobierz ponownie w tle (zastąp plik)"),
             callback = function()
                 self:downloadTaskFileDirectly(task, dest_path)
             end,
@@ -1746,13 +1830,13 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
         })
     elseif task.status == "completed" and task.outputEpubFilename then
         table.insert(actionItems, {
-            text = _("📥 1. Pobierz plik bezpośrednio na czytnik (do folderu AI_Books)\\n[Zapisze plik w czytniku i zaoferuje natychmiastowe otwarcie]"),
+            text = _("📥 1. Pobierz w tle na czytnik (Bez zawieszania!)\\n[Pobiera w tle do folderu AI_Books bez zamrażania ekranu]"),
             callback = function()
                 self:downloadTaskFileDirectly(task, dest_path)
             end,
         })
         table.insert(actionItems, {
-            text = _("⚡ 2. Otwórz w Katalogu OPDS (Pobieranie natywne w tle)"),
+            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera\\n[Pobieranie natywne wbudowanym menedżerem]"),
             callback = function() self:openNativeOpds() end,
         })
     else

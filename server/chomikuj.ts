@@ -28,7 +28,7 @@ export interface ChomikujVerificationResult {
   rating?: number;
 }
 
-export const SPAM_TITLE_REGEX = /(pobierz\s*(z|tutaj|pelna|pełn|calos|całość|wersj|plik)|has[łl]o\s*do|has[łl]o|haselko|password|link\s*do|linki?\b|instrukcja\s*pobierania|keygen|crack|torrent|dost[eę]pne\s*na\s*stronie|rejestracj|op[łl]ata|p[łl]atno[sś][cć]|zobacz\s*tutaj|chomikuj_link|download_link|bit\.ly|tinyurl|skr[oó][cć]\.to|darmowe\s*konto|sprawdzian|kartk[oó]wk|klucz\s*odpowiedzi|rozwiazani|testy\s*gimnazjalne|testy\s*liceum|klucz\s*aktywacyjny)/i;
+export const SPAM_TITLE_REGEX = /(pobierz\s*(z|tutaj|pelna|pełn|calos|całość)|has[łl]o\s*do|has[łl]o|haselko|password|link\s*do\s*pobrania|linki?\b|instrukcja\s*pobierania|keygen|crack|torrent|dost[eę]pne\s*na\s*stronie|rejestracj|op[łl]ata|p[łl]atno[sś][cć]|zobacz\s*tutaj|chomikuj_link|download_link|bit\.ly|skr[oó][cć]\.to)/i;
 
 /**
  * Parses Chomikuj size string (e.g. '450 KB', '1,2 MB', '800 B') into numeric kilobytes
@@ -180,9 +180,25 @@ export async function preverifyChomikujFile(
     details.push('✓ Dostępny podgląd dokumentu docs.chomikuj.pl (potwierdza obecność warstwy tekstowej).');
   }
 
-  // 4. Evaluate size against format
+  // 4. Evaluate size against format and transfer limit
   if (sizeKb > 0) {
     details.push(`Rozmiar pliku: ${pageSizeStr} (~${sizeKb.toFixed(0)} KB)`);
+
+    // Files over 50 MB cannot be downloaded on free Chomikuj transfer
+    if (sizeKb > 50 * 1024) {
+      return {
+        isLikelyBook: true,
+        confidenceScore: 30,
+        size: pageSizeStr,
+        sizeKb,
+        format: detectedExt,
+        title: rawFilename,
+        verdict: 'rejected',
+        reason: `Rozmiar pliku wynosi ${pageSizeStr} (powyżej 50 MB). Na Chomikuj darmowy transfer pozwala pobierać bez opłat wyłącznie pliki o wadze do 50 MB.`,
+        details: [...details, 'Przekroczono limit 50 MB darmowego pobierania Chomikuj.'],
+        rating: pageRating,
+      };
+    }
 
     // Under 25 KB is virtually guaranteed fake
     if (sizeKb < 25) {
@@ -301,13 +317,13 @@ export async function searchChomikujBooks(query: string): Promise<BookSearchResu
     const tokenMatch = initHtml.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/i);
     const token = tokenMatch ? tokenMatch[1] : '';
 
-    // 2. Query Chomikuj files search (document type for books)
+    // 2. Query Chomikuj files search (document type for books, capped at 50 MB for free transfer)
     const postParams = new URLSearchParams();
     if (token) postParams.append('__RequestVerificationToken', token);
     postParams.append('FileName', cleanQuery);
     postParams.append('FileType', 'document');
     postParams.append('SizeFrom', '0');
-    postParams.append('SizeTo', '0');
+    postParams.append('SizeTo', '50'); // 50 MB ceiling (free Chomikuj download limit)
     postParams.append('IsGallery', 'False');
     postParams.append('Extension', '');
 
@@ -373,10 +389,14 @@ export async function searchChomikujBooks(query: string): Promise<BookSearchResu
       const size = sizeMatch ? sizeMatch[1].trim() : undefined;
       const sizeKb = parseSizeToKb(size);
 
-      // STRICT SCAM FILTER: Never allow 0 KB, missing size, or micro-flyers (1-page scam redirects)
+      // STRICT SCAM & 50 MB CEILING FILTER:
+      // 1. Never allow 0 KB or missing size
       if (sizeKb <= 0) continue;
+      // 2. Strict 50 MB limit: files above 50 MB cannot be downloaded on free transfer!
+      if (sizeKb > 50 * 1024) continue;
+      // 3. Minimum sizes: real books are never tiny flyers or spam redirect stubs
       if (format === 'PDF' && sizeKb < 450) continue; // Real books in PDF are >= 450 KB
-      if (format === 'TXT' && sizeKb < 100) continue; // Real books in TXT are >= 100 KB (prevents 0 KB scam txt)
+      if (format === 'TXT' && sizeKb < 100) continue; // Real books in TXT are >= 100 KB
       if (format === 'EPUB' && sizeKb < 80) continue; // Real books in EPUB are >= 80 KB
       if ((format === 'MOBI' || format === 'AZW3') && sizeKb < 100) continue;
       if (sizeKb < 60) continue;
@@ -436,7 +456,7 @@ export async function searchChomikujBooks(query: string): Promise<BookSearchResu
       // Verified status
       const verifiedStatus = 'verified';
       const ratingDesc = rating ? `Ocena: ${rating.toFixed(1)}/5.0 (${ratingVotes || 1} ocen)` : 'Brak negatywnych zgłoszeń';
-      const verificationDetails = `Zweryfikowany rozmiar (${size}) i format ${format} • ${ratingDesc}${previewDocsUrl ? ' • Potwierdzony podgląd dokumentu' : ''}`;
+      const verificationDetails = `Darmowy transfer (≤50 MB: ${size}) • Format ${format} • ${ratingDesc}${previewDocsUrl ? ' • Potwierdzony podgląd dokumentu' : ''}`;
 
       searchResults.push({
         id: `chomik_${fileId}`,
@@ -450,7 +470,7 @@ export async function searchChomikujBooks(query: string): Promise<BookSearchResu
         downloadsCount: downloadsEst > 0 ? downloadsEst : undefined,
         verifiedStatus,
         verificationDetails,
-        qualityBadge: rating && rating >= 4.0 ? 'Chomikuj • Wysoko Oceniony' : 'Chomikuj • Zweryfikowany Rozmiar',
+        qualityBadge: rating && rating >= 4.0 ? 'Chomikuj • Darmowy Transfer (≤50 MB)' : 'Chomikuj • Do 50 MB (Free)',
         description: `Plik z biblioteki Chomikuj.pl (${uploader})${size ? `, rozmiar: ${size}` : ''} • ${verificationDetails}`,
         downloadUrl: fullPageUrl,
         mirrorLinks: [
@@ -460,7 +480,7 @@ export async function searchChomikujBooks(query: string): Promise<BookSearchResu
         ],
       });
 
-      // Strict limit: at most 3 strictly verified items from Chomikuj to eliminate scam spam
+      // Strict limit: at most 3 strictly verified items under 50 MB from Chomikuj
       if (searchResults.length >= 3) break;
     }
   } catch (err: any) {

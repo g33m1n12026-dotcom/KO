@@ -541,7 +541,9 @@ async function startServer() {
     const stat = fs.statSync(fullPath);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', stat.size);
-    res.setHeader('Connection', 'close');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(filename)}`

@@ -1077,6 +1077,16 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                           if (sourceFilter === 'gutenberg' && !s.includes('gutenberg')) return false;
                           if (sourceFilter === 'openlibrary' && !s.includes('open library')) return false;
                         }
+                        // Discard any Chomikuj file over 50 MB (exceeds free download transfer)
+                        if (item.source.toLowerCase().includes('chomik')) {
+                          const m = (item.size || '').match(/([\d.,]+)\s*(MB|GB)/i);
+                          if (m) {
+                            const val = parseFloat(m[1].replace(',', '.'));
+                            if (m[2].toUpperCase() === 'GB' || (m[2].toUpperCase() === 'MB' && val > 50)) {
+                              return false;
+                            }
+                          }
+                        }
                         if (languageFilter !== 'all') {
                           if (item.language.toUpperCase() !== languageFilter.toUpperCase()) return false;
                         }
@@ -1289,7 +1299,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                     {item.verifiedStatus === 'verified' ? (
                                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                                         <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-                                        <span>Zweryfikowany rozmiar</span>
+                                        <span>Zweryfikowany (≤ 50 MB, darmowy transfer)</span>
                                       </span>
                                     ) : item.verifiedStatus === 'suspicious' ? (
                                       <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1">

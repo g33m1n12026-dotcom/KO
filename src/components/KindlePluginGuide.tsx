@@ -182,6 +182,26 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
         </div>
       </div>
 
+      {/* Non-blocking background download info banner */}
+      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 space-y-2">
+        <div className="flex items-start gap-3">
+          <div className="p-2 rounded-xl bg-emerald-100 text-emerald-800 shrink-0 text-base">
+            ⚡
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
+              Nowość we wtyczce: Pobieranie w tle bez zawieszania czytnika (Zero freeze)!
+            </h3>
+            <p className="text-xs text-emerald-900 leading-relaxed">
+              <strong>Dlaczego KOReader wcześniej się zawieszał?</strong> KOReader działa na jednowątkowej pętli zdarzeń Lua. Synchroniczne pobieranie pliku (np. 5–20 MB) blokowało główny wątek interfejsu, przez co ekran e-ink nie odświeżał się, a dotyk nie reagował.
+            </p>
+            <p className="text-xs text-emerald-800 leading-relaxed">
+              <strong>Co zrobiliśmy?</strong> Wtyczka uruchamia teraz proces pobierania w <strong>asynchronicznym tle systemu Kindle</strong> (nieblokujący podproces z cyklicznym monitorowaniem <code>UIManager:scheduleIn</code>). Podczas pobierania możesz swobodnie czytać lub przeglądać menu, a gdy plik jest gotowy, czytnik natychmiast pyta, czy otworzyć książkę! Dodatkowo wtyczka automatycznie rejestruje wbudowany <strong>Katalog OPDS KOReadera</strong> (<code>/opds</code>).
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Download Action Card with Interactive Server URL Configuration */}
       <div className="bg-white border border-stone-200 rounded-2xl p-6 shadow-2xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

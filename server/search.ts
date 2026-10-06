@@ -2,7 +2,7 @@ import { BookSearchResult, MultilingualBookMeta } from '../src/types';
 import { generateMirrorSearchLinks } from './mirrors';
 import { resolveMultilingualBook } from './multilingual';
 import { loadSettings } from './settings';
-import { searchChomikujBooks } from './chomikuj';
+import { searchChomikujBooks, parseSizeToKb } from './chomikuj';
 
 /**
  * Normalizes language string or detects from text
@@ -187,12 +187,6 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
           const stopWords = new Set(['czy', 'dla', 'lub', 'albo', 'pod', 'nad', 'przed', 'oraz', 'jako', 'jest', 'ona', 'ono', 'oni', 'jego', 'jej', 'ich', 'tym', 'ten', 'tam', 'sie', 'się', 'nie', 'tak', 'gdy', 'jak', 'oraz', 'the', 'and', 'for']);
           const genericWords = new Set(['przygody', 'historia', 'opowieści', 'opowiadania', 'książka', 'księga', 'dzieła', 'wybór', 'tom', 'wydanie', 'adventures', 'story', 'tales']);
 
-          const queryTitleWords = (multiMeta.detectedTitle || query)
-            .toLowerCase()
-            .replace(/[^a-ząćęłńóśźż0-9]/gi, ' ')
-            .split(/\s+/)
-            .filter((w) => w.length >= 3 && !stopWords.has(w) && !genericWords.has(w));
-
           const allQueryWords = `${query} ${polishQuery}`
             .toLowerCase()
             .replace(/[^a-ząćęłńóśźż0-9]/gi, ' ')
@@ -204,19 +198,17 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
 
           return wlData
             .filter((item: any) => {
-              const itemTitle = (item.title || '').toLowerCase().replace(/[^a-ząćęłńóśźż0-9]/gi, ' ');
-              const itemAuthor = (item.author || '').toLowerCase().replace(/[^a-ząćęłńóśźż0-9]/gi, ' ');
-              const itemSlug = (item.slug || '').toLowerCase();
-              const fullHaystack = `${itemTitle} ${itemAuthor} ${itemSlug}`;
+              const haystack = `${item.title || ''} ${item.author || ''} ${item.slug || ''}`
+                .toLowerCase()
+                .replace(/[^a-ząćęłńóśźż0-9]/gi, ' ');
+              const haystackWords = new Set(haystack.split(/\s+/));
 
-              // Title MUST match if query title words exist
-              if (queryTitleWords.length > 0) {
-                const titleHit = queryTitleWords.some((tw) => itemTitle.includes(tw) || itemSlug.includes(tw));
-                if (!titleHit) return false;
+              // If there are distinctive words (e.g. "kajtkowe"), they MUST match!
+              if (distinctiveQueryWords.length > 0) {
+                return distinctiveQueryWords.some((w) => haystackWords.has(w) || haystack.includes(w));
               }
-
-              // Also check distinctive query words
-              return distinctiveQueryWords.some((w) => fullHaystack.includes(w));
+              // If only generic words, require all
+              return allQueryWords.every((w) => haystackWords.has(w));
             })
             .slice(0, 6);
         }
@@ -418,13 +410,9 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
         const domains = ['https://singlelogin.rs', 'https://singlelogin.re', 'https://z-library.sk'];
         const allBooks: any[] = [];
         const seenIds = new Set<string>();
-        // Query main query, Polish title & author, and international titles
-        const zQueries = Array.from(new Set([
-          query.trim(),
-          ...(multiMeta.titles.pl ? [multiMeta.titles.pl] : []),
-          ...(multiMeta.canonicalAuthor && multiMeta.titles.pl ? [`${multiMeta.canonicalAuthor} ${multiMeta.titles.pl}`] : []),
-          ...(multiMeta.titles.en ? [multiMeta.titles.en] : []),
-        ])).slice(0, 3);
+
+        // Query main query plus multilingual candidate queries
+        const zQueries = queriesToRun.slice(0, 3).map((q) => decodeURIComponent(q));
 
         await Promise.allSettled(
           zQueries.map(async (searchMsg) => {
@@ -733,7 +721,7 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
   }
 
   // Rank and prioritize verified Polish sources (Z-Library authenticated account, Wolne Lektury, Docer)
-  // while capping and down-ranking Chomikuj to eliminate scam spam
+  // while strictly eliminating Chomikuj files > 50 MB (free transfer limit) and capping to 2 verified items
   const sorted: any = rankAndSortSearchResults(results, query.trim(), multiMeta);
   sorted.multilingual = multiMeta;
   return sorted;
@@ -741,8 +729,8 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
 
 /**
  * Ranks and sorts search results to prioritize verified, high-quality Polish sources
- * (Z-Library authenticated account, Wolne Lektury, Docer, verified 4shared) first,
- * followed by verified Chomikuj books and foreign editions.
+ * (Z-Library authenticated account, Wolne Lektury) first,
+ * followed by verified Chomikuj books (strictly under 50 MB free transfer limit) and foreign editions.
  */
 export function rankAndSortSearchResults(
   items: BookSearchResult[],
@@ -761,12 +749,15 @@ export function rankAndSortSearchResults(
     .split(/\s+/)
     .filter((w) => w.length >= 3 && !['dla', 'lub', 'albo', 'oraz', 'jako', 'przy', 'przez', 'pod', 'nad', 'tom', 'czesc'].includes(w));
 
-  const scored = items.map((item) => {
+  const scored: Array<{ item: BookSearchResult; score: number }> = [];
+
+  for (const item of items) {
     let score = 0;
     const sLower = item.source.toLowerCase();
     const isPl = item.language.toUpperCase() === 'PL' || /[ąćęłńóśźż]/.test(item.title);
     const itemTitleLower = item.title.toLowerCase();
     const itemAuthorLower = (item.author || '').toLowerCase();
+    const sizeKb = parseSizeToKb(item.size);
 
     // 1. Source Trust Tier (Promoting verified Polish sources: Z-Library & Wolne Lektury first)
     if (sLower.includes('z-library') || sLower.includes('zlib')) {
@@ -784,32 +775,40 @@ export function rankAndSortSearchResults(
     } else if (sLower.includes('4shared')) {
       score += isPl ? 750 : 350;
     } else if (sLower.includes('chomik')) {
-      // User-shared platform: strictly verified only, heavily scored by user rating and downloads!
-      if (item.verifiedStatus === 'verified') {
-        score += 400; // Base score below trusted digital libraries
+      // User-shared platform:
+      // STRICT FILTER: Discard any Chomikuj file over 50 MB (free transfer limit!)
+      if (sizeKb > 50 * 1024) {
+        continue;
+      }
+      // Discard tiny scam flyers under 60 KB
+      if (sizeKb > 0 && sizeKb < 60) {
+        continue;
+      }
+      // Only accept verified Chomikuj books
+      if (item.verifiedStatus !== 'verified') {
+        continue;
+      }
 
-        // User rating weighting (promotes files rated 4.0 - 5.0 by Polish community)
-        if (item.rating !== undefined) {
-          if (item.rating >= 4.5) score += 250;
-          else if (item.rating >= 3.8) score += 140;
-          else if (item.rating >= 3.0) score += 50;
-          else if (item.rating < 2.5) score -= 400; // Penalize bad files
-        }
+      score += 400; // Base score below trusted digital libraries
 
-        // Downloads / popularity weighting (files proven by many users)
-        if (item.downloadsCount !== undefined) {
-          if (item.downloadsCount >= 100) score += 200;
-          else if (item.downloadsCount >= 30) score += 120;
-          else if (item.downloadsCount >= 10) score += 60;
-        }
+      // User rating weighting (promotes files rated 4.0 - 5.0 by Polish community)
+      if (item.rating !== undefined) {
+        if (item.rating >= 4.5) score += 250;
+        else if (item.rating >= 3.8) score += 140;
+        else if (item.rating >= 3.0) score += 50;
+        else if (item.rating < 2.5) score -= 400; // Penalize bad files
+      }
 
-        // Confirmed rendered preview pages in docs.chomikuj.pl
-        if (item.verificationDetails?.includes('podgląd dokumentu')) {
-          score += 120;
-        }
-      } else {
-        // Discard or severely penalize unverified or suspicious files
-        score -= 600;
+      // Downloads / popularity weighting (files proven by many users)
+      if (item.downloadsCount !== undefined) {
+        if (item.downloadsCount >= 100) score += 200;
+        else if (item.downloadsCount >= 30) score += 120;
+        else if (item.downloadsCount >= 10) score += 60;
+      }
+
+      // Confirmed rendered preview pages in docs.chomikuj.pl
+      if (item.verificationDetails?.includes('podgląd dokumentu')) {
+        score += 120;
       }
     } else if (sLower.includes('gutenberg')) {
       score += 250;
@@ -867,8 +866,8 @@ export function rankAndSortSearchResults(
     }
 
     item.score = Math.round(score);
-    return { item, score };
-  });
+    scored.push({ item, score });
+  }
 
   // Sort descending by score
   scored.sort((a, b) => b.score - a.score);
@@ -879,7 +878,7 @@ export function rankAndSortSearchResults(
 
   for (const { item, score } of scored) {
     if (item.source.toLowerCase().includes('chomik')) {
-      // Strictly limit total Chomikuj items to at most 2, and skip low-score files
+      // Strictly limit total Chomikuj items to at most 2, strictly under 50 MB, and skip low-score files
       if (chomikCount >= 2) continue;
       if (score < 400 || item.verifiedStatus !== 'verified') continue;
       chomikCount++;
@@ -1060,12 +1059,20 @@ export async function findDirectBookDownload(
         else score -= 150; // Kara dla wydań obcojęzycznych, gdy szukamy po polsku
       }
 
-      if (r.format?.toUpperCase().includes('EPUB')) score += 40;
-      if (r.source.includes('Chomikuj')) score += 60;
-      if (r.source.includes('4shared')) score += 40;
-      if (r.source.includes('Wolne Lektury')) score += 50;
-      if (r.source.includes('Z-Library')) score += 30;
-      if (r.source.includes('LibGen') || r.source.includes('Shadow')) score += 20;
+      if (r.format?.toUpperCase().includes('EPUB')) score += 50;
+      if (r.source.includes('Wolne Lektury')) score += 300;
+      if (r.source.includes('Z-Library') || r.source.includes('zlib')) score += 280;
+      if (r.source.includes('Docer') || r.source.includes('Doci')) score += 120;
+      if (r.source.includes('4shared')) score += 60;
+      if (r.source.includes('LibGen') || r.source.includes('Shadow')) score += 50;
+      if (r.source.includes('Chomikuj')) {
+        const sizeKb = parseSizeToKb(r.size);
+        if (sizeKb > 50 * 1024 || sizeKb < 60 || r.verifiedStatus !== 'verified') {
+          score -= 500;
+        } else {
+          score += 30;
+        }
+      }
       if (r.source.includes('Archive') && !r.isLendingDRM) score += 10;
       return { item: r, score };
     })
