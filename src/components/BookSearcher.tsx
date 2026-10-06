@@ -17,6 +17,11 @@ import {
   BookOpen,
   Key,
   Languages,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
+  ShieldAlert,
+  Star,
 } from 'lucide-react';
 import { BookSearchResult, BookRecommendation, ShadowLibraryMirror, Job, MultilingualBookMeta } from '../types';
 import { AccountsSettingsModal } from './AccountsSettingsModal';
@@ -45,8 +50,9 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [multilingualMeta, setMultilingualMeta] = useState<MultilingualBookMeta | null>(null);
+  const [isMultilingualExpanded, setIsMultilingualExpanded] = useState(false);
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'zlib' | 'libgen' | 'archive' | 'wolnelektury' | 'gutenberg' | 'openlibrary' | 'chomikuj'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'trusted' | 'zlib' | 'wolnelektury' | 'libgen' | 'archive' | 'gutenberg' | 'openlibrary' | 'chomikuj' | '4shared' | 'docer'>('all');
   const [languageFilter, setLanguageFilter] = useState<string>('all');
   const [selectedSourceIdMap, setSelectedSourceIdMap] = useState<Record<string, string>>({});
 
@@ -58,6 +64,42 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
 
   // Ordering in progress tracking
   const [orderingId, setOrderingId] = useState<string | null>(null);
+
+  // Chomikuj pre-download verification state
+  const [verificationResults, setVerificationResults] = useState<Record<string, any>>({});
+  const [verifyingFileId, setVerifyingFileId] = useState<string | null>(null);
+
+  const handleVerifyChomikujFile = async (item: BookSearchResult) => {
+    if (!item.downloadUrl) return;
+    setVerifyingFileId(item.id);
+    try {
+      const res = await fetch(`/api/verify-chomikuj?url=${encodeURIComponent(item.downloadUrl)}&q=${encodeURIComponent(query || item.title)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setVerificationResults((prev) => ({ ...prev, [item.id]: data }));
+      } else {
+        setVerificationResults((prev) => ({
+          ...prev,
+          [item.id]: {
+            verdict: 'suspicious',
+            reason: 'Nie udało się połączyć ze stroną Chomikuj w celu weryfikacji.',
+            details: [],
+          },
+        }));
+      }
+    } catch {
+      setVerificationResults((prev) => ({
+        ...prev,
+        [item.id]: {
+          verdict: 'suspicious',
+          reason: 'Błąd połączenia podczas sprawdzania pliku.',
+          details: [],
+        },
+      }));
+    } finally {
+      setVerifyingFileId(null);
+    }
+  };
 
   // Load mirrors list from backend
   useEffect(() => {
@@ -744,81 +786,112 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
             </div>
           </div>
 
-          {/* Multilingual Edition Hub Card */}
+          {/* Multilingual Edition Hub Card - Collapsed by default */}
           {multilingualMeta && (multilingualMeta.detectedTitle || Object.keys(multilingualMeta.titles || {}).length > 0) && (
-            <div className="bg-gradient-to-br from-amber-50/90 via-stone-50 to-sky-50/80 border border-amber-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-800 flex items-center justify-center">
+            <div className="bg-gradient-to-br from-amber-50/70 via-stone-50 to-sky-50/60 border border-amber-200/80 rounded-2xl shadow-2xs overflow-hidden transition-all">
+              {/* Sleek Accordion Header (Click to expand/collapse) */}
+              <div
+                onClick={() => setIsMultilingualExpanded(!isMultilingualExpanded)}
+                className="p-3 sm:px-4 flex items-center justify-between gap-2 cursor-pointer hover:bg-amber-100/40 transition select-none"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-800 flex items-center justify-center shrink-0">
                     <Languages className="w-4 h-4 text-amber-700" />
                   </div>
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-bold text-stone-900">
-                      Wielojęzyczne wydania dzieła: <span className="text-amber-900">{multilingualMeta.detectedTitle || multilingualMeta.originalQuery}</span>
-                    </h3>
+                  <div className="truncate">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs sm:text-sm font-bold text-stone-900 truncate">
+                        Tytuły w innych językach: <span className="text-amber-900">{multilingualMeta.detectedTitle || multilingualMeta.originalQuery}</span>
+                      </span>
+                      <span className="text-[10px] sm:text-[11px] font-medium text-amber-900/80 bg-amber-100/80 border border-amber-200/90 px-2 py-0.5 rounded-full shrink-0">
+                        {Object.keys(multilingualMeta.titles || {}).length} wydań
+                      </span>
+                      {languageFilter !== 'all' && (
+                        <span className="text-[10px] font-semibold text-white bg-amber-900 px-2 py-0.5 rounded-md shrink-0">
+                          Filtr: {languageFilter}
+                        </span>
+                      )}
+                    </div>
                     {multilingualMeta.canonicalAuthor && (
-                      <p className="text-[11px] text-stone-600">
-                        Autor: <strong className="text-stone-800">{multilingualMeta.canonicalAuthor}</strong>
+                      <p className="text-[11px] text-stone-500 truncate">
+                        Autor: <strong className="text-stone-700">{multilingualMeta.canonicalAuthor}</strong>
                       </p>
                     )}
                   </div>
                 </div>
-                <div className="text-[10px] text-amber-900/80 bg-amber-100/70 border border-amber-200 px-2.5 py-1 rounded-full font-medium self-start sm:self-auto">
-                  🌐 Oficjalne tytuły wydawnicze na świecie
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs text-amber-900 font-medium hidden sm:inline">
+                    {isMultilingualExpanded ? 'Zwiń listę' : 'Rozwiń tytuły'}
+                  </span>
+                  <div
+                    className="w-7 h-7 rounded-lg hover:bg-amber-200/60 flex items-center justify-center text-amber-800 transition"
+                    title={isMultilingualExpanded ? 'Zwiń listę wydań' : 'Rozwiń listę wydań'}
+                  >
+                    {isMultilingualExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
                 </div>
               </div>
 
-              {/* Badges for each recognized official translation */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {Object.entries({
-                  pl: { flag: '🇵🇱', label: 'Polski' },
-                  en: { flag: '🇬🇧', label: 'Angielski' },
-                  de: { flag: '🇩🇪', label: 'Niemiecki' },
-                  ru: { flag: '🇷🇺', label: 'Rosyjski' },
-                  zh: { flag: '🇨🇳', label: 'Chiński' },
-                  fr: { flag: '🇫🇷', label: 'Francuski' },
-                  es: { flag: '🇪🇸', label: 'Hiszpański' },
-                  it: { flag: '🇮🇹', label: 'Włoski' },
-                  uk: { flag: '🇺🇦', label: 'Ukraiński' },
-                }).map(([code, meta]) => {
-                  const titleInLang = (multilingualMeta.titles || {})[code];
-                  if (!titleInLang) return null;
-                  const isCurrentLang = languageFilter.toLowerCase() === code;
+              {/* Badges for each recognized official translation (Visible when expanded) */}
+              {isMultilingualExpanded && (
+                <div className="p-4 sm:p-5 pt-2 border-t border-amber-200/60 space-y-3 bg-white/50">
+                  <p className="text-[11px] text-stone-600">
+                    Książki za granicą rzadko wychodzą pod dosłownym tłumaczeniem. Kliknij poniższy język, aby przefiltrować wyniki pod oficjalnym tytułem wydawniczym:
+                  </p>
 
-                  return (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setLanguageFilter(isCurrentLang ? 'all' : code.toUpperCase())}
-                      className={`text-xs px-2.5 py-1.5 rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
-                        isCurrentLang
-                          ? 'bg-amber-900 text-white border-amber-900 shadow-2xs font-semibold'
-                          : 'bg-white hover:bg-amber-50/60 text-stone-800 border-amber-200/70'
-                      }`}
-                      title={`Kliknij, aby przefiltrować wyniki do języka: ${meta.label} (${titleInLang})`}
-                    >
-                      <span className="text-sm">{meta.flag}</span>
-                      <span className="font-medium text-stone-600 text-[11px]">{meta.label}:</span>
-                      <span className="font-semibold text-stone-900 italic">"{titleInLang}"</span>
-                    </button>
-                  );
-                })}
-              </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {Object.entries({
+                      pl: { flag: '🇵🇱', label: 'Polski' },
+                      en: { flag: '🇬🇧', label: 'Angielski' },
+                      de: { flag: '🇩🇪', label: 'Niemiecki' },
+                      ru: { flag: '🇷🇺', label: 'Rosyjski' },
+                      zh: { flag: '🇨🇳', label: 'Chiński' },
+                      fr: { flag: '🇫🇷', label: 'Francuski' },
+                      es: { flag: '🇪🇸', label: 'Hiszpański' },
+                      it: { flag: '🇮🇹', label: 'Włoski' },
+                      uk: { flag: '🇺🇦', label: 'Ukraiński' },
+                    }).map(([code, meta]) => {
+                      const titleInLang = (multilingualMeta.titles || {})[code];
+                      if (!titleInLang) return null;
+                      const isCurrentLang = languageFilter.toLowerCase() === code;
 
-              <div className="text-[11px] text-stone-500 pt-1 flex items-center justify-between border-t border-amber-200/50">
-                <span>
-                  💡 Tytuły książek w różnych krajach rzadko są tłumaczone dosłownie. System odnalazł powyższe oficjalne tytuły i przeszukał pod nimi repozytoria.
-                </span>
-                {languageFilter !== 'all' && (
-                  <button
-                    type="button"
-                    onClick={() => setLanguageFilter('all')}
-                    className="text-[11px] font-semibold text-amber-800 hover:underline shrink-0 ml-2"
-                  >
-                    Pokaż wszystkie języki
-                  </button>
-                )}
-              </div>
+                      return (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() => setLanguageFilter(isCurrentLang ? 'all' : code.toUpperCase())}
+                          className={`text-xs px-2.5 py-1.5 rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
+                            isCurrentLang
+                              ? 'bg-amber-900 text-white border-amber-900 shadow-2xs font-semibold'
+                              : 'bg-white hover:bg-amber-50/60 text-stone-800 border-amber-200/70'
+                          }`}
+                          title={`Kliknij, aby przefiltrować wyniki do języka: ${meta.label} (${titleInLang})`}
+                        >
+                          <span className="text-sm">{meta.flag}</span>
+                          <span className="font-medium text-stone-600 text-[11px]">{meta.label}:</span>
+                          <span className="font-semibold text-stone-900 italic">"{titleInLang}"</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-[11px] text-stone-500 pt-1 flex items-center justify-between border-t border-amber-200/50">
+                    <span>
+                      💡 Odnaleziono oficjalne tytuły dzieła w międzynarodowych rejestrach.
+                    </span>
+                    {languageFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setLanguageFilter('all')}
+                        className="text-[11px] font-semibold text-amber-800 hover:underline shrink-0 ml-2 cursor-pointer"
+                      >
+                        Pokaż wszystkie języki
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -881,14 +954,22 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                       {[
                         { id: 'all', label: 'Wszystkie źródła', count: results.length },
                         {
-                          id: 'chomikuj',
-                          label: '🐹 Chomikuj.pl',
-                          count: results.filter((r) => r.source.toLowerCase().includes('chomik')).length,
+                          id: 'trusted',
+                          label: '⭐ Zaufane (Z-Lib & Wolne Lektury)',
+                          count: results.filter((r) => {
+                            const s = r.source.toLowerCase();
+                            return s.includes('z-library') || s.includes('zlib') || s.includes('wolne');
+                          }).length,
                         },
                         {
                           id: 'zlib',
                           label: '📖 Z-Library (Konto)',
                           count: results.filter((r) => r.source.toLowerCase().includes('z-library') || r.source.toLowerCase().includes('zlib')).length,
+                        },
+                        {
+                          id: 'wolnelektury',
+                          label: '🇵🇱 Wolne Lektury',
+                          count: results.filter((r) => r.source.toLowerCase().includes('wolne')).length,
                         },
                         {
                           id: 'libgen',
@@ -901,11 +982,6 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                           count: results.filter((r) => r.source.toLowerCase().includes('archive')).length,
                         },
                         {
-                          id: 'wolnelektury',
-                          label: '🇵🇱 Wolne Lektury',
-                          count: results.filter((r) => r.source.toLowerCase().includes('wolne')).length,
-                        },
-                        {
                           id: 'gutenberg',
                           label: '📚 Gutenberg',
                           count: results.filter((r) => r.source.toLowerCase().includes('gutenberg')).length,
@@ -914,6 +990,11 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                           id: 'openlibrary',
                           label: '🌐 Open Library',
                           count: results.filter((r) => r.source.toLowerCase().includes('open library')).length,
+                        },
+                        {
+                          id: 'chomikuj',
+                          label: '🐹 Chomikuj.pl',
+                          count: results.filter((r) => r.source.toLowerCase().includes('chomik')).length,
                         },
                       ]
                         .filter((tab) => tab.id === 'all' || tab.count > 0)
@@ -987,6 +1068,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                       .filter((item) => {
                         if (sourceFilter !== 'all') {
                           const s = item.source.toLowerCase();
+                          if (sourceFilter === 'trusted' && !(s.includes('z-library') || s.includes('zlib') || s.includes('wolne'))) return false;
                           if (sourceFilter === 'chomikuj' && !s.includes('chomik')) return false;
                           if (sourceFilter === 'zlib' && !(s.includes('z-library') || s.includes('zlib'))) return false;
                           if (sourceFilter === 'libgen' && !(s.includes('libgen') || s.includes('shadow'))) return false;
@@ -1014,6 +1096,9 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                               downloadUrl: activeSource.downloadUrl,
                               size: activeSource.size || rawItem.size,
                               isLendingDRM: activeSource.isLendingDRM,
+                              rating: activeSource.rating ?? rawItem.rating,
+                              downloadsCount: activeSource.downloadsCount ?? rawItem.downloadsCount,
+                              qualityBadge: activeSource.qualityBadge ?? rawItem.qualityBadge,
                             }
                           : rawItem;
 
@@ -1158,6 +1243,27 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                   return null;
                                 })()}
 
+                                {item.qualityBadge && (
+                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                                    <Sparkles className="w-3 h-3 text-amber-600 shrink-0" />
+                                    <span>{item.qualityBadge}</span>
+                                  </span>
+                                )}
+
+                                {item.rating !== undefined && (
+                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-50 text-stone-800 border border-stone-200 flex items-center gap-1" title="Ocena wiarygodności i jakości wydania">
+                                    <Star className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
+                                    <span>{item.rating.toFixed(1)}/5.0</span>
+                                  </span>
+                                )}
+
+                                {item.downloadsCount !== undefined && (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-stone-50 text-stone-600 border border-stone-200 flex items-center gap-1" title="Liczba pobrań / popularność">
+                                    <Download className="w-3 h-3 text-stone-400 shrink-0" />
+                                    <span>{item.downloadsCount > 999 ? `${(item.downloadsCount / 1000).toFixed(1)}k` : item.downloadsCount} pobrań</span>
+                                  </span>
+                                )}
+
                                 <span
                                   className={`text-[11px] font-medium px-2 py-0.5 rounded-md border flex items-center gap-1 ${sourceBadgeClass}`}
                                 >
@@ -1177,7 +1283,80 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                     🔒 Wypożyczenie DRM
                                   </span>
                                 )}
+
+                                {item.source.toLowerCase().includes('chomik') && (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {item.verifiedStatus === 'verified' ? (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                        <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                                        <span>Zweryfikowany rozmiar</span>
+                                      </span>
+                                    ) : item.verifiedStatus === 'suspicious' ? (
+                                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                        <ShieldAlert className="w-3 h-3 text-amber-600 shrink-0" />
+                                        <span>Mały plik • Sprawdź wiarygodność</span>
+                                      </span>
+                                    ) : null}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleVerifyChomikujFile(item)}
+                                      disabled={verifyingFileId === item.id}
+                                      className="text-[10px] font-medium text-stone-600 hover:text-stone-900 hover:underline flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-stone-100 transition cursor-pointer"
+                                      title="Weryfikuj przed pobraniem: sprawdź czy plik na Chomikuj zawiera treść książki czy tylko linki reklamowe"
+                                    >
+                                      {verifyingFileId === item.id ? (
+                                        <span className="inline-block w-2.5 h-2.5 border-2 border-stone-400 border-t-stone-800 rounded-full animate-spin" />
+                                      ) : (
+                                        <ShieldCheck className="w-3 h-3 text-stone-500" />
+                                      )}
+                                      <span>{verificationResults[item.id] ? 'Sprawdź ponownie' : 'Sprawdź treść'}</span>
+                                    </button>
+                                  </div>
+                                )}
                               </div>
+
+                              {/* Live Chomikuj Verification Results Card */}
+                              {verificationResults[item.id] && (
+                                <div
+                                  className={`mt-2 p-2.5 rounded-xl border text-xs space-y-1 transition-all ${
+                                    verificationResults[item.id].verdict === 'verified'
+                                      ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                                      : verificationResults[item.id].verdict === 'rejected'
+                                      ? 'bg-rose-50 border-rose-200 text-rose-950'
+                                      : 'bg-amber-50 border-amber-200 text-amber-950'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5 font-bold">
+                                    {verificationResults[item.id].verdict === 'verified' ? (
+                                      <>
+                                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span>✓ Zweryfikowano: pełna treść książki ({verificationResults[item.id].confidenceScore}% pewności)</span>
+                                      </>
+                                    ) : verificationResults[item.id].verdict === 'rejected' ? (
+                                      <>
+                                        <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                        <span>❌ Odrzucono: plik reklamowy lub brak treści</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                        <span>⚠️ Wymaga ostrożności (mały rozmiar)</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] leading-relaxed opacity-90">
+                                    {verificationResults[item.id].reason}
+                                  </p>
+                                  {verificationResults[item.id].details && verificationResults[item.id].details.length > 0 && (
+                                    <ul className="text-[10px] opacity-80 list-disc list-inside space-y-0.5 pt-0.5">
+                                      {verificationResults[item.id].details.map((d: string, dIdx: number) => (
+                                        <li key={dIdx}>{d}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
 
                               {/* Multi-source selector if found across multiple repositories */}
                               {rawItem.availableSources && rawItem.availableSources.length > 1 && (

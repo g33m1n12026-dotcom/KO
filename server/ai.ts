@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { heuristicOcrProofread } from './extractor';
+import { cleanHtmlEntitiesToUtf8 } from './epub';
 dotenv.config();
 
 export interface TranslationOptions {
@@ -81,6 +82,7 @@ ZASADY FORMATOWANIA I STRUKTURY HTML (KRYTYCZNIE WAŻNE):
 6. Jeśli w tekście występują odnośniki do przypisów w <sup>[1]</sup> lub <sup>1</sup>, zachowaj je dokładnie przy przetłumaczonych odpowiednich słowach.
 7. Tytuły rozdziałów i podtytuły wyśrodkowane (<p class="center"> lub nagłówki) muszą pozostać wyśrodkowane.
 8. Nie dodawaj od siebie żadnych komentarzy, wstępów typu "Oto tłumaczenie:", ani uwag od tłumacza. Zwróć WYŁĄCZNIE przetłumaczony tekst z nienaruszonymi tagami HTML.
+9. BEZWZGLĘDNY ZAKAZ UŻYWANIA ENCYJNYCH ZNACZNIKÓW HTML TYPU &nbsp;, &quot;, &amp;, &mdash;, &#39;, &oacute;, &bdquo;, &rdquo; itd. Wszystkie znaki narodowe, myślniki dialogowe (—), cudzysłowy („ ”) oraz spacje zapisuj WYŁĄCZNIE bezpośrednio jako czyste znaki standardu UTF-8.
 ${context ? `KONTEKST KSIĄŻKI / ROZDZIAŁU:\n${context}` : ''}`;
 }
 
@@ -300,8 +302,10 @@ function postProcessPolishKindle(html: string): string {
   let s = html.trim();
   s = s.replace(/<p>\s*[-–—]\s*/gi, '<p>— ');
   s = s.replace(/<p>"/gi, '<p>— ');
-  s = s.replace(/ ([wzouiWZOUIA]) /g, ' $1&nbsp;');
-  s = s.replace(/>([wzouiWZOUIA]) /g, '>$1&nbsp;');
+  // Thoroughly decode any multi-escaped or stray HTML entities into real UTF-8
+  s = cleanHtmlEntitiesToUtf8(s);
+  s = s.replace(/ ([wzouiWZOUIA]) /g, ' $1\u00A0');
+  s = s.replace(/>([wzouiWZOUIA]) /g, '>$1\u00A0');
   return s;
 }
 

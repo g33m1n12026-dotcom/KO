@@ -175,6 +175,21 @@ async function startServer() {
     }
   });
 
+  app.get('/api/verify-chomikuj', async (req, res) => {
+    try {
+      const url = String(req.query.url || '').trim();
+      const q = String(req.query.q || '').trim();
+      if (!url) {
+        return res.status(400).json({ error: 'Brak adresu URL do weryfikacji' });
+      }
+      const { preverifyChomikujFile } = await import('./server/chomikuj');
+      const result = await preverifyChomikujFile(url, q);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd weryfikacji pliku' });
+    }
+  });
+
   app.get('/api/settings/accounts', (req, res) => {
     res.json(getPublicAccountStatus());
   });
@@ -208,7 +223,7 @@ async function startServer() {
 
   app.post(['/api/order', '/api/koreader/order'], async (req, res) => {
     try {
-      let { title, downloadUrl, engine = 'auto', targetLang = 'Polish', conversionMode = 'translate' } = req.body;
+      let { title, downloadUrl, engine = 'auto', targetLang = 'Polish', conversionMode = 'translate', expectedLang } = req.body;
       if (!title || typeof title !== 'string' || !title.trim()) {
         return res.status(400).json({ error: 'Brak tytułu książki do pobrania' });
       }
@@ -217,7 +232,7 @@ async function startServer() {
       if (!downloadUrl || downloadUrl === 'auto' || typeof downloadUrl !== 'string' || !downloadUrl.trim()) {
         console.log(`[Order] Brak bezpośredniego linku dla "${title}". Przeszukiwanie mirrorów i źródeł...`);
         try {
-          const found = await findDirectBookDownload(title);
+          const found = await findDirectBookDownload(title, expectedLang || 'PL');
           if (found && found.downloadUrl) {
             downloadUrl = found.downloadUrl;
             console.log(`[Order] Sukces: Odnaleziono link dla "${title}": ${downloadUrl}`);
@@ -233,7 +248,7 @@ async function startServer() {
         });
       }
 
-      const job = createSearchOrderJob(title, downloadUrl, engine, targetLang, conversionMode);
+      const job = createSearchOrderJob(title, downloadUrl, engine, targetLang, conversionMode, expectedLang);
       res.status(201).json(job);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Błąd zlecenia' });

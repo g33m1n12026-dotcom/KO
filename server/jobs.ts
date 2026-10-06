@@ -3,7 +3,7 @@ import path from 'path';
 import JSZip from 'jszip';
 import { Job, ChapterData, StorybookRequest } from '../src/types';
 import { translateText, proofreadChapterF7 } from './ai';
-import { generateEpubBuffer, sanitizeToAsciiFilename } from './epub';
+import { generateEpubBuffer, sanitizeToAsciiFilename, cleanHtmlEntitiesToUtf8 } from './epub';
 import { parseDocumentBuffer, heuristicOcrProofread, unpackZipArchive } from './extractor';
 import { fetchRemoteBookBuffer } from './search';
 import { convertToCbz } from './comic';
@@ -511,7 +511,8 @@ export function createSearchOrderJob(
   downloadUrl: string,
   engine: Job['engine'] = 'auto',
   targetLang: string = 'Polish',
-  conversionMode: Job['conversionMode'] = 'translate'
+  conversionMode: Job['conversionMode'] = 'translate',
+  expectedLang?: string
 ): Job {
   const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const extMatch = downloadUrl.match(/\.(epub|pdf|mobi|cbz|txt|azw3|fb2)(?:[\?#]|$)/i);
@@ -533,6 +534,7 @@ export function createSearchOrderJob(
     createdAt: Date.now(),
     updatedAt: Date.now(),
     sourceType: 'search',
+    expectedLang: expectedLang || (/[ąćęłńóśźż]/i.test(title) ? 'PL' : undefined),
     logs: [
       `[${new Date().toLocaleTimeString()}] Zlecenie: "${title}". Tryb: ${
         conversionMode === 'original'
@@ -656,15 +658,20 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
       }
 
       // Sprawdź czy użytkownik oczekiwał książki po polsku, ale pobrany plik z sieci okazał się po angielsku!
-      const isRequestedPolish = job.targetLang === 'Polish' || /[ąćęłńóśźż]/i.test(job.title) || /dziki robot|robot|wiedźmin|przygody|lektur/i.test(job.title);
+      const isRequestedPolish =
+        (job as any).expectedLang === 'PL' ||
+        job.targetLang === 'Polish' ||
+        /[ąćęłńóśźż]/i.test(job.title) ||
+        /dziki robot|robot|wiedźmin|przygody|lektur/i.test(job.title);
+
       if (isRequestedPolish) {
         try {
           const parsed = await parseDocumentBuffer(targetBuffer, targetFilename);
-          const sampleText = (parsed.chapters || []).slice(0, 3).map(c => c.originalText).join(' ').toLowerCase();
-          const enWords = (sampleText.match(/\b(the|and|that|with|was|were|they|from|have|this|robot|she|his|her|said)\b/g) || []).length;
-          const plWords = (sampleText.match(/\b(i|w|na|z|do|że|się|nie|to|jest|po|za|od|ale|tak|go|jej|ich|tym|ten|dla)\b/g) || []).length;
+          const sampleText = (parsed.chapters || []).slice(0, 4).map((c) => c.originalText).join(' ').toLowerCase();
+          const enWords = (sampleText.match(/\b(the|and|that|with|was|were|they|from|have|this|robot|she|his|her|said|about|into|which|their|would)\b/g) || []).length;
+          const plWords = (sampleText.match(/\b(i|w|na|z|do|że|się|nie|to|jest|po|za|od|ale|tak|go|jej|ich|tym|ten|dla|jak|był|była|może)\b/g) || []).length;
 
-          if (enWords > 25 && enWords > plWords * 3) {
+          if (enWords > 15 && enWords > plWords * 1.5) {
             job.logs.push(
               `[${new Date().toLocaleTimeString()}] [Detekcja języka] ⚠️ Pobrana wersja książki okazała się wydaniem obcojęzycznym (angielskim: ${enWords} słów EN vs ${plWords} PL). Uruchamianie automatycznego literackiego przekładu AI na język polski, aby czytelnik otrzymał książkę po polsku!`
             );
@@ -754,11 +761,11 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
       job.logs.push(`[${new Date().toLocaleTimeString()}] Redakcja tekstu F7: usuwanie błędów OCR, sprawdzanie pisowni i dzielenia wyrazów w ${chapters.length} rozdziałach...`);
       saveJobsToDisk();
       for (const chapter of job.chapters) {
-        chapter.title = heuristicOcrProofread(chapter.title);
-        const clean = heuristicOcrProofread(chapter.originalText);
+        chapter.title = cleanHtmlEntitiesToUtf8(heuristicOcrProofread(chapter.title));
+        const clean = cleanHtmlEntitiesToUtf8(heuristicOcrProofread(chapter.originalText));
         chapter.translatedText = clean
-          .replace(/ ([wzouiWZOUIA]) /g, ' $1&nbsp;')
-          .replace(/>([wzouiWZOUIA]) /g, '>$1&nbsp;');
+          .replace(/ ([wzouiWZOUIA]) /g, ' $1\u00A0')
+          .replace(/>([wzouiWZOUIA]) /g, '>$1\u00A0');
         chapter.status = 'completed';
       }
       job.progress = 88;

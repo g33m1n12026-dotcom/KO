@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { StorybookRequest, ChapterData, Job } from '../src/types';
-import { generateEpubBuffer, sanitizeToAsciiFilename } from './epub';
+import { generateEpubBuffer, sanitizeToAsciiFilename, cleanHtmlEntitiesToUtf8 } from './epub';
 import { saveJobsToDisk } from './jobs';
 import fs from 'fs';
 import path from 'path';
@@ -392,7 +392,8 @@ export async function executeStorybookJob(job: Job, req: StorybookRequest): Prom
       log(`Pisanie rozdziału ${i + 1}/${outline.chapters.length}: "${chMeta.title}"...`);
 
       // Write chapter text
-      const chapterText = await generateChapterContent(outline, i, req, rollingSummary);
+      const rawChapterText = await generateChapterContent(outline, i, req, rollingSummary);
+      const chapterText = cleanHtmlEntitiesToUtf8(rawChapterText);
       rollingSummary += `\nRozdział ${i + 1}: ${chMeta.title} - ${chapterText.slice(0, 180)}...`;
 
       // Chapter illustration

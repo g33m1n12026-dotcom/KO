@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import * as he from 'he';
 import { ChapterData } from '../src/types';
 import { ExtractedImage } from './extractor';
 
@@ -30,15 +31,61 @@ export function sanitizeToAsciiFilename(name: string): string {
   );
 }
 
+export function cleanHtmlEntitiesToUtf8(str: string): string {
+  if (!str) return '';
+
+  let decoded = str;
+
+  // 1. Decode all HTML/XML entities iteratively (up to 4 passes for multi-escaped entities like &amp;amp;nbsp;)
+  for (let pass = 0; pass < 4; pass++) {
+    if (!decoded.includes('&')) break;
+    const next = he.decode(decoded);
+    if (next === decoded) break;
+    decoded = next;
+  }
+
+  // 2. Specific cleaning of non-breaking spaces and zero-width/soft-hyphen characters
+  decoded = decoded
+    // Double-check any literal &nbsp; or &#160; remnants
+    .replace(/&nbsp;/gi, '\u00A0')
+    .replace(/&#160;/g, '\u00A0')
+    .replace(/&#xA0;/gi, '\u00A0')
+    // Remove invisible soft hyphens and zero-width spaces that render as boxes on Kindle/KOReader
+    .replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/&(?:shy|zwnj|zwj);/gi, '')
+    // Replace non-standard whitespace / tabs with clean single spaces
+    .replace(/[\r\t\v\f]/g, ' ')
+    // Normalize any surviving numeric XML entities into UTF-8 chars
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = parseInt(code, 10);
+      if (n === 38) return '&';
+      if (n === 60) return '<';
+      if (n === 62) return '>';
+      if (n >= 32 && n <= 65535) return String.fromCharCode(n);
+      return '';
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const n = parseInt(hex, 16);
+      if (n === 38) return '&';
+      if (n === 60) return '<';
+      if (n === 62) return '>';
+      if (n >= 32 && n <= 65535) return String.fromCharCode(n);
+      return '';
+    });
+
+  return decoded;
+}
+
 export function escapeXml(unsafe: string): string {
   if (!unsafe) return '';
-  return unsafe
+  const decoded = cleanHtmlEntitiesToUtf8(unsafe);
+  return decoded
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/'/g, '&apos;');
 }
 
 /**
@@ -54,7 +101,11 @@ export function escapeXml(unsafe: string): string {
  */
 export function formatTextToXhtml(text: string): string {
   if (!text) return '<p></p>';
-  let clean = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '');
+  let clean = cleanHtmlEntitiesToUtf8(text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, ''));
+
+  // Ensure hanging Polish prepositions don't orphan on Kindle
+  clean = clean.replace(/ ([wzouiWZOUIA]) /g, ' $1\u00A0');
+  clean = clean.replace(/>([wzouiWZOUIA]) /g, '>$1\u00A0');
 
   // If text already has HTML paragraphs/headings:
   if (/<p[\s>]|<h[1-6][\s>]|<blockquote[\s>]|<div[\s>]/i.test(clean)) {
@@ -63,8 +114,8 @@ export function formatTextToXhtml(text: string): string {
     clean = clean.replace(/<hr(?:\s*\/|\s*)>/gi, '<hr/>');
     clean = clean.replace(/<img\b([^>]*?)(?:\s*\/|\s*)>/gi, '<img $1 />');
 
-    // 2. Escape naked ampersands without breaking existing entities
-    clean = clean.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
+    // 2. Escape naked ampersands without breaking valid XML entities
+    clean = clean.replace(/&(?!(?:amp|lt|gt|quot|apos);)/g, '&amp;');
 
     return clean;
   }

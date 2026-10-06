@@ -17,6 +17,8 @@ export interface Job {
   outputEpubFilename?: string;
   originalSize?: number;
   sourceType: 'upload' | 'search' | 'storybook';
+  author?: string;
+  expectedLang?: string;
   storybookConfig?: StorybookRequest;
   logs: string[];
 }
@@ -58,6 +60,12 @@ export interface BookSearchResult {
   size?: string;
   coverUrl?: string;
   isLendingDRM?: boolean;
+  verifiedStatus?: 'verified' | 'suspicious' | 'unknown';
+  verificationDetails?: string;
+  rating?: number;
+  downloadsCount?: number;
+  qualityBadge?: string;
+  score?: number;
   mirrorLinks?: { name: string; url: string }[];
   availableSources?: Array<{
     id: string;
@@ -69,6 +77,11 @@ export interface BookSearchResult {
     size?: string;
     downloadUrl?: string;
     isLendingDRM?: boolean;
+    verifiedStatus?: 'verified' | 'suspicious' | 'unknown';
+    verificationDetails?: string;
+    rating?: number;
+    downloadsCount?: number;
+    qualityBadge?: string;
   }>;
 }
 
@@ -88,6 +101,7 @@ export interface BookRecommendation {
   searchQuery: string;
   downloadUrl?: string;
   downloadFormat?: string;
+  downloadLanguage?: string;
   mirrorLinks: { name: string; url: string }[];
 }
 

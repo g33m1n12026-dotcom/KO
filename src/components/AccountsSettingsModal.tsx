@@ -617,6 +617,7 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
                     : '⚪ Wpisz dane konta 4shared'}
                 </span>
               </div>
+            </div>
 
             <p className="text-stone-600 leading-relaxed text-xs">
               Logowanie do 4shared pozwala na wyszukiwanie plików i natychmiastowe pobieranie bez odliczania sekund oczekiwania.

@@ -128,12 +128,32 @@ function AIBooks:init()
 end
 
 function AIBooks:ensureTargetDir()
+    local dir = self.target_folder
+    if G_reader_settings and G_reader_settings.readSetting then
+        local dl = G_reader_settings:readSetting("download_dir")
+        if dl and dl ~= "" then
+            dir = dl .. "/AI_Books"
+        end
+    end
+
+    local check = io.open("/mnt/us/documents", "r")
+    if check then
+        check:close()
+        dir = "/mnt/us/documents/AI_Books"
+    else
+        local check_sd = io.open("/sdcard/Books", "r") or io.open("/sdcard/Download", "r")
+        if check_sd then
+            check_sd:close()
+            dir = "/sdcard/Books/AI_Books"
+        elseif DataStorage and DataStorage.getDataDir then
+            dir = DataStorage:getDataDir() .. "/documents/AI_Books"
+        end
+    end
+    self.target_folder = dir
+    os.execute("mkdir -p \"" .. self.target_folder .. "\" 2>/dev/null")
     local ok, lfs = pcall(require, "lfs")
     if ok and lfs and lfs.mkdir then
-        pcall(lfs.mkdir, "/mnt/us/documents")
         pcall(lfs.mkdir, self.target_folder)
-    else
-        os.execute("mkdir -p " .. self.target_folder .. " 2>/dev/null")
     end
 end
 
@@ -489,6 +509,110 @@ end
 -- Książka na życzenie (AI Storybook / Poradnik)
 -- Książka na życzenie (Formularz AI Storybook / Poradnik)
 function AIBooks:showStorybookDialog()
+    self:showStorybookMultiInputCard()
+end
+
+function AIBooks:showStorybookMultiInputCard()
+    local ok_multi, MultiInputDialog = pcall(require, "ui/widget/multiinputdialog")
+    local f = self.storybook_form or {
+        title = "",
+        prompt = "",
+        type = "story",
+        genre = "Sci-Fi / Przygoda",
+        characters = "",
+        targetAudience = "Wszyscy (Dla każdego)",
+        targetAudienceKey = "all",
+        chapterCount = 5,
+        includeIllustrations = true,
+    }
+    self.storybook_form = f
+
+    if ok_multi and MultiInputDialog then
+        local dialog
+        dialog = MultiInputDialog:new{
+            title = _("✨ Formularz: Książka na życzenie"),
+            fields = {
+                {
+                    hint = _("1. Tytuł książki (lub puste dla AI)"),
+                    text = f.title or "",
+                },
+                {
+                    hint = _("2. Opis fabuły / motywy / temat (wymagane)"),
+                    text = f.prompt or "",
+                },
+                {
+                    hint = _("3. Gatunek (np. Sci-Fi, Bajka dla dzieci, Kryminał)"),
+                    text = f.genre or "Sci-Fi / Przygoda",
+                },
+                {
+                    hint = _("4. Główni bohaterowie (np. Wiktor i robot)"),
+                    text = f.characters or "",
+                },
+                {
+                    hint = _("5. Odbiorcy (Dzieci / Młodzież / Dorośli / Wszyscy)"),
+                    text = f.targetAudience or "Wszyscy",
+                },
+                {
+                    hint = _("6. Długość: liczba rozdziałów (3, 5, 8, 12)"),
+                    text = tostring(f.chapterCount or 5),
+                },
+            },
+            buttons = {
+                {
+                    {
+                        text = _("Szablony & Menu"),
+                        callback = function()
+                            local vals = dialog:getValues()
+                            if vals then
+                                f.title = vals[1] or f.title
+                                f.prompt = vals[2] or f.prompt
+                                f.genre = vals[3] or f.genre
+                                f.characters = vals[4] or f.characters
+                                f.targetAudience = vals[5] or f.targetAudience
+                                f.chapterCount = tonumber(vals[6]) or f.chapterCount
+                            end
+                            UIManager:close(dialog)
+                            self:showStorybookFormDialog()
+                        end,
+                    },
+                    {
+                        text = _("Anuluj"),
+                        id = "close",
+                        callback = function()
+                            UIManager:close(dialog)
+                        end,
+                    },
+                    {
+                        text = _("✨ GENERUJ KSIĄŻKĘ"),
+                        is_enter_default = true,
+                        callback = function()
+                            local vals = dialog:getValues()
+                            if vals then
+                                f.title = vals[1] or ""
+                                f.prompt = vals[2] or ""
+                                f.genre = vals[3] or f.genre
+                                f.characters = vals[4] or ""
+                                f.targetAudience = vals[5] or f.targetAudience
+                                f.chapterCount = tonumber(vals[6]) or 5
+                            end
+                            if not f.prompt or f.prompt:gsub("%s+", "") == "" then
+                                UIManager:show(InfoMessage:new{ text = _("⚠️ Wpisz najpierw opis fabuły lub temat książki!") })
+                                return
+                            end
+                            UIManager:close(dialog)
+                            self:withNetwork(function()
+                                self:performStorybookCreationFromForm(f)
+                            end)
+                        end,
+                    },
+                },
+            },
+        }
+        UIManager:show(dialog)
+        if dialog.onShowKeyboard then dialog:onShowKeyboard() end
+        return
+    end
+
     self:showStorybookFormDialog()
 end
 
@@ -1314,12 +1438,14 @@ function AIBooks:orderBookProcessing(item, conversionMode)
     end
 
     UIManager:nextTick(function()
+        local isPlExpected = conversionMode == "translate" or item.language == "PL" or (item.originalLang and item.originalLang:upper() == "PL")
         local payload = json.encode({
             title = item.title,
             downloadUrl = dUrl,
             engine = "auto",
-            targetLang = conversionMode == "translate" and "Polish" or "none",
+            targetLang = isPlExpected and "Polish" or "none",
             conversionMode = conversionMode,
+            expectedLang = isPlExpected and "PL" or item.language,
         })
 
         local response_body = {}
@@ -1508,62 +1634,82 @@ end
 -- Bezpośrednie pobieranie pliku z serwera na pamięć czytnika Kindle
 function AIBooks:downloadTaskFileDirectly(task, dest_path)
     self:ensureTargetDir()
+    local rawFilename = task.outputEpubFilename or (task.title and (task.title:gsub("[^a-zA-Z0-9._-]", "_") .. ".epub")) or "ksiazka.epub"
+    local cleanName = rawFilename:gsub("[^a-zA-Z0-9._-]", "_")
+    local actual_dest = dest_path or (self.target_folder .. "/" .. cleanName)
+
     local titleDisplay = (task.title or "książkę"):sub(1, 35)
     local info = InfoMessage:new{
-        text = _("Pobieranie e-booka bezpośrednio na czytnik Kindle...\\n") .. titleDisplay .. _("\\nProszę czekać..."),
+        text = _("Pobieranie e-booka bezpośrednio na czytnik...\\n") .. titleDisplay .. _("\\nProszę czekać..."),
     }
     UIManager:show(info)
 
     self:withNetwork(function()
-        local file, err = io.open(dest_path, "wb")
-        if not file then
-            UIManager:close(info)
-            UIManager:show(InfoMessage:new{ text = _("Błąd zapisu pliku na czytniku: ") .. tostring(err) })
-            return
-        end
+        local clean_server = (self.server_url or ""):gsub("/+$", "")
+        local download_url = clean_server .. "/api/download/" .. task.id
 
-        local download_url = self.server_url .. "/api/download/" .. task.id
-        local res, code, headers, status = doHttpRequest{
-            url = download_url,
-            method = "GET",
-            sink = ltn12.sink.file(file),
-        }
-        file:close()
-        UIManager:close(info)
+        -- 1. Try native Lua HTTP streaming to file
+        local file, err = io.open(actual_dest, "wb")
+        local downloaded_ok = false
+        if file then
+            local res, code, headers, status = doHttpRequest{
+                url = download_url,
+                method = "GET",
+                sink = ltn12.sink.file(file),
+            }
+            file:close()
 
-        if code == 200 then
-            local check = io.open(dest_path, "rb")
+            local check = io.open(actual_dest, "rb")
             local sz = check and check:seek("end") or 0
             if check then check:close() end
 
-            if sz > 500 then
-                local confirm = ConfirmBox:new{
-                    text = _("✅ Książka została pomyślnie pobrana na czytnik!\\n\\nTytuł: ") .. titleDisplay .. _("\\nPlik: ") .. dest_path .. _("\\nRozmiar: ") .. string.format("%.1f KB", sz / 1024) .. _("\\n\\nCzy chcesz otworzyć ją teraz w czytniku?"),
-                    ok_text = _("Otwórz"),
-                    cancel_text = _("Zostaw na potem"),
-                    ok_callback = function()
-                        local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
-                        if ok_reader and ReaderUI and ReaderUI.showReader then
-                            ReaderUI:showReader(dest_path)
-                        else
-                            local ok_evt, Event = pcall(require, "ui/event")
-                            if ok_evt and Event then
-                                UIManager:broadcastEvent(Event:new("OpenFile", dest_path))
-                            end
-                        end
-                    end,
-                    cancel_callback = function()
-                        self:showTasksList(true)
-                    end,
-                }
-                UIManager:show(confirm)
-            else
-                os.remove(dest_path)
-                UIManager:show(InfoMessage:new{ text = _("Błąd: Pobrany plik jest pusty.") })
+            if code == 200 and sz > 500 then
+                downloaded_ok = true
             end
+        end
+
+        -- 2. Fallback to system curl if socket failed or yielded 0 bytes
+        if not downloaded_ok then
+            local curl_cmd = string.format('curl -L -s -k --connect-timeout 15 -H "bypass-tunnel-reminder: 1" -o "%s" "%s"', actual_dest, download_url)
+            os.execute(curl_cmd)
+            local check2 = io.open(actual_dest, "rb")
+            local sz2 = check2 and check2:seek("end") or 0
+            if check2 then check2:close() end
+            if sz2 > 500 then
+                downloaded_ok = true
+            end
+        end
+
+        UIManager:close(info)
+
+        local final_check = io.open(actual_dest, "rb")
+        local final_sz = final_check and final_check:seek("end") or 0
+        if final_check then final_check:close() end
+
+        if downloaded_ok and final_sz > 500 then
+            local confirm = ConfirmBox:new{
+                text = _("✅ Książka została pomyślnie pobrana na czytnik!\\n\\nTytuł: ") .. titleDisplay .. _("\\nPlik: ") .. actual_dest .. _("\\nRozmiar: ") .. string.format("%.1f KB", final_sz / 1024) .. _("\\n\\nCzy chcesz otworzyć ją teraz w czytniku?"),
+                ok_text = _("Otwórz"),
+                cancel_text = _("Zostaw na potem"),
+                ok_callback = function()
+                    local ok_reader, ReaderUI = pcall(require, "apps/reader/readerui")
+                    if ok_reader and ReaderUI and ReaderUI.showReader then
+                        ReaderUI:showReader(actual_dest)
+                    else
+                        local ok_evt, Event = pcall(require, "ui/event")
+                        if ok_evt and Event then
+                            UIManager:broadcastEvent(Event:new("OpenFile", actual_dest))
+                        end
+                    end
+                end,
+                cancel_callback = function()
+                    self:showTasksList(true)
+                end,
+            }
+            UIManager:show(confirm)
         else
-            os.remove(dest_path)
-            self:handleHttpError(code, status)
+            os.remove(actual_dest)
+            UIManager:show(InfoMessage:new{ text = _("Błąd pobierania: nie udało się zapisać pliku książki na czytniku.\\nSprawdź połączenie WiFi lub skorzystaj z Katalogu OPDS.") })
         end
     end)
 end

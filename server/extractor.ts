@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
 import { ChapterData } from '../src/types';
+import { cleanHtmlEntitiesToUtf8 } from './epub';
 
 export interface ExtractedImage {
   id: string;
@@ -29,10 +30,12 @@ export interface ParsedDocument {
  * - Remove repetitive page numbers or header artifacts
  */
 export function cleanExtractedText(raw: string): string {
-  let text = raw
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
+  let text = cleanHtmlEntitiesToUtf8(
+    raw
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+  );
 
   // Fix words broken by hyphenation at line breaks
   text = text.replace(/([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])-\s*\n\s*([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g, '$1$2');
@@ -220,6 +223,8 @@ export async function cleanChapterHtml(
     const rawParas = html.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
     html = rawParas.map((p) => `<p>${p}</p>`).join('\n');
   }
+
+  html = cleanHtmlEntitiesToUtf8(html);
 
   return { cleanedHtml: html, images: extractedImages };
 }
