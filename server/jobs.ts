@@ -3,7 +3,12 @@ import path from 'path';
 import JSZip from 'jszip';
 import { Job, ChapterData, StorybookRequest } from '../src/types';
 import { translateText, proofreadChapterF7 } from './ai';
-import { generateEpubBuffer, sanitizeToAsciiFilename, cleanHtmlEntitiesToUtf8 } from './epub';
+import {
+  generateEpubBuffer,
+  sanitizeToAsciiFilename,
+  cleanHtmlEntitiesToUtf8,
+  resolveDisplayChapterTitle,
+} from './epub';
 import { parseDocumentBuffer, heuristicOcrProofread, unpackZipArchive } from './extractor';
 import { fetchRemoteBookBuffer } from './search';
 import { convertToCbz } from './comic';
@@ -280,14 +285,15 @@ export async function syncWithRenderServer(): Promise<void> {
   } catch {}
 }
 
-// Background queue watchdog to prevent jobs from ever getting permanently stuck
+// Background queue watchdog to prevent truly orphaned / dead jobs from hanging forever
 setInterval(() => {
   const now = Date.now();
   let changed = false;
   for (const job of jobs.values()) {
     if (['queued', 'extracting', 'translating', 'packaging'].includes(job.status)) {
       const ageMs = now - (job.updatedAt || job.createdAt || 0);
-      if (ageMs > 6 * 60 * 1000) {
+      // Increased from 6m to 25m so large books with dozens of chapters are never prematurely aborted
+      if (ageMs > 25 * 60 * 1000) {
         job.status = 'failed';
         job.error = 'Zadanie przekroczyło limit czasu przetwarzania w kolejce.';
         job.logs.push(`[${new Date().toLocaleTimeString()}] Przekroczono limit czasu oczekiwania.`);
@@ -777,13 +783,24 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
 
       for (let i = 0; i < chapters.length; i++) {
         const chapter = chapters[i];
+        if (chapter.status === 'completed' && chapter.translatedText) {
+          continue; // Already translated (e.g. from previous run)
+        }
+
         job.currentChapter = i + 1;
         chapter.status = 'in_progress';
+        job.updatedAt = Date.now();
 
         const progressStart = 20;
         const progressRange = 70; // 20 to 90%
         job.progress = Math.round(progressStart + (i / chapters.length) * progressRange);
         job.logs.push(`[${new Date().toLocaleTimeString()}] Tłumaczenie: [${i + 1}/${chapters.length}] "${chapter.title}"...`);
+        saveJobsToDisk();
+
+        // Active heartbeat to guarantee watchdog never prematurely aborts an actively translating chapter
+        const heartbeat = setInterval(() => {
+          job.updatedAt = Date.now();
+        }, 15000);
 
         try {
           const { text, usedEngine } = await translateText({
@@ -795,47 +812,26 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
 
           chapter.translatedText = text;
           chapter.status = 'completed';
-          job.logs.push(`[${new Date().toLocaleTimeString()}] Ukończono rozdział ${i + 1} (${usedEngine})`);
+          const resolvedMeta = resolveDisplayChapterTitle(chapter, i, job.targetLang === 'Polish' ? 'pl' : 'en');
+          if (resolvedMeta && resolvedMeta.title) {
+            chapter.title = resolvedMeta.title;
+          }
+          job.logs.push(`[${new Date().toLocaleTimeString()}] Ukończono rozdział ${i + 1}: "${chapter.title}" (${usedEngine})`);
         } catch (err: any) {
           console.error(`Błąd tłumaczenia rozdziału ${i + 1}:`, err);
           chapter.translatedText = chapter.originalText;
           chapter.status = 'failed';
           job.logs.push(`[${new Date().toLocaleTimeString()}] Ostrzeżenie: Rozdział ${i + 1} zachowany w oryginale z powodu błędu AI.`);
+        } finally {
+          clearInterval(heartbeat);
+          job.updatedAt = Date.now();
+          saveJobsToDisk();
         }
-
-        job.updatedAt = Date.now();
-        saveJobsToDisk();
       }
     }
 
     // Budowanie pliku EPUB
-    job.status = 'packaging';
-    job.progress = 92;
-    job.logs.push(`[${new Date().toLocaleTimeString()}] Generowanie zoptymalizowanego pliku EPUB 3 (okładka, ilustracje, formatowanie e-ink)...`);
-    saveJobsToDisk();
-
-    const safeTitle = sanitizeToAsciiFilename(job.title);
-    const langSuffix = skipTranslation ? 'clean' : 'pl';
-    const outputFilename = `${safeTitle}_${langSuffix}_${job.id.substring(4, 9)}.epub`;
-    const outputPath = path.join(EPUB_DIR, outputFilename);
-
-    const epubBuffer = await generateEpubBuffer({
-      title: skipTranslation ? job.title : `${job.title} (Polski przekład AI)`,
-      author: skipTranslation ? (author || job.title) : (author ? `${author} (przekład AI)` : 'Przekład AI (KOReader Cloud)'),
-      language: 'pl',
-      chapters: job.chapters,
-      coverImageBuffer,
-    });
-
-    fs.writeFileSync(outputPath, epubBuffer);
-
-    job.status = 'completed';
-    job.progress = 100;
-    job.outputEpubFilename = outputFilename;
-    job.outputFormat = 'epub';
-    job.logs.push(`[${new Date().toLocaleTimeString()}] SUKCES! Plik ${outputFilename} jest gotowy do pobrania na Kindle.`);
-    job.updatedAt = Date.now();
-    saveJobsToDisk();
+    await packageJobInternal(job, author, coverImageBuffer, skipTranslation);
   } catch (err: any) {
     job.status = 'failed';
     job.error = err.message || 'Wystąpił nieoczekiwany błąd';
@@ -843,4 +839,137 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
     job.updatedAt = Date.now();
     saveJobsToDisk();
   }
+}
+
+async function packageJobInternal(
+  job: Job,
+  author?: string,
+  coverImageBuffer?: Buffer,
+  skipTranslation: boolean = false
+): Promise<string> {
+  job.status = 'packaging';
+  job.progress = 92;
+  job.logs.push(`[${new Date().toLocaleTimeString()}] Generowanie zoptymalizowanego pliku EPUB 3 (okładka, ilustracje, formatowanie e-ink)...`);
+  job.updatedAt = Date.now();
+  saveJobsToDisk();
+
+  const safeTitle = sanitizeToAsciiFilename(job.title);
+  const langSuffix = skipTranslation ? 'clean' : 'pl';
+  const outputFilename = `${safeTitle}_${langSuffix}_${job.id.substring(4, 9)}.epub`;
+  const outputPath = path.join(EPUB_DIR, outputFilename);
+
+  // Guarantee all chapters have text & synchronize clean chapter titles from translated content
+  if (job.chapters) {
+    for (let i = 0; i < job.chapters.length; i++) {
+      const c = job.chapters[i];
+      if (!c.translatedText) {
+        c.translatedText = c.originalText;
+      }
+      const meta = resolveDisplayChapterTitle(c, i, 'pl');
+      if (meta && meta.title) {
+        c.title = meta.title;
+      }
+    }
+  }
+
+  const epubBuffer = await generateEpubBuffer({
+    title: skipTranslation ? job.title : `${job.title} (Polski przekład AI)`,
+    author: skipTranslation ? (author || job.title) : (author ? `${author} (przekład AI)` : 'Przekład AI (KOReader Cloud)'),
+    language: 'pl',
+    chapters: job.chapters || [],
+    coverImageBuffer,
+  });
+
+  fs.writeFileSync(outputPath, epubBuffer);
+
+  job.status = 'completed';
+  job.progress = 100;
+  job.outputEpubFilename = outputFilename;
+  job.outputFormat = 'epub';
+  job.error = undefined;
+  job.logs.push(`[${new Date().toLocaleTimeString()}] SUKCES! Plik ${outputFilename} jest gotowy do pobrania na Kindle.`);
+  job.updatedAt = Date.now();
+  saveJobsToDisk();
+  return outputFilename;
+}
+
+export async function packageJobNow(jobId: string): Promise<boolean> {
+  const job = jobs.get(jobId);
+  if (!job || !job.chapters || job.chapters.length === 0) return false;
+  try {
+    await packageJobInternal(job, undefined, undefined, false);
+    return true;
+  } catch (err: any) {
+    console.error(`Błąd natychmiastowego pakowania zadania ${jobId}:`, err);
+    return false;
+  }
+}
+
+export function resumeJob(jobId: string): boolean {
+  const job = jobs.get(jobId);
+  if (!job || !job.chapters || job.chapters.length === 0) return false;
+
+  job.status = 'translating';
+  job.error = undefined;
+  job.updatedAt = Date.now();
+  job.logs.push(`[${new Date().toLocaleTimeString()}] Wznowiono zadanie tłumaczenia od miejsca przerwania.`);
+  saveJobsToDisk();
+
+  (async () => {
+    try {
+      const chapters = job.chapters;
+      for (let i = 0; i < chapters.length; i++) {
+        const chapter = chapters[i];
+        if (chapter.status === 'completed' && chapter.translatedText) {
+          continue;
+        }
+
+        job.currentChapter = i + 1;
+        chapter.status = 'in_progress';
+        job.updatedAt = Date.now();
+
+        const progressStart = 20;
+        const progressRange = 70;
+        job.progress = Math.round(progressStart + (i / chapters.length) * progressRange);
+        job.logs.push(`[${new Date().toLocaleTimeString()}] Tłumaczenie: [${i + 1}/${chapters.length}] "${chapter.title}"...`);
+        saveJobsToDisk();
+
+        const heartbeat = setInterval(() => {
+          job.updatedAt = Date.now();
+        }, 15000);
+
+        try {
+          const { text, usedEngine } = await translateText({
+            text: chapter.originalText,
+            targetLang: job.targetLang,
+            context: `Tytuł: ${job.title}. Rozdział: ${chapter.title}. Rozdział ${i + 1} z ${chapters.length}.`,
+            preferredEngine: job.engine,
+          });
+
+          chapter.translatedText = text;
+          chapter.status = 'completed';
+          job.logs.push(`[${new Date().toLocaleTimeString()}] Ukończono rozdział ${i + 1} (${usedEngine})`);
+        } catch (err: any) {
+          console.error(`Błąd tłumaczenia rozdziału ${i + 1}:`, err);
+          chapter.translatedText = chapter.originalText;
+          chapter.status = 'failed';
+          job.logs.push(`[${new Date().toLocaleTimeString()}] Ostrzeżenie: Rozdział ${i + 1} zachowany w oryginale.`);
+        } finally {
+          clearInterval(heartbeat);
+          job.updatedAt = Date.now();
+          saveJobsToDisk();
+        }
+      }
+
+      await packageJobInternal(job, undefined, undefined, false);
+    } catch (err: any) {
+      job.status = 'failed';
+      job.error = err.message || 'Błąd wznowionego tłumaczenia';
+      job.logs.push(`[${new Date().toLocaleTimeString()}] KRYTYCZNY BŁĄD: ${job.error}`);
+      job.updatedAt = Date.now();
+      saveJobsToDisk();
+    }
+  })();
+
+  return true;
 }

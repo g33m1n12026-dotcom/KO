@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X, Smartphone, UploadCloud } from 'lucide-react';
+import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X, Smartphone, UploadCloud, RotateCcw } from 'lucide-react';
 import { Job } from '../types';
 
 interface JobsLibraryProps {
@@ -16,6 +16,35 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteJob, setConfirmDeleteJob] = useState<{ id: string; title: string } | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  const handleResumeJob = async (id: string) => {
+    setActionLoadingId(id);
+    try {
+      const res = await fetch(`/api/jobs/${id}/resume`, { method: 'POST' });
+      if (res.ok) {
+        onRefresh();
+      }
+    } catch (e) {
+      console.error('Błąd wznawiania:', e);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handlePackageNow = async (id: string) => {
+    setActionLoadingId(id);
+    try {
+      const res = await fetch(`/api/jobs/${id}/package-now`, { method: 'POST' });
+      if (res.ok) {
+        onRefresh();
+      }
+    } catch (e) {
+      console.error('Błąd pakowania:', e);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   // Local phone file upload to OPDS
   const [isUploadingDirect, setIsUploadingDirect] = useState(false);
@@ -421,12 +450,47 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                 key={job.id}
                 className="bg-red-50/50 border border-red-200 rounded-xl p-3.5 text-xs text-red-800 flex items-start justify-between gap-3"
               >
-                <div className="space-y-1">
+                <div className="space-y-2 flex-1">
                   <div className="font-semibold text-stone-900">{job.title}</div>
                   <div className="text-red-700">{job.error || 'Nieznany błąd'}</div>
+                  {job.chapters && job.chapters.length > 0 && (
+                    <div className="text-[11px] text-stone-600 font-medium">
+                      Postęp: {job.chapters.filter((c) => c.status === 'completed').length} z {job.chapters.length} rozdziałów już przetłumaczonych.
+                    </div>
+                  )}
                   {job.logs && job.logs.length > 0 && (
                     <div className="text-[10px] text-stone-500 font-mono">
                       Ostatni wpis: {job.logs[job.logs.length - 1]}
+                    </div>
+                  )}
+                  {job.chapters && job.chapters.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleResumeJob(job.id)}
+                        disabled={actionLoadingId === job.id}
+                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium flex items-center gap-1 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                      >
+                        {actionLoadingId === job.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3 h-3" />
+                        )}
+                        <span>Wznów tłumaczenie (od rozdziału {job.currentChapter || 1})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePackageNow(job.id)}
+                        disabled={actionLoadingId === job.id}
+                        className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-medium flex items-center gap-1 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                      >
+                        {actionLoadingId === job.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="w-3 h-3" />
+                        )}
+                        <span>Spakuj gotowe rozdziały do EPUB</span>
+                      </button>
                     </div>
                   )}
                 </div>

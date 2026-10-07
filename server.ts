@@ -17,6 +17,8 @@ import {
   getEpubFilePath,
   deleteJob,
   saveJobsToDisk,
+  resumeJob,
+  packageJobNow,
 } from './server/jobs';
 import { generateEpubBuffer, sanitizeToAsciiFilename } from './server/epub';
 import { searchOnlineBooks, findDirectBookDownload } from './server/search';
@@ -32,6 +34,7 @@ import {
   getTunnelStatus,
 } from './server/tunnel';
 import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared, testAllAccounts } from './server/settings';
+import { AVAILABLE_VOICES, synthesizeSpeech } from './server/tts';
 
 dotenv.config();
 
@@ -375,6 +378,22 @@ async function startServer() {
     res.json(job);
   });
 
+  app.post(['/api/jobs/:id/resume', '/api/koreader/tasks/:id/resume'], (req, res) => {
+    const success = resumeJob(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Nie można wznowić zadania (brak rozdziałów lub zadanie nie istnieje)' });
+    }
+    res.json({ success: true, message: 'Wznowiono zadanie tłumaczenia od miejsca przerwania.' });
+  });
+
+  app.post(['/api/jobs/:id/package-now', '/api/koreader/tasks/:id/package-now'], async (req, res) => {
+    const success = await packageJobNow(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Nie można spakować zadania (brak rozdziałów)' });
+    }
+    res.json({ success: true, message: 'Zadanie zostało spakowane i jest gotowe do pobrania.' });
+  });
+
   app.delete(['/api/jobs/:id', '/api/koreader/tasks/:id'], (req, res) => {
     const deleted = deleteJob(req.params.id);
     if (!deleted) {
@@ -453,6 +472,43 @@ async function startServer() {
       ? req.query.url.trim()
       : `${baseUrl}/?mobile=1`;
     res.json({ url: targetUrl });
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Natural AI Text-to-Speech (Gemini & ElevenLabs)
+  // ----------------------------------------------------
+  app.get('/api/tts/voices', (req, res) => {
+    res.json({
+      voices: AVAILABLE_VOICES,
+      defaultVoice: 'Kore',
+    });
+  });
+
+  app.post('/api/tts', async (req, res) => {
+    try {
+      const { text, voice, provider, elevenLabsApiKey, elevenLabsVoiceId, speed } = req.body || {};
+      if (!text || typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({ error: 'Brak tekstu do odczytania.' });
+      }
+
+      const { buffer, mimeType } = await synthesizeSpeech({
+        text,
+        voice,
+        provider,
+        elevenLabsApiKey,
+        elevenLabsVoiceId,
+        speed,
+      });
+
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(buffer);
+    } catch (err: any) {
+      console.warn('Błąd syntezy mowy:', err.message);
+      res.status(500).json({ error: err.message || 'Błąd generowania głosu lektora' });
+    }
   });
 
   // ----------------------------------------------------

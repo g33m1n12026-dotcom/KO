@@ -94,6 +94,7 @@ async function translateWithClaude(prompt: string, text: string): Promise<string
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: AbortSignal.timeout(35000),
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': ANTHROPIC_KEY,
@@ -118,6 +119,7 @@ async function translateWithClaude(prompt: string, text: string): Promise<string
     if (response.status === 404 || response.status === 400) {
       const fallbackResp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: AbortSignal.timeout(35000),
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': ANTHROPIC_KEY,
@@ -155,6 +157,7 @@ async function translateWithOpenAI(prompt: string, text: string): Promise<string
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(35000),
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_KEY}`,
@@ -185,12 +188,12 @@ async function translateWithGemini(prompt: string, text: string): Promise<string
   if (!GEMINI_KEY) throw new Error('Brak klucza Gemini API');
 
   const gemini = getGemini();
-  const models = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
   let lastError = '';
 
   for (const model of models) {
     try {
-      const response = await gemini.models.generateContent({
+      const callPromise = gemini.models.generateContent({
         model,
         contents: `${prompt}\n\nOto tekst do przetłumaczenia:\n\n${text}`,
         config: {
@@ -198,6 +201,11 @@ async function translateWithGemini(prompt: string, text: string): Promise<string
         },
       });
 
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout zapytania Gemini (35s)')), 35000)
+      );
+
+      const response = await Promise.race([callPromise, timeoutPromise]);
       const translated = response.text?.trim();
       if (translated) return translated;
     } catch (err: any) {
@@ -222,6 +230,7 @@ async function translateWithOpenRouter(prompt: string, text: string): Promise<st
     try {
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(35000),
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENROUTER_KEY}`,

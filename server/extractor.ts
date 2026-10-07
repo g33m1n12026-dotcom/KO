@@ -1000,14 +1000,23 @@ export async function parseDocumentBuffer(
           continue;
         }
 
-        // Try getting chapter title from headings
-        const titleMatch = html.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
-        const chTitle = titleMatch
-          ? titleMatch[1].replace(/<[^>]+>/g, '').trim()
-          : `Rozdział ${chapters.length + 1}`;
+        // Try getting chapter title from headings or detect pure illustration page
+        const isPureIllustration = images.length > 0 && textSnippet.length < 80;
+        const titleMatch = html.match(/<h[1-4][^>]*>(.*?)<\/h[1-4]>/i) || html.match(/<p\b[^>]*class=["'][^"']*(?:title|chapter)[^"']*["'][^>]*>(.*?)<\/p>/i);
+        let chTitle = '';
+
+        if (isPureIllustration) {
+          chTitle = 'Ilustracja';
+        } else if (titleMatch) {
+          chTitle = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+        } else if (chapters.length === 0 && textSnippet.length < 200) {
+          chTitle = 'Strona tytułowa';
+        } else {
+          chTitle = `Rozdział ${chapters.length + 1}`;
+        }
 
         chapters.push({
-          title: chTitle || `Rozdział ${chapters.length + 1}`,
+          title: chTitle || (isPureIllustration ? 'Ilustracja' : `Rozdział ${chapters.length + 1}`),
           originalText: cleanedHtml,
           status: 'pending',
           extractedImages: images,

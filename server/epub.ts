@@ -140,6 +140,140 @@ export function formatTextToXhtml(text: string): string {
  * Generates an EPUB buffer 100% compatible with KOReader (CREngine), Kindle, Calibre, and PC readers.
  * Preserves original cover image, chapter illustrations, centered headings, italics, bold, quotes, and footnotes.
  */
+/**
+ * Intelligently resolves the chapter title and heading status to prevent duplicate headers
+ * (e.g. prevents "CHAPTER 1 \n ROZDZIAŁ 1 \n OCEAN" by suppressing redundant external <h1>)
+ */
+export function resolveDisplayChapterTitle(
+  chapter: EpubChapter,
+  index: number,
+  language: string = 'pl',
+  prevTitle?: string
+): { title: string; hasInternalHeading: boolean; isIllustrationOnly: boolean; isContinuation: boolean } {
+  const content = chapter.translatedText || chapter.originalText || '';
+  const rawTitle = (chapter.title || '').trim();
+
+  // 1. Check for top headings (h1, h2, h3) in the chapter text
+  const headingMatches = [...content.slice(0, 1500).matchAll(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/gi)];
+  const extractedHeadings = headingMatches
+    .map((m) => cleanHtmlEntitiesToUtf8(m[1].replace(/<[^>]+>/g, '').trim()))
+    .filter(Boolean);
+
+  const hasInternalHeading = extractedHeadings.length > 0;
+
+  // 2. Check if this section is purely a full-page illustration
+  const textOnly = content.replace(/<[^>]+>/g, '').trim();
+  const hasImages =
+    content.includes('<img') ||
+    content.includes('<image') ||
+    (chapter.extractedImages && chapter.extractedImages.length > 0) ||
+    Boolean(chapter.imageBuffer);
+  const isIllustrationOnly = hasImages && textOnly.length < 90;
+
+  if (isIllustrationOnly) {
+    return {
+      title: language === 'pl' ? 'Ilustracja' : 'Illustration',
+      hasInternalHeading: false,
+      isIllustrationOnly: true,
+      isContinuation: false,
+    };
+  }
+
+  // 3. Front matter without heading (Welcome, Rozpocznij czytanie, Spis treści)
+  if (!hasInternalHeading && (content.includes('Rozpocznij czytanie') || content.includes('toc.xhtml') || content.includes('welcome') || index === 0)) {
+    return {
+      title: language === 'pl' ? 'Strona tytułowa' : 'Title Page',
+      hasInternalHeading: false,
+      isIllustrationOnly: false,
+      isContinuation: false,
+    };
+  }
+
+  // 4. Section without heading following a chapter (continuation of prose across illustrations/page breaks)
+  if (!hasInternalHeading && prevTitle && prevTitle !== 'Ilustracja' && prevTitle !== 'Strona tytułowa' && !prevTitle.includes('Ilustracja')) {
+    const cleanPrev = prevTitle.replace(/\s*\(cd\.\)$/i, '');
+    return {
+      title: `${cleanPrev} (cd.)`,
+      hasInternalHeading: false,
+      isIllustrationOnly: false,
+      isContinuation: true,
+    };
+  }
+
+  const toPolishTitleCase = (str: string) => {
+    return str
+      .split(/\s+/)
+      .map((w, i) => {
+        const lower = w.toLowerCase();
+        if (i > 0 && ['i', 'w', 'na', 'z', 'do', 'o', 'ze', 'za', 'pod', 'nad', 'się', 'dla', 'od', 'po'].includes(lower)) {
+          return lower;
+        }
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      })
+      .join(' ');
+  };
+
+  // 5. If internal headings exist (e.g. <h1>ROZDZIAŁ 1</h1> <h1>OCEAN</h1>)
+  if (extractedHeadings.length >= 2) {
+    const h0 = extractedHeadings[0];
+    const h1 = extractedHeadings[1];
+    if (/^(?:rozdzia[łl]|chapter)\s*\d+/i.test(h0)) {
+      const numPart = h0.replace(/chapter\b/i, 'Rozdział').trim();
+      const namePart = toPolishTitleCase(h1);
+      return {
+        title: `${numPart}: ${namePart}`,
+        hasInternalHeading: true,
+        isIllustrationOnly: false,
+        isContinuation: false,
+      };
+    }
+  }
+
+  if (extractedHeadings.length >= 1) {
+    let h0 = extractedHeadings[0];
+    if (/^chapter\s+(\d+)/i.test(h0)) {
+      h0 = h0.replace(/^chapter\s+(\d+)/i, 'Rozdział $1');
+    }
+    return {
+      title: toPolishTitleCase(h0),
+      hasInternalHeading: true,
+      isIllustrationOnly: false,
+      isContinuation: false,
+    };
+  }
+
+  // 6. Fallback based on raw chapter title
+  let fallback = rawTitle;
+  if (/^chapter\s+(\d+)/i.test(fallback)) {
+    fallback = fallback.replace(/^chapter\s+(\d+)/i, 'Rozdział $1');
+  } else if (/^a\s+note\s+about\s+the\s+story/i.test(fallback)) {
+    fallback = 'Słowo o tej historii';
+  } else if (/^acknowledgments/i.test(fallback)) {
+    fallback = 'Podziękowania';
+  } else if (/^about\s+the\s+author/i.test(fallback)) {
+    fallback = 'O autorze';
+  } else if (/^copyright/i.test(fallback)) {
+    fallback = 'Prawa autorskie';
+  } else if (/^prologue/i.test(fallback)) {
+    fallback = 'Prolog';
+  } else if (/^epilogue/i.test(fallback)) {
+    fallback = 'Epilog';
+  } else if (/^preface/i.test(fallback)) {
+    fallback = 'Przedmowa';
+  } else if (/^introduction/i.test(fallback)) {
+    fallback = 'Wprowadzenie';
+  } else if (!fallback || fallback.startsWith('chapter_')) {
+    fallback = `Rozdział ${index + 1}`;
+  }
+
+  return {
+    title: fallback,
+    hasInternalHeading,
+    isIllustrationOnly: false,
+    isContinuation: false,
+  };
+}
+
 export async function generateEpubBuffer(options: EpubOptions): Promise<Buffer> {
   const { title, author = 'Nieznany autor', language = 'pl', chapters } = options;
   const zip = new JSZip();
@@ -291,11 +425,27 @@ img {
   manifestItems.push(`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`);
   manifestItems.push(`<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`);
 
-  const hasCover = Boolean(options.coverImageBuffer && options.coverImageBuffer.length > 0);
+function toSafeBuffer(raw: any): Buffer | null {
+  if (!raw) return null;
+  if (Buffer.isBuffer(raw)) return raw;
+  if (raw.type === 'Buffer' && Array.isArray(raw.data)) {
+    return Buffer.from(raw.data);
+  }
+  if (Array.isArray(raw)) {
+    return Buffer.from(raw);
+  }
+  if (typeof raw === 'string') {
+    return Buffer.from(raw, 'base64');
+  }
+  return null;
+}
+
+  const safeCoverBuf = toSafeBuffer(options.coverImageBuffer);
+  const hasCover = Boolean(safeCoverBuf && safeCoverBuf.length > 0);
 
   // Handle Cover Image if present
-  if (hasCover && options.coverImageBuffer) {
-    zip.file('OEBPS/images/cover.jpg', options.coverImageBuffer, { compression: 'STORE' });
+  if (hasCover && safeCoverBuf) {
+    zip.file('OEBPS/images/cover.jpg', safeCoverBuf, { compression: 'STORE' });
     manifestItems.push(`<item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>`);
 
     const coverXhtml = `<?xml version="1.0" encoding="utf-8"?>
@@ -330,18 +480,26 @@ img {
   // Include Nav in Spine so both EPUB 2 and EPUB 3 readers validate without spine errors
   spineItems.push(`<itemref idref="nav" linear="yes"/>`);
 
+
+  let lastMajorTitle = '';
+
   chapters.forEach((chapter, index) => {
     const chapterId = `chapter_${index + 1}`;
     const filename = `${chapterId}.xhtml`;
-    const chapterTitle = chapter.title || `Rozdział ${index + 1}`;
+    const resolvedMeta = resolveDisplayChapterTitle(chapter, index, language, lastMajorTitle);
+    if (!resolvedMeta.isIllustrationOnly && !resolvedMeta.isContinuation) {
+      lastMajorTitle = resolvedMeta.title;
+    }
+    const chapterTitle = resolvedMeta.title;
     const bodyContent = formatTextToXhtml(chapter.translatedText || chapter.originalText);
 
     // Bundle extracted illustrations from this chapter
     if (Array.isArray(chapter.extractedImages)) {
       for (const img of chapter.extractedImages) {
-        if (!bundledImageFilenames.has(img.filename)) {
+        const safeImgBuf = toSafeBuffer(img.buffer);
+        if (safeImgBuf && safeImgBuf.length > 0 && !bundledImageFilenames.has(img.filename)) {
           bundledImageFilenames.add(img.filename);
-          zip.file(`OEBPS/images/${img.filename}`, img.buffer, { compression: 'STORE' });
+          zip.file(`OEBPS/images/${img.filename}`, safeImgBuf, { compression: 'STORE' });
           manifestItems.push(`<item id="${img.id}" href="images/${img.filename}" media-type="${img.mediaType || 'image/jpeg'}"/>`);
         }
       }
@@ -349,11 +507,12 @@ img {
 
     // Legacy or storybook generated cover/chapter illustration
     let illustrationHtml = '';
-    if (chapter.imageBuffer && chapter.imageBuffer.length > 0) {
+    const safeChImgBuf = toSafeBuffer(chapter.imageBuffer);
+    if (safeChImgBuf && safeChImgBuf.length > 0) {
       const imgFilename = `ch_${index + 1}_legacy.jpg`;
       if (!bundledImageFilenames.has(imgFilename)) {
         bundledImageFilenames.add(imgFilename);
-        zip.file(`OEBPS/images/${imgFilename}`, chapter.imageBuffer, { compression: 'STORE' });
+        zip.file(`OEBPS/images/${imgFilename}`, safeChImgBuf, { compression: 'STORE' });
         manifestItems.push(`<item id="img_ch_${index + 1}" href="images/${imgFilename}" media-type="image/jpeg"/>`);
       }
       illustrationHtml = `
@@ -361,6 +520,13 @@ img {
         <img src="images/${imgFilename}" alt="${escapeXml(chapterTitle)} - ilustracja"/>
       </div>`;
     }
+
+    // Only inject <h1> if the chapter does NOT already have an internal heading
+    // (Prevents duplicate headers like "CHAPTER 1 \n ROZDZIAŁ 1 \n OCEAN")
+    const headingHtml =
+      !resolvedMeta.hasInternalHeading && !resolvedMeta.isIllustrationOnly
+        ? `<h1>${escapeXml(chapterTitle)}</h1>`
+        : '';
 
     const chapterXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -371,7 +537,7 @@ img {
     <link rel="stylesheet" type="text/css" href="style.css"/>
   </head>
   <body>
-    <h1>${escapeXml(chapterTitle)}</h1>
+    ${headingHtml}
     ${illustrationHtml}
     <div class="chapter-content">
       ${bodyContent}
@@ -390,7 +556,11 @@ img {
       <content src="${filename}"/>
     </navPoint>`);
 
-    navListItems.push(`<li><a href="${filename}">${escapeXml(chapterTitle)}</a></li>`);
+    // Only include meaningful chapters or named sections in the visual TOC list
+    // (Omits standalone mid-chapter illustration pages so the TOC isn't polluted with 30 "Ilustracja" entries)
+    if (!resolvedMeta.isIllustrationOnly && !resolvedMeta.isContinuation) {
+      navListItems.push(`<li><a href="${filename}">${escapeXml(chapterTitle)}</a></li>`);
+    }
   });
 
   // 5. OEBPS/nav.xhtml (EPUB 3 Navigation Document + EPUB 2 fallback)

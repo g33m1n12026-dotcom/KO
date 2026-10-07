@@ -1,1 +1,53 @@
 @import "tailwindcss";
+
+@keyframes pageSlideInRight {
+  0% {
+    opacity: 0.2;
+    transform: translateX(32px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes pageSlideInLeft {
+  0% {
+    opacity: 0.2;
+    transform: translateX(-32px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes eqBarPulse {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 16px;
+  }
+}
+
+.anim-page-slide-left {
+  animation: pageSlideInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-page-slide-right {
+  animation: pageSlideInLeft 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.eq-bar-1 {
+  animation: eqBarPulse 0.75s ease-in-out infinite;
+}
+.eq-bar-2 {
+  animation: eqBarPulse 0.55s ease-in-out infinite 0.15s;
+}
+.eq-bar-3 {
+  animation: eqBarPulse 0.85s ease-in-out infinite 0.3s;
+}
+.eq-bar-4 {
+  animation: eqBarPulse 0.65s ease-in-out infinite 0.1s;
+}
