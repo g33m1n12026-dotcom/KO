@@ -24,10 +24,8 @@ interface KindlePluginGuideProps {
 }
 
 export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl }) => {
-  const RENDER_PROD_URL = 'https://ko-zviz.onrender.com';
-
-  // Compute default suggested URL (prioritize live Render URL)
-  const [selectedServerUrl, setSelectedServerUrl] = useState<string>(RENDER_PROD_URL);
+  // Compute default suggested URL (uses live app server URL)
+  const [selectedServerUrl, setSelectedServerUrl] = useState<string>(() => serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
   const [activeCodeTab, setActiveCodeTab] = useState<'meta' | 'main'>('main');
   const [pluginCode, setPluginCode] = useState<{ metaLua: string; mainLua: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -76,7 +74,7 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
 
   useEffect(() => {
     if (serverUrl && !selectedServerUrl) {
-      setSelectedServerUrl(serverUrl || 'https://ko-zviz.onrender.com');
+      setSelectedServerUrl(serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
     }
   }, [serverUrl]);
 
@@ -281,39 +279,39 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
             <span className="text-[11px] text-stone-400 font-medium">Szybki wybór:</span>
             <button
               type="button"
-              onClick={() => setSelectedServerUrl(RENDER_PROD_URL)}
-              className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 ${
-                selectedServerUrl === RENDER_PROD_URL
+              onClick={() => setSelectedServerUrl(serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''))}
+              className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 cursor-pointer ${
+                selectedServerUrl === (serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''))
                   ? 'bg-emerald-800 text-white border-emerald-800 font-semibold shadow-xs'
                   : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-medium'
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>🚀 Twój serwer Render 24/7 (ko-zviz.onrender.com)</span>
+              <span>⚡ Bieżący serwer ({typeof window !== 'undefined' ? window.location.host : 'lokalny'})</span>
             </button>
             {tunnelStatus?.url && (
               <button
                 type="button"
                 onClick={() => setSelectedServerUrl(tunnelStatus.url!)}
-                className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 ${
+                className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 cursor-pointer ${
                   selectedServerUrl === tunnelStatus.url
                     ? 'bg-emerald-800 text-white border-emerald-800 font-semibold shadow-xs'
                     : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-medium'
                 }`}
               >
-                <span>🚇 Tunel zapasowy</span>
+                <span>🚇 Tunel publiczny</span>
               </button>
             )}
             <button
               type="button"
-              onClick={() => setSelectedServerUrl('http://192.168.1.50:3000')}
-              className={`text-[11px] px-2.5 py-1 rounded-lg border transition ${
-                selectedServerUrl === 'http://192.168.1.50:3000'
+              onClick={() => setSelectedServerUrl('http://192.168.1.100:3000')}
+              className={`text-[11px] px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                selectedServerUrl === 'http://192.168.1.100:3000'
                   ? 'bg-stone-900 text-white border-stone-900 font-medium'
                   : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
               }`}
             >
-              📶 Domowe Wi-Fi
+              📶 Domowe Wi-Fi (LAN)
             </button>
           </div>
         </div>

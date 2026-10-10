@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { BookOpen, Copy, Check, Wifi, Sparkles, Search, BookMarked, FileText, Plug } from 'lucide-react';
+import { BookOpen, Copy, Check, Wifi, Sparkles, Search, BookMarked, FileText, Plug, Globe } from 'lucide-react';
+import { ShareDeployModal } from './ShareDeployModal';
 
 interface HeaderProps {
   activeTab: string;
@@ -14,6 +15,7 @@ export const Header: React.FC<HeaderProps> = ({
   serverUrl,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(serverUrl);
@@ -48,8 +50,18 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Right actions: Server URL copy */}
-          <div className="flex items-center gap-1 shrink-0">
+          {/* Right actions: Server URL copy & Free Hosting/Share */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowShareModal(true)}
+              className="flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] bg-amber-500/10 hover:bg-amber-500/20 border border-amber-300/80 rounded-md text-amber-900 font-medium transition cursor-pointer shadow-2xs"
+              title="Darmowy hosting i udostępnianie testerom bez logowania"
+            >
+              <Globe className="w-3 h-3 text-amber-700 shrink-0" />
+              <span className="text-[10px] sm:text-[11px]">Darmowy Hosting / Testerzy</span>
+            </button>
+
             <button
               type="button"
               onClick={handleCopy}
@@ -71,6 +83,12 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
         </div>
+
+        <ShareDeployModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          serverUrl={serverUrl}
+        />
 
         {/* Clean, compact mobile-friendly navigation tab bar */}
         <nav className="flex space-x-1 mt-1 pt-1 border-t border-stone-100 overflow-x-auto no-scrollbar scroll-smooth">

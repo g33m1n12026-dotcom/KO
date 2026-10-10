@@ -12,7 +12,7 @@ return {
 `;
 }
 
-export function getMainLua(defaultServerUrl: string = 'https://ko-zviz.onrender.com'): string {
+export function getMainLua(defaultServerUrl: string = process.env.APP_BASE_URL || 'http://192.168.1.100:3000'): string {
   return `--[[
     KOReader Plugin: aibooks.koplugin
     AI Cloud Translator & PDF/Comic Optimizer for Kindle 10
@@ -1956,7 +1956,7 @@ function AIBooks:showSettingsDialog()
     input = InputDialog:new{
         title = _("⚙️ Ustawienia serwera AI"),
         input = self.server_url,
-        input_hint = _("https://ko-zviz.onrender.com"),
+        input_hint = _("https://twoj-serwer.railway.app lub http://192.168.1.X:3000"),
         description = _("Adres URL serwera w chmurze:\\n• Konto Chomikuj: diweg68665 (50 MB/tydz)\\n• Mózg AI: Duck.ai + Gemini + Wolny Silnik"),
         buttons = {
             {

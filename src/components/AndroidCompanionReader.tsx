@@ -19,6 +19,7 @@ import {
   Share2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Search,
   Check,
   RotateCcw,
@@ -40,6 +41,7 @@ import {
   Volume1,
   Layers,
   Sparkle,
+  RefreshCw,
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Job } from '../types';
@@ -61,6 +63,37 @@ interface Chapter {
 
 type ReaderTheme = 'paper' | 'sepia' | 'dark' | 'amoled';
 type ReaderFont = 'serif' | 'sans' | 'mono';
+
+export interface ElevenVoiceItem {
+  id: string;
+  name: string;
+  desc: string;
+  gender: 'Męski' | 'Kobiecy';
+  category: string;
+}
+
+export const CURATED_ELEVEN_VOICES: ElevenVoiceItem[] = [
+  { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni (Polski Lektor)', desc: 'Płynny, ciepły polski głos męski ElevenLabs Multilingual V2 — idealny do powieści', gender: 'Męski', category: 'Polski lektor' },
+  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (Audiobook)', desc: 'Kultowy, ultra-realistyczny kobiecy głos narracyjny — łagodny, kojący i ciepły', gender: 'Kobiecy', category: 'Audiobook' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella (Ekspresyjna)', desc: 'Ekspresyjny, emocjonalny głos lektorski — wciągające dialogi i proza', gender: 'Kobiecy', category: 'Ekspresyjny' },
+  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam (Narrator)', desc: 'Dojrzały, głęboki głos narracyjny — fantasy, thrillery i kryminały', gender: 'Męski', category: 'Audiobook' },
+  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George (Klasyczny)', desc: 'Ciepły, dostojny głos lektorski do literatury klasycznej i poezji', gender: 'Męski', category: 'Klasyczny' },
+  { id: 'IKne3meq5aSn9XLyUdCD', name: 'Charlie (Swobodny)', desc: 'Naturalny, swobodny głos męski — dynamiczne dialogi i współczesna proza', gender: 'Męski', category: 'Swobodny' },
+  { id: 'N2lVS1w4EtoT3pu4Rqva', name: 'Callum (Intensywny)', desc: 'Intensywny, filmowy głos męski — fantastyka, sci-fi i powieści akcji', gender: 'Męski', category: 'Filmowy' },
+  { id: 'XB0fDUnXU5ikipDDTrS1', name: 'Charlotte (Aksamitna)', desc: 'Elegancka, aksamitna narratorka literatury pięknej i esejów', gender: 'Kobiecy', category: 'Poezja / Proza' },
+  { id: 'Xb7hH8MSUJpSbSDYk0k2', name: 'Alice (Krystaliczna)', desc: 'Krystaliczna, pewna siebie narratorka — literatura faktu i biografie', gender: 'Kobiecy', category: 'Narracyjny' },
+  { id: 'XrExE9yKIg1WjnnlVkGX', name: 'Matilda (Audiobook Pro)', desc: 'Ciepła lektorka audiobookowa z doskonałą modulacją i dykcją', gender: 'Kobiecy', category: 'Audiobook' },
+  { id: 'bIHbv24MWmeRgasZH58o', name: 'Will (Optymistyczny)', desc: 'Zrelaksowany, optymistyczny i przyjazny lektor do powieści obyczajowych', gender: 'Męski', category: 'Ciepły' },
+  { id: 'cgSgspJ2msm6clMCkdW9', name: 'Jessica (Młodzieńcza)', desc: 'Młodzieńczy, energiczny głos kobiecy do powieści młodzieżowych i YA', gender: 'Kobiecy', category: 'Młodzieżowy' },
+  { id: 'cjVigY5qzO86Huf0OWal', name: 'Eric (Reportażowy)', desc: 'Spokojny, czytelny i wiarygodny lektor reportaży oraz historii', gender: 'Męski', category: 'Reportaż' },
+  { id: 'iP95p4xoKVk53GoZ742B', name: 'Chris (Radiowy)', desc: 'Czysty, radiowy głos lektorski o zrównoważonym tempie czytania', gender: 'Męski', category: 'Radiowy' },
+  { id: 'nPczCjzI2devNBz1zQrb', name: 'Brian (Głęboki Bas)', desc: 'Głęboki, autorytatywny bas narracyjny do epickich sag i kronik', gender: 'Męski', category: 'Epicki' },
+  { id: 'onwK4e9ZLuTAKqWW03F9', name: 'Daniel (Dostojny)', desc: 'Dostojny, brytyjsko-europejski tembr do klasyki literatury', gender: 'Męski', category: 'Klasyczny' },
+  { id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily (Łagodna)', desc: 'Aksamitna, łagodna i kojąca narratorka na wieczorne czytanie', gender: 'Kobiecy', category: 'Relaks' },
+  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam (Wyrazisty)', desc: 'Młody, wyrazisty głos lektorski — przygodowe i sensacyjne ebooki', gender: 'Męski', category: 'Dynamiczny' },
+  { id: 'pqHfZKP75CvOlQylNhV4', name: 'Bill (Narrator)', desc: 'Godny zaufania, ciepły narrator literatury popularnonaukowej', gender: 'Męski', category: 'Narracyjny' },
+  { id: 't0jbNkn9CVvt53TfGNOx', name: 'Sarah (Melodyjna)', desc: 'Delikatna, melodyjna narratorka poezji, esejów i opowiadań', gender: 'Kobiecy', category: 'Melodyjny' },
+];
 
 export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   serverUrl,
@@ -91,11 +124,11 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   // Text-To-Speech (Audiobook mode & Neural Voices)
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [ttsSpeed, setTtsSpeed] = useState<number>(1.0);
-  const [ttsProvider, setTtsProvider] = useState<'gemini' | 'elevenlabs' | 'system'>(
-    () => (localStorage.getItem('koreader_tts_provider') as any) || 'gemini'
+  const [ttsProvider, setTtsProvider] = useState<'neural' | 'gemini' | 'elevenlabs' | 'system'>(
+    () => (localStorage.getItem('koreader_tts_provider') as any) || 'neural'
   );
   const [ttsVoice, setTtsVoice] = useState<string>(
-    () => localStorage.getItem('koreader_tts_voice') || 'Kore'
+    () => localStorage.getItem('koreader_tts_voice') || 'pl-PL-MarekNeural'
   );
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>(
     () => localStorage.getItem('koreader_elevenlabs_key') || ''
@@ -106,6 +139,12 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   const [currentParagraphIdx, setCurrentParagraphIdx] = useState<number>(0);
   const [ttsLoading, setTtsLoading] = useState<boolean>(false);
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
+  const [voiceModalTab, setVoiceModalTab] = useState<'neural' | 'gemini' | 'elevenlabs' | 'system'>('neural');
+
+  const openVoiceModal = () => {
+    setVoiceModalTab(ttsProvider);
+    setShowVoiceModal(true);
+  };
 
   // Fullscreen & Immersive Mode
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -139,6 +178,87 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prefetchCacheRef = useRef<Record<number, string>>({});
   const [sampleTestingVoice, setSampleTestingVoice] = useState<string | null>(null);
+  const [showElevenKeyPassword, setShowElevenKeyPassword] = useState<boolean>(false);
+  const [elevenLabsKeyValid, setElevenLabsKeyValid] = useState<{ valid: boolean; characterCount?: number; characterLimit?: number; tier?: string; error?: string } | null>(null);
+  const [elevenLabsChecking, setElevenLabsChecking] = useState<boolean>(false);
+  const [ttsNotification, setTtsNotification] = useState<string | null>(null);
+  const loadedJobIdRef = useRef<string | null>(null);
+
+  // ElevenLabs dynamic voices state
+  const [customElevenVoices, setCustomElevenVoices] = useState<ElevenVoiceItem[]>([]);
+  const [loadingCustomVoices, setLoadingCustomVoices] = useState<boolean>(false);
+  const [elevenCategoryFilter, setElevenCategoryFilter] = useState<string>('all');
+  const [elevenSearchQuery, setElevenSearchQuery] = useState<string>('');
+
+  // Active TTS Refs to prevent stale closures during voice switches & continuous reading
+  const ttsVoiceRef = useRef<string>(ttsVoice);
+  const ttsProviderRef = useRef<'neural' | 'gemini' | 'elevenlabs' | 'system'>(ttsProvider);
+  const elevenLabsApiKeyRef = useRef<string>(elevenLabsApiKey);
+  const elevenLabsVoiceIdRef = useRef<string>(elevenLabsVoiceId);
+  const ttsSpeedRef = useRef<number>(ttsSpeed);
+
+  useEffect(() => { ttsVoiceRef.current = ttsVoice; }, [ttsVoice]);
+  useEffect(() => { ttsProviderRef.current = ttsProvider; }, [ttsProvider]);
+  useEffect(() => { elevenLabsApiKeyRef.current = elevenLabsApiKey; }, [elevenLabsApiKey]);
+  useEffect(() => { elevenLabsVoiceIdRef.current = elevenLabsVoiceId; }, [elevenLabsVoiceId]);
+  useEffect(() => { ttsSpeedRef.current = ttsSpeed; }, [ttsSpeed]);
+
+  const getVoiceDisplayName = (vId: string, prov: string) => {
+    if (prov === 'neural') {
+      return vId === 'pl-PL-ZofiaNeural' ? 'Zofia (Studyjna AI)' : 'Marek (Studyjny AI)';
+    }
+    if (prov === 'elevenlabs') {
+      const matchCurated = CURATED_ELEVEN_VOICES.find((v) => v.id === vId);
+      if (matchCurated) return matchCurated.name;
+      const matchCustom = customElevenVoices.find((v) => v.id === vId);
+      if (matchCustom) return matchCustom.name;
+      return 'ElevenLabs';
+    }
+    if (prov === 'gemini') {
+      return `${vId} (Gemini AI)`;
+    }
+    return 'Głos telefonu (offline)';
+  };
+
+  const allElevenVoices = useMemo(() => {
+    const seen = new Set<string>();
+    const result: ElevenVoiceItem[] = [];
+    for (const v of customElevenVoices) {
+      if (!seen.has(v.id)) {
+        seen.add(v.id);
+        result.push(v);
+      }
+    }
+    for (const v of CURATED_ELEVEN_VOICES) {
+      if (!seen.has(v.id)) {
+        seen.add(v.id);
+        result.push(v);
+      }
+    }
+    return result;
+  }, [customElevenVoices]);
+
+  const filteredElevenVoices = useMemo(() => {
+    return allElevenVoices.filter((v) => {
+      if (elevenCategoryFilter === 'polish' && !v.name.includes('Polski') && !v.desc.includes('polski') && v.category !== 'Polski lektor') {
+        return false;
+      }
+      if (elevenCategoryFilter === 'female' && v.gender !== 'Kobiecy') {
+        return false;
+      }
+      if (elevenCategoryFilter === 'male' && v.gender !== 'Męski') {
+        return false;
+      }
+      if (elevenCategoryFilter === 'custom' && !v.category.includes('Sklonowany') && !v.category.includes('Konto')) {
+        return false;
+      }
+      if (elevenSearchQuery.trim()) {
+        const q = elevenSearchQuery.toLowerCase();
+        return v.name.toLowerCase().includes(q) || v.desc.toLowerCase().includes(q) || v.category.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [allElevenVoices, elevenCategoryFilter, elevenSearchQuery]);
 
   // Screen Wake Lock API for Mobile (prevents screen dimming during reading/listening)
   const wakeLockRef = useRef<any>(null);
@@ -173,7 +293,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     };
   }, [isFullscreen, isSpeaking]);
 
-  // Touch gestures for mobile phone: swipe page turning & center tap
+  // Touch gestures for mobile phone: swipe page turning
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const touchStartTimeRef = useRef<number>(0);
@@ -194,8 +314,10 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     const deltaY = touchEndY - touchStartYRef.current;
     const deltaTime = Date.now() - touchStartTimeRef.current;
 
-    // Horizontal swipe (at least 50px, predominantly horizontal, within 550ms)
-    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3 && deltaTime < 550) {
+    // Strict check for deliberate horizontal swipes:
+    // distance > 90px, distinctly horizontal (3x more horizontal than vertical), between 70ms and 450ms
+    // This prevents accidental page flips during scrolling, paragraph taps, or text selection!
+    if (Math.abs(deltaX) > 90 && Math.abs(deltaX) > Math.abs(deltaY) * 3 && deltaTime > 70 && deltaTime < 450) {
       if (deltaX < 0) {
         // Swiped left -> Next chapter
         if (currentChapterIdx < chapters.length - 1) {
@@ -207,31 +329,165 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           changeChapter(currentChapterIdx - 1, 'prev');
         }
       }
-    } else if (Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15 && deltaTime < 350) {
-      // Tap detected - check tap zone
-      const containerWidth = readerContainerRef.current?.clientWidth || window.innerWidth;
-      const clickX = touchEndX;
-      // Tap on left 18% margin -> previous chapter
-      if (clickX < containerWidth * 0.18) {
-        if (currentChapterIdx > 0) changeChapter(currentChapterIdx - 1, 'prev');
-      } else if (clickX > containerWidth * 0.82) {
-        // Tap on right 18% margin -> next chapter
-        if (currentChapterIdx < chapters.length - 1) changeChapter(currentChapterIdx + 1, 'next');
-      } else {
-        // Tap in center 64% zone -> toggle controls (zen/immersive mode)
-        setHideChrome((prev) => !prev);
-      }
     }
 
     touchStartXRef.current = null;
     touchStartYRef.current = null;
   };
 
+  // Intercept anchor link clicks inside EPUB content safely so they NEVER break reader or reset to page 1
+  const handleContentContainerClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+
+    // Never interfere if the user clicked or tapped on a paragraph to listen!
+    if (target.closest('[id^="reader-p-"]') || target.closest('button')) {
+      return;
+    }
+
+    const anchor = target.closest('a');
+    if (anchor) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rawHref = (anchor.getAttribute('href') || '').trim();
+      if (!rawHref || rawHref === '#' || rawHref.startsWith('javascript:')) {
+        return;
+      }
+
+      // Safe chapter resolution (ignores footnotes or empty hash fragments)
+      const clean = rawHref.replace(/^#/, '').split('#').pop()?.toLowerCase() || '';
+      if (clean.length < 3 || clean === 'toc' || clean.includes('nav')) {
+        return; // Don't flip back to TOC or cover from a footnote/internal anchor
+      }
+
+      const found = chapters.findIndex(
+        (c) =>
+          c.id.toLowerCase() === clean ||
+          (c.id.toLowerCase().endsWith(clean) && clean.length >= 4)
+      );
+      if (found !== -1 && found !== currentChapterIdx) {
+        changeChapter(found, found > currentChapterIdx ? 'next' : 'prev');
+      }
+    }
+  };
+
+  // Load custom/account voices from ElevenLabs API
+  const loadElevenVoicesFromAccount = async (keyOverride?: string) => {
+    const key = (keyOverride || elevenLabsApiKey).trim();
+    setLoadingCustomVoices(true);
+    try {
+      const url = key ? `/api/tts/elevenlabs/voices?apiKey=${encodeURIComponent(key)}` : '/api/tts/elevenlabs/voices';
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data.voices) && data.voices.length > 0) {
+          const list = data.voices.map((v: any) => ({
+            id: v.id,
+            name: v.name,
+            desc: v.description || 'Głos z biblioteki ElevenLabs',
+            gender: (v.gender === 'female' ? 'Kobiecy' : 'Męski') as 'Męski' | 'Kobiecy',
+            category: v.category === 'cloned' ? 'Sklonowany' : (v.category || 'Konto API'),
+          }));
+          setCustomElevenVoices(list);
+          setTtsNotification(`🎙️ Załadowano ${list.length} głosów z Twojego konta ElevenLabs!`);
+          setTimeout(() => setTtsNotification(null), 3500);
+        }
+      }
+    } catch (e: any) {
+      console.warn('Błąd pobierania głosów ElevenLabs:', e);
+    } finally {
+      setLoadingCustomVoices(false);
+    }
+  };
+
+  useEffect(() => {
+    if (elevenLabsApiKey.trim()) {
+      loadElevenVoicesFromAccount(elevenLabsApiKey);
+    } else {
+      fetch('/api/settings/accounts')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.elevenlabs?.hasKey) {
+            loadElevenVoicesFromAccount();
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  // Test ElevenLabs Key validity and retrieve remaining character quota
+  const verifyElevenLabsKeyInUi = async () => {
+    const key = elevenLabsApiKey.trim();
+    if (!key) {
+      setElevenLabsKeyValid({ valid: false, error: 'Wklej swój klucz API ElevenLabs, aby go sprawdzić.' });
+      return;
+    }
+    setElevenLabsChecking(true);
+    try {
+      const resp = await fetch('/api/tts/elevenlabs/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: key }),
+      });
+      const data = await resp.json();
+      setElevenLabsKeyValid(data);
+      if (data.valid) {
+        setTtsNotification('✅ Klucz ElevenLabs jest poprawny i aktywny!');
+        loadElevenVoicesFromAccount(key);
+      } else {
+        setTtsNotification(`⚠️ ${data.error || 'Nieprawidłowy klucz ElevenLabs'}`);
+      }
+      setTimeout(() => setTtsNotification(null), 4000);
+    } catch (e: any) {
+      setElevenLabsKeyValid({ valid: false, error: e.message || 'Błąd połączenia' });
+    } finally {
+      setElevenLabsChecking(false);
+    }
+  };
+
+  // Voice Selection with immediate switch, ref update, and cache invalidation
+  const selectVoice = (voiceId: string, provider: 'neural' | 'gemini' | 'elevenlabs' | 'system') => {
+    ttsVoiceRef.current = voiceId;
+    ttsProviderRef.current = provider;
+    setTtsVoice(voiceId);
+    setTtsProvider(provider);
+    if (provider === 'elevenlabs') {
+      elevenLabsVoiceIdRef.current = voiceId;
+      setElevenLabsVoiceId(voiceId);
+    }
+
+    // Invalidate prefetch cache so new voice applies to all upcoming paragraphs immediately
+    prefetchCacheRef.current = {};
+    localStorage.setItem('koreader_tts_provider', provider);
+    localStorage.setItem('koreader_tts_voice', voiceId);
+    if (provider === 'elevenlabs') {
+      localStorage.setItem('koreader_elevenlabs_voice_id', voiceId);
+    }
+
+    setTtsNotification(`🎙️ Zmieniono lektora: ${getVoiceDisplayName(voiceId, provider)}`);
+    setTimeout(() => setTtsNotification(null), 3000);
+
+    // If already reading aloud, switch the current paragraph immediately to the new voice
+    if (isSpeaking) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      playParagraph(currentParagraphIdx, voiceId, provider);
+    }
+  };
+
   // Test sample voice playback
-  const testVoiceSample = async (voiceId: string, provider: 'gemini' | 'elevenlabs' | 'system') => {
+  const testVoiceSample = async (voiceId: string, provider: 'neural' | 'gemini' | 'elevenlabs' | 'system') => {
+    if (sampleTestingVoice === voiceId) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setSampleTestingVoice(null);
+      return;
+    }
+
     setSampleTestingVoice(voiceId);
     try {
-      const sampleText = 'Dzień dobry! Oto próbka naturalnego głosu lektora do Twoich e-booków.';
+      const sampleText = 'Dzień dobry! Oto próbka mojego głosu do czytania Twoich ulubionych książek.';
       if (provider === 'system') {
         if (window.speechSynthesis) {
           window.speechSynthesis.cancel();
@@ -247,13 +503,21 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         return;
       }
 
+      // If ElevenLabs requested without user key, explain clearly
+      if (provider === 'elevenlabs' && !elevenLabsApiKey.trim()) {
+        setSampleTestingVoice(null);
+        setTtsNotification('💡 ElevenLabs wymaga klucza API z elevenlabs.io. Wklej klucz powyżej lub wybierz darmowego Lektora Studyjnego (Marek / Zofia).');
+        setTimeout(() => setTtsNotification(null), 5000);
+        return;
+      }
+
       const resp = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: sampleText,
           voice: voiceId,
-          provider,
+          provider: provider,
           elevenLabsApiKey,
           elevenLabsVoiceId: voiceId,
           speed: ttsSpeed,
@@ -274,6 +538,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     } catch (e: any) {
       console.warn('Błąd odtwarzania próbki głosu:', e.message);
       setSampleTestingVoice(null);
+      setTtsNotification(`⚠️ Błąd próbki: ${e.message}`);
+      setTimeout(() => setTtsNotification(null), 4000);
     }
   };
 
@@ -282,7 +548,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     if (selectedJob && selectedJob.status === 'completed') {
       loadBookFromJob(selectedJob);
     }
-  }, [selectedJob]);
+  }, [selectedJob?.id]);
 
   // Synchronize TTS settings to localStorage
   useEffect(() => {
@@ -350,12 +616,13 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     );
 
     if (selectedJob && selectedJob.status === 'completed') {
-      return; // Already handled above
+      return; // Already handled by selectedJob effect
     }
-    if (completed.length > 0 && (chapters.length === 0 || bookTitle === 'Przykładowy Ebook')) {
+    // Only load initial book once if no book has been loaded yet
+    if (completed.length > 0 && !loadedJobIdRef.current && chapters.length === 0) {
       loadBookFromJob(completed[0]);
       if (onSelectJob) onSelectJob(completed[0]);
-    } else if (chapters.length === 0) {
+    } else if (chapters.length === 0 && !loadingBook) {
       // Default demo chapters
       setChapters([
         {
@@ -369,7 +636,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         },
       ]);
     }
-  }, [jobs, selectedJob]);
+  }, [jobs.length, selectedJob?.id]);
 
   // Save Kindle IP in localStorage
   useEffect(() => {
@@ -385,23 +652,58 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     }
   }, [currentChapterIdx]);
 
+  // Save reading progress per book in localStorage so returning or refreshing never resets to chapter 0
+  useEffect(() => {
+    if (loadedJobIdRef.current && chapters.length > 0) {
+      try {
+        localStorage.setItem(
+          `koreader_progress_${loadedJobIdRef.current}`,
+          JSON.stringify({ chapterIdx: currentChapterIdx, paragraphIdx: currentParagraphIdx })
+        );
+      } catch {}
+    }
+  }, [currentChapterIdx, currentParagraphIdx, chapters.length]);
+
   // ----------------------------------------------------
   // Load EPUB, CBZ, or PDF from Job or URL
   // ----------------------------------------------------
-  const loadBookFromJob = async (job: Job) => {
+  const loadBookFromJob = async (job: Job, forceReload = false) => {
+    if (!forceReload && loadedJobIdRef.current === job.id && chapters.length > 0) {
+      return; // Already loaded and in view — do NOT reload or wipe reading position!
+    }
+    loadedJobIdRef.current = job.id;
     setLoadingBook(true);
     setBookTitle(job.title);
 
+    // Retrieve saved reading progress
+    let savedChapterIdx = 0;
+    let savedParagraphIdx = 0;
+    try {
+      const saved = localStorage.getItem(`koreader_progress_${job.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.chapterIdx === 'number') savedChapterIdx = parsed.chapterIdx;
+        if (typeof parsed.paragraphIdx === 'number') savedParagraphIdx = parsed.paragraphIdx;
+      }
+    } catch {}
+
     // 1. If job has chapters already, set them immediately for fast resilient reading
     if (job.chapters && job.chapters.length > 0) {
-      setChapters(
-        job.chapters.map((c, i) => ({
-          id: `ch_${i}`,
-          title: c.title || `Rozdział ${i + 1}`,
-          content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
-        }))
-      );
-      setCurrentChapterIdx(0);
+      const chs = job.chapters.map((c, i) => ({
+        id: `ch_${i}`,
+        title: c.title || `Rozdział ${i + 1}`,
+        content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
+      }));
+      setChapters(chs);
+      let safeCh = Math.min(savedChapterIdx, Math.max(0, chs.length - 1));
+      if (savedChapterIdx === 0 && chs.length > 1) {
+        const firstTitle = chs[0].title.toLowerCase();
+        if (firstTitle.includes('spis treści') || firstTitle.includes('okładka') || firstTitle.includes('cover')) {
+          safeCh = 1;
+        }
+      }
+      setCurrentChapterIdx(safeCh);
+      setCurrentParagraphIdx(savedParagraphIdx);
     }
 
     try {
@@ -446,34 +748,20 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         return;
       }
 
-      await parseEpubBlob(blob, job.title);
+      await parseEpubBlob(blob, job.title, savedChapterIdx, savedParagraphIdx);
     } catch (err: any) {
       console.warn('Wczytywanie e-booka (tryb awaryjny):', err.message || err);
       // Fallback to job chapters if available
       if (job.chapters && job.chapters.length > 0) {
-        setChapters(
-          job.chapters.map((c, i) => ({
-            id: `ch_${i}`,
-            title: c.title || `Rozdział ${i + 1}`,
-            content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
-          }))
-        );
-        setCurrentChapterIdx(0);
-      } else {
-        // Fallback to any other completed job available with EPUB
-        const altJob = jobs.find(
-          (j) =>
-            j.id !== job.id &&
-            j.status === 'completed' &&
-            (j.outputFormat === 'epub' ||
-              j.outputFormat === 'cbz' ||
-              j.outputEpubFilename?.endsWith('.epub') ||
-              (j.chapters && j.chapters.length > 0))
-        );
-        if (altJob) {
-          loadBookFromJob(altJob);
-          if (onSelectJob) onSelectJob(altJob);
-        }
+        const chs = job.chapters.map((c, i) => ({
+          id: `ch_${i}`,
+          title: c.title || `Rozdział ${i + 1}`,
+          content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
+        }));
+        setChapters(chs);
+        const safeCh = Math.min(savedChapterIdx, Math.max(0, chs.length - 1));
+        setCurrentChapterIdx(safeCh);
+        setCurrentParagraphIdx(savedParagraphIdx);
       }
     } finally {
       setLoadingBook(false);
@@ -483,7 +771,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   // ----------------------------------------------------
   // Parse EPUB and CBZ client-side with JSZip + Blob URLs
   // ----------------------------------------------------
-  const parseEpubBlob = async (blob: Blob, defaultTitle?: string) => {
+  const parseEpubBlob = async (blob: Blob, defaultTitle?: string, savedChapterIdx = 0, savedParagraphIdx = 0) => {
     try {
       const zip = await JSZip.loadAsync(blob);
       const parsedChapters: Chapter[] = [];
@@ -653,7 +941,15 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
 
       if (parsedChapters.length > 0) {
         setChapters(parsedChapters);
-        setCurrentChapterIdx(0);
+        let targetCh = Math.min(savedChapterIdx, Math.max(0, parsedChapters.length - 1));
+        if (savedChapterIdx === 0 && parsedChapters.length > 1) {
+          const firstTitle = parsedChapters[0].title.toLowerCase();
+          if (firstTitle.includes('spis treści') || firstTitle.includes('okładka') || firstTitle.includes('cover')) {
+            targetCh = 1;
+          }
+        }
+        setCurrentChapterIdx(targetCh);
+        setCurrentParagraphIdx(savedParagraphIdx);
         if (discoveredTitle) setBookTitle(discoveredTitle);
       }
     } catch (e) {
@@ -677,12 +973,12 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       await parseEpubBlob(file, cleanName);
     } else if (lower.endsWith('.txt') || lower.endsWith('.md')) {
       const text = await file.text();
-      const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim());
+      const rawParagraphs = text.split(/\n\s*\n/).filter((p) => p.trim());
       setChapters([
         {
           id: 'txt_1',
           title: file.name,
-          content: paragraphs.map((p) => `<p>${p}</p>`).join(''),
+          content: rawParagraphs.map((p) => `<p>${p}</p>`).join(''),
         },
       ]);
       setCurrentChapterIdx(0);
@@ -700,6 +996,16 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(`<div>${rawContent}</div>`, 'text/html');
+
+      // Filter out standalone back-links like "Spis treści" or "Powrót do spisu treści"
+      const navLinks = Array.from(doc.body.querySelectorAll('a, nav, [class*="toc"], [id*="toc"]'));
+      for (const el of navLinks) {
+        const txt = el.textContent?.trim().toLowerCase() || '';
+        if (txt === 'spis treści' || txt === 'powrót do spisu treści' || txt === 'do spisu treści' || txt === 'table of contents') {
+          el.remove();
+        }
+      }
+
       const nodes = Array.from(doc.body.querySelectorAll('p, blockquote, h1, h2, h3, h4, li'));
       if (nodes.length > 0) {
         return nodes
@@ -707,7 +1013,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             html: node.outerHTML,
             text: node.textContent?.replace(/\s+/g, ' ').trim() || '',
           }))
-          .filter((p) => p.text.length > 0);
+          .filter((p) => p.text.length > 0 && !/^spis treści$/i.test(p.text));
       }
     } catch {}
 
@@ -718,7 +1024,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         html: `<p>${t.trim()}</p>`,
         text: t.trim(),
       }))
-      .filter((p) => p.text.length > 0);
+      .filter((p) => p.text.length > 0 && !/^spis treści$/i.test(p.text));
   }, [chapters, currentChapterIdx]);
 
   // Page Turn with Smooth Transition Animation
@@ -742,6 +1048,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   // ----------------------------------------------------
   // Text-To-Speech (Natural Neural AI & Device Speech)
   // ----------------------------------------------------
+  const speechKeepaliveRef = useRef<any>(null);
+
   const stopTTS = () => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -750,23 +1058,49 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+    if (speechKeepaliveRef.current) {
+      clearInterval(speechKeepaliveRef.current);
+      speechKeepaliveRef.current = null;
+    }
     setIsSpeaking(false);
     setTtsLoading(false);
   };
 
-  const playParagraph = async (pIdx: number) => {
+  const playParagraph = async (
+    pIdx: number,
+    overrideVoice?: string,
+    overrideProvider?: 'neural' | 'gemini' | 'elevenlabs' | 'system'
+  ) => {
     if (pIdx < 0 || pIdx >= paragraphs.length) {
       if (currentChapterIdx < chapters.length - 1) {
         changeChapter(currentChapterIdx + 1, 'next');
         setTimeout(() => playParagraph(0), 500);
       } else {
         stopTTS();
+        setTtsNotification('📖 Koniec książki');
+        setTimeout(() => setTtsNotification(null), 3000);
       }
       return;
     }
 
     setCurrentParagraphIdx(pIdx);
     setIsSpeaking(true);
+
+    const activeProvider = overrideProvider || ttsProviderRef.current;
+    const activeVoice = overrideVoice || ttsVoiceRef.current;
+    const activeSpeed = ttsSpeedRef.current;
+    const activeElevenKey = elevenLabsApiKeyRef.current;
+    const activeElevenVoiceId = elevenLabsVoiceIdRef.current;
+
+    // Persist current position so reading never resets to chapter 0
+    if (loadedJobIdRef.current) {
+      try {
+        localStorage.setItem(
+          `koreader_progress_${loadedJobIdRef.current}`,
+          JSON.stringify({ chapterIdx: currentChapterIdx, paragraphIdx: pIdx })
+        );
+      } catch {}
+    }
 
     setTimeout(() => {
       const el = document.getElementById(`reader-p-${pIdx}`);
@@ -781,47 +1115,96 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       return;
     }
 
-    // Provider 1: Native System Offline Voice
-    if (ttsProvider === 'system') {
+    // Provider 1: Native System Offline Voice with Android Keepalive Fix
+    if (activeProvider === 'system') {
       if (!window.speechSynthesis) {
-        alert('Przeglądarka nie obsługuje syntezy mowy.');
+        setTtsNotification('⚠️ Przeglądarka nie obsługuje syntezy mowy.');
         setIsSpeaking(false);
         return;
       }
       window.speechSynthesis.cancel();
+      if (speechKeepaliveRef.current) {
+        clearInterval(speechKeepaliveRef.current);
+      }
+
       const utterance = new SpeechSynthesisUtterance(paragraphText);
       utterance.lang = 'pl-PL';
-      utterance.rate = ttsSpeed;
+      utterance.rate = activeSpeed;
+
       utterance.onend = () => {
+        if (speechKeepaliveRef.current) clearInterval(speechKeepaliveRef.current);
         if (isSpeaking) playParagraph(pIdx + 1);
       };
-      utterance.onerror = () => setIsSpeaking(false);
+      utterance.onerror = (e) => {
+        if (speechKeepaliveRef.current) clearInterval(speechKeepaliveRef.current);
+        console.warn('System TTS error:', e);
+        setIsSpeaking(false);
+      };
+
+      // Chrome on Android bug fix: prevent garbage collection of long utterances
+      speechKeepaliveRef.current = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        } else {
+          clearInterval(speechKeepaliveRef.current);
+        }
+      }, 10000);
+
       window.speechSynthesis.speak(utterance);
       return;
     }
 
-    // Provider 2 & 3: Natural Neural Voice (Gemini Studio AI or ElevenLabs)
+    // Provider 2, 3 & 4: Natural Neural Voice (Neural Edge, ElevenLabs, Gemini AI)
     setTtsLoading(true);
     try {
+      // Determine effective provider and voice
+      let effProvider = activeProvider;
+      let effVoice = activeVoice;
+
+      if (activeProvider === 'elevenlabs' && !activeElevenKey.trim()) {
+        // User picked ElevenLabs without entering their key -> inform & seamlessly play with top studio neural voice
+        effProvider = 'neural';
+        effVoice = ['21m00Tcm4TlvDq8ikWAM', 'EXAVITQu4vr4xnSDxMaL'].includes(activeVoice)
+          ? 'pl-PL-ZofiaNeural'
+          : 'pl-PL-MarekNeural';
+        setTtsNotification('💡 ElevenLabs wymaga klucza API — odtwarzam bezpłatnym Lektorem Studyjnym (Marek/Zofia).');
+        setTimeout(() => setTtsNotification(null), 4000);
+      }
+
       let audioUrl = prefetchCacheRef.current[pIdx];
 
       if (!audioUrl) {
-        const resp = await fetch('/api/tts', {
+        let resp = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: paragraphText,
-            voice: ttsVoice,
-            provider: ttsProvider,
-            elevenLabsApiKey,
-            elevenLabsVoiceId,
-            speed: ttsSpeed,
+            voice: effVoice,
+            provider: effProvider,
+            elevenLabsApiKey: activeElevenKey,
+            elevenLabsVoiceId: activeElevenVoiceId,
+            speed: activeSpeed,
           }),
         });
 
         if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData.error || 'Błąd generowania głosu lektora');
+          console.warn('Główny lektor zwrócił błąd, automatyczny fallback na Marek Neural...');
+          // Resilient fallback to Marek Neural so reading NEVER breaks
+          resp = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: paragraphText,
+              voice: 'pl-PL-MarekNeural',
+              provider: 'neural',
+              speed: activeSpeed,
+            }),
+          });
+
+          if (!resp.ok) {
+            throw new Error('Błąd generowania głosu lektora');
+          }
         }
 
         const blob = await resp.blob();
@@ -836,15 +1219,15 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       }
       const audio = audioRef.current;
       audio.src = audioUrl;
-      audio.playbackRate = ttsSpeed;
+      audio.playbackRate = activeSpeed;
 
       audio.onended = () => {
         playParagraph(pIdx + 1);
       };
       audio.onerror = () => {
         console.warn('Błąd odtwarzacza audio dla akapitu', pIdx);
-        setIsSpeaking(false);
-        setTtsLoading(false);
+        // Try next paragraph instead of dying
+        setTimeout(() => playParagraph(pIdx + 1), 200);
       };
 
       await audio.play();
@@ -853,17 +1236,17 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       const nextIdx = pIdx + 1;
       if (nextIdx < paragraphs.length && !prefetchCacheRef.current[nextIdx]) {
         const nextText = paragraphs[nextIdx]?.text;
-        if (nextText && nextText.length > 5) {
+        if (nextText && nextText.length > 2) {
           fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               text: nextText,
-              voice: ttsVoice,
-              provider: ttsProvider,
-              elevenLabsApiKey,
-              elevenLabsVoiceId,
-              speed: ttsSpeed,
+              voice: effVoice,
+              provider: effProvider,
+              elevenLabsApiKey: activeElevenKey,
+              elevenLabsVoiceId: activeElevenVoiceId,
+              speed: activeSpeed,
             }),
           })
             .then((r) => (r.ok ? r.blob() : null))
@@ -874,17 +1257,11 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         }
       }
     } catch (err: any) {
-      console.warn('Fallback do głosu systemowego z powodu błędu:', err.message);
+      console.warn('Błąd lektora AI:', err.message);
       setTtsLoading(false);
-      if (window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(paragraphText);
-        utterance.lang = 'pl-PL';
-        utterance.rate = ttsSpeed;
-        utterance.onend = () => playParagraph(pIdx + 1);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setIsSpeaking(false);
-      }
+      setIsSpeaking(false);
+      setTtsNotification(`⚠️ ${err.message || 'Błąd odtwarzania lektora'}`);
+      setTimeout(() => setTtsNotification(null), 4000);
     }
   };
 
@@ -1125,6 +1502,12 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           }`}
           style={isFullscreen ? { height: '100dvh', width: '100dvw' } : { minHeight: '75vh', maxHeight: '88vh' }}
         >
+          {/* Real-time Toast Notification for Voice & Reader State */}
+          {ttsNotification && (
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-40 bg-stone-900/90 dark:bg-black/90 text-white text-xs px-3.5 py-1.5 rounded-full shadow-xl border border-white/15 backdrop-blur-md animate-in fade-in slide-in-from-top-2 flex items-center gap-1.5 pointer-events-none select-none">
+              <span>{ttsNotification}</span>
+            </div>
+          )}
           {/* Discreet Floating Bar in Fullscreen Immersive Mode when chrome is hidden */}
           {isFullscreen && hideChrome && (
             <div className="absolute top-3 right-3 z-30 flex items-center gap-1 bg-black/60 backdrop-blur-md rounded-full px-2.5 py-1 text-white shadow-md border border-white/10 text-xs">
@@ -1220,14 +1603,18 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 </span>
               </button>
 
-              {/* Voice Options / Settings Button */}
+              {/* Voice Options / Selector Button showing active voice name */}
               <button
                 type="button"
-                onClick={() => setShowVoiceModal(true)}
-                className="p-1.5 rounded-lg border border-current/20 hover:bg-black/5 dark:hover:bg-white/5 transition"
-                title="Ustawienia głosu (Gemini Studio AI / ElevenLabs)"
+                onClick={openVoiceModal}
+                className="px-2 sm:px-2.5 py-1 rounded-lg border border-current/20 hover:bg-black/5 dark:hover:bg-white/5 transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                title="Wybierz lub zmień lektora (Marek, Zofia, Gemini, ElevenLabs)"
               >
-                <Sliders className="w-3.5 h-3.5" />
+                <Volume2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="truncate max-w-[100px] sm:max-w-none">
+                  {getVoiceDisplayName(ttsVoice, ttsProvider)}
+                </span>
+                <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
               </button>
 
               {/* Fullscreen Mode Button */}
@@ -1397,6 +1784,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           {/* Main Book Content Screen with Mobile Touch Swipes & Page Animation */}
           <div
             ref={contentRef}
+            onClick={handleContentContainerClick}
             onTouchStart={handleTouchStart}
             onTouchEnd={(e) => {
               handleTouchEnd(e);
@@ -1434,28 +1822,44 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                         <div
                           key={`p_${pIdx}`}
                           id={`reader-p-${pIdx}`}
-                          onClick={() => playParagraph(pIdx)}
-                          className={`transition-all duration-200 rounded-lg cursor-pointer group ${
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isActiveParagraph) {
+                              toggleTTS();
+                            } else {
+                              playParagraph(pIdx);
+                            }
+                          }}
+                          className={`transition-all duration-200 rounded-xl cursor-pointer group flex items-start gap-2.5 ${
                             isActiveParagraph
-                              ? 'bg-amber-500/15 dark:bg-amber-500/20 border-l-4 border-amber-600 pl-3 py-1.5 shadow-xs'
-                              : 'hover:bg-black/3 dark:hover:bg-white/3'
+                              ? 'bg-amber-500/15 dark:bg-amber-500/20 border-l-4 border-amber-600 pl-3.5 pr-2.5 py-2 shadow-xs ring-1 ring-amber-600/20'
+                              : 'hover:bg-black/4 dark:hover:bg-white/4 px-2.5 py-1.5'
                           }`}
-                          title="Kliknij, aby odsłuchać od tego akapitu"
+                          title="Dotknij, aby lektor czytał od tego akapitu"
                         >
-                          {isActiveParagraph && (
-                            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-sans text-xs mr-2 font-bold select-none">
-                              <Headphones className="w-3.5 h-3.5 inline shrink-0" />
-                              <span className="flex items-end gap-0.5 h-3">
-                                <span className="w-0.5 bg-amber-500 rounded-full eq-bar-1" />
-                                <span className="w-0.5 bg-amber-500 rounded-full eq-bar-2" />
-                                <span className="w-0.5 bg-amber-500 rounded-full eq-bar-3" />
+                          {/* Play / Equalizer Pill */}
+                          <div className="shrink-0 pt-0.5 select-none">
+                            {isActiveParagraph ? (
+                              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-sans text-[11px] font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-md">
+                                <span className="flex items-end gap-0.5 h-3">
+                                  <span className="w-0.5 bg-amber-500 rounded-full eq-bar-1" />
+                                  <span className="w-0.5 bg-amber-500 rounded-full eq-bar-2" />
+                                  <span className="w-0.5 bg-amber-500 rounded-full eq-bar-3" />
+                                </span>
                               </span>
-                            </span>
-                          )}
-                          <span
-                            className="prose-content"
-                            dangerouslySetInnerHTML={{ __html: p.html }}
-                          />
+                            ) : (
+                              <span className="w-5 h-5 rounded-md opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-amber-600 hover:bg-amber-100 dark:hover:bg-stone-800">
+                                <Play className="w-3 h-3 fill-current ml-0.5" />
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <span
+                              className="prose-content"
+                              dangerouslySetInnerHTML={{ __html: p.html }}
+                            />
+                          </div>
                         </div>
                       );
                     })}
@@ -1466,6 +1870,31 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                     dangerouslySetInnerHTML={{ __html: chapters[currentChapterIdx].content }}
                   />
                 )}
+
+                {/* In-chapter bottom navigation bar */}
+                <div className="pt-8 pb-16 flex items-center justify-between gap-3 border-t border-current/10 mt-8">
+                  <button
+                    type="button"
+                    disabled={currentChapterIdx <= 0}
+                    onClick={() => changeChapter(currentChapterIdx - 1, 'prev')}
+                    className="px-3.5 py-2 rounded-xl border border-current/20 disabled:opacity-25 hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5 font-medium text-xs transition cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Poprzedni</span>
+                  </button>
+                  <span className="text-[11px] font-mono opacity-60">
+                    Rozdział {currentChapterIdx + 1} z {chapters.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentChapterIdx >= chapters.length - 1}
+                    onClick={() => changeChapter(currentChapterIdx + 1, 'next')}
+                    className="px-3.5 py-2 rounded-xl border border-current/20 disabled:opacity-25 hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5 font-medium text-xs transition cursor-pointer"
+                  >
+                    <span>Następny</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="text-center py-20 opacity-50 font-sans">
@@ -1476,37 +1905,75 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
 
           {/* Floating Audio Player Dock (Equalizer wave animation + Gapless playback controls) */}
           {(isSpeaking || ttsLoading) && (
-            <div className="absolute bottom-12 sm:bottom-14 left-1/2 -translate-x-1/2 z-30 max-w-lg w-[94%] sm:w-auto bg-stone-900/95 dark:bg-stone-950/95 backdrop-blur-md text-white rounded-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-2xl border border-white/10 flex items-center justify-between gap-2.5 sm:gap-4 animate-in slide-in-from-bottom-4 duration-200">
-              <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-                {/* Animated Equalizer Waveform */}
-                <div className="flex items-end gap-0.5 sm:gap-1 h-5 px-1 shrink-0">
-                  <span className="w-1 bg-amber-400 rounded-full eq-bar-1" />
-                  <span className="w-1 bg-amber-400 rounded-full eq-bar-2" />
-                  <span className="w-1 bg-amber-400 rounded-full eq-bar-3" />
-                  <span className="w-1 bg-amber-400 rounded-full eq-bar-4" />
+            <div className="absolute bottom-12 sm:bottom-14 left-1/2 -translate-x-1/2 z-30 max-w-xl w-[95%] sm:w-auto bg-stone-900/95 dark:bg-stone-950/95 backdrop-blur-md text-white rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-2xl border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4 animate-in slide-in-from-bottom-4 duration-200">
+              {/* Left: Equalizer + Active Voice Info + Quick Voice Switch */}
+              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-start">
+                <div className="flex items-center gap-2 min-w-0">
+                  {/* Animated Equalizer Waveform */}
+                  <div className="flex items-end gap-0.5 sm:gap-1 h-5 px-1 shrink-0">
+                    <span className="w-1 bg-amber-400 rounded-full eq-bar-1" />
+                    <span className="w-1 bg-amber-400 rounded-full eq-bar-2" />
+                    <span className="w-1 bg-amber-400 rounded-full eq-bar-3" />
+                    <span className="w-1 bg-amber-400 rounded-full eq-bar-4" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={openVoiceModal}
+                      className="flex items-center gap-1.5 text-left group cursor-pointer"
+                      title="Kliknij, aby zmienić lektora AI"
+                    >
+                      <span className="text-xs font-bold text-amber-400 group-hover:underline truncate max-w-[130px] sm:max-w-[180px]">
+                        🎙️ {getVoiceDisplayName(ttsVoice, ttsProvider)}
+                      </span>
+                    </button>
+                    <p className="text-[10px] text-stone-300">
+                      Akapit {currentParagraphIdx + 1} z {paragraphs.length || 1}
+                      {paragraphs.length > 0 && ` (${Math.round(((currentParagraphIdx + 1) / paragraphs.length) * 100)}%)`}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="text-xs font-bold truncate">
-                      {ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'gemini' ? 'AI Neural' : 'System'}
-                    </span>
-                    <span className="text-[10px] text-amber-300 font-mono bg-white/10 px-1.5 py-0.2 rounded-full truncate">
-                      {ttsVoice}
-                    </span>
-                  </div>
-                  <p className="text-[10px] sm:text-[11px] text-stone-300 truncate">
-                    Akapit {currentParagraphIdx + 1} z {paragraphs.length || 1}
-                  </p>
+                {/* 1-Tap Quick Gender Switch between Marek & Zofia */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {ttsVoice === 'pl-PL-MarekNeural' ? (
+                    <button
+                      type="button"
+                      onClick={() => selectVoice('pl-PL-ZofiaNeural', 'neural')}
+                      className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] text-amber-300 font-medium transition cursor-pointer"
+                      title="Przełącz natychmiast na głos kobiecy (Zofia)"
+                    >
+                      ⇄ Zofia 👩
+                    </button>
+                  ) : ttsVoice === 'pl-PL-ZofiaNeural' ? (
+                    <button
+                      type="button"
+                      onClick={() => selectVoice('pl-PL-MarekNeural', 'neural')}
+                      className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] text-amber-300 font-medium transition cursor-pointer"
+                      title="Przełącz natychmiast na głos męski (Marek)"
+                    >
+                      ⇄ Marek 👨
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => selectVoice('pl-PL-MarekNeural', 'neural')}
+                      className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] text-amber-300 font-medium transition cursor-pointer"
+                      title="Przełącz na Lektora Studyjnego (Marek)"
+                    >
+                      ⇄ Marek 👨
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Player Audio Controls */}
-              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              {/* Right: Player Audio Controls */}
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto justify-end border-t sm:border-t-0 border-white/10 pt-1.5 sm:pt-0">
                 <button
                   type="button"
                   onClick={() => playParagraph(Math.max(0, currentParagraphIdx - 1))}
-                  className="p-1 sm:p-1.5 rounded-lg hover:bg-white/10 text-stone-300 hover:text-white transition"
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-stone-300 hover:text-white transition cursor-pointer"
                   title="Poprzedni akapit"
                 >
                   <SkipBack className="w-4 h-4" />
@@ -1515,11 +1982,11 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <button
                   type="button"
                   onClick={toggleTTS}
-                  className="w-8 h-8 rounded-full bg-amber-600 hover:bg-amber-500 text-white flex items-center justify-center transition shadow-xs"
+                  className="w-9 h-9 rounded-full bg-amber-600 hover:bg-amber-500 text-white flex items-center justify-center transition shadow-md cursor-pointer"
                   title={isSpeaking ? 'Pauza' : 'Wznów'}
                 >
                   {ttsLoading ? (
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : isSpeaking ? (
                     <Pause className="w-4 h-4" />
                   ) : (
@@ -1530,7 +1997,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <button
                   type="button"
                   onClick={() => playParagraph(Math.min(paragraphs.length - 1, currentParagraphIdx + 1))}
-                  className="p-1 sm:p-1.5 rounded-lg hover:bg-white/10 text-stone-300 hover:text-white transition"
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-stone-300 hover:text-white transition cursor-pointer"
                   title="Następny akapit"
                 >
                   <SkipForward className="w-4 h-4" />
@@ -1540,12 +2007,12 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const speeds = [0.8, 1.0, 1.25, 1.5];
+                    const speeds = [0.8, 1.0, 1.25, 1.5, 2.0];
                     const next = speeds[(speeds.indexOf(ttsSpeed) + 1) % speeds.length] || 1.0;
                     setTtsSpeed(next);
                   }}
-                  className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] sm:text-[11px] font-mono font-bold transition"
-                  title="Zmień prędkość"
+                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] font-mono font-bold transition cursor-pointer"
+                  title="Zmień prędkość czytania"
                 >
                   {ttsSpeed}x
                 </button>
@@ -1553,21 +2020,21 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 {/* Voice Modal Shortcut */}
                 <button
                   type="button"
-                  onClick={() => setShowVoiceModal(true)}
-                  className="p-1 sm:p-1.5 rounded-lg hover:bg-white/10 text-stone-300 hover:text-white transition"
-                  title="Ustawienia głosu lektora"
+                  onClick={openVoiceModal}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-stone-300 hover:text-white transition cursor-pointer"
+                  title="Więcej lektorów i ustawienia głosu"
                 >
-                  <Sliders className="w-3.5 h-3.5" />
+                  <Sliders className="w-4 h-4" />
                 </button>
 
                 {/* Stop & Dismiss Dock */}
                 <button
                   type="button"
                   onClick={stopTTS}
-                  className="p-1 sm:p-1.5 rounded-lg hover:bg-white/10 text-stone-400 hover:text-rose-400 transition"
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-stone-400 hover:text-rose-400 transition cursor-pointer"
                   title="Zatrzymaj i zamknij odtwarzacz"
                 >
-                  <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <VolumeX className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -1582,8 +2049,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             <button
               type="button"
               disabled={currentChapterIdx <= 0}
-              onClick={() => setCurrentChapterIdx((i) => Math.max(0, i - 1))}
-              className="px-3 py-1.5 rounded-lg border border-current/20 disabled:opacity-30 hover:bg-black/5 flex items-center gap-1 font-medium transition"
+              onClick={() => changeChapter(currentChapterIdx - 1, 'prev')}
+              className="px-3 py-1.5 rounded-lg border border-current/20 disabled:opacity-30 hover:bg-black/5 flex items-center gap-1 font-medium transition cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
               <span>Poprzedni</span>
@@ -1597,8 +2064,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             <button
               type="button"
               disabled={currentChapterIdx >= chapters.length - 1}
-              onClick={() => setCurrentChapterIdx((i) => Math.min(chapters.length - 1, i + 1))}
-              className="px-3 py-1.5 rounded-lg border border-current/20 disabled:opacity-30 hover:bg-black/5 flex items-center gap-1 font-medium transition"
+              onClick={() => changeChapter(currentChapterIdx + 1, 'next')}
+              className="px-3 py-1.5 rounded-lg border border-current/20 disabled:opacity-30 hover:bg-black/5 flex items-center gap-1 font-medium transition cursor-pointer"
             >
               <span>Następny</span>
               <ChevronRight className="w-4 h-4" />
@@ -1750,10 +2217,10 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-stone-900 dark:text-white">
-                    Naturalny Lektor AI & Audiobook
+                    Głos Lektora AI & Audiobook
                   </h3>
                   <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                    Wybierz głos lektora (Neural Gemini / ElevenLabs)
+                    Wybierz lektora (Studyjny Neural, Gemini AI lub ElevenLabs)
                   </p>
                 </div>
               </div>
@@ -1767,73 +2234,82 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             </div>
 
             {/* Provider Selector Tabs */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl text-xs font-semibold">
+            <div className="grid grid-cols-4 gap-1 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl text-[11px] font-semibold">
               <button
                 type="button"
-                onClick={() => {
-                  setTtsProvider('gemini');
-                  if (!['Kore', 'Fenrir', 'Aoede', 'Puck', 'Charon'].includes(ttsVoice)) {
-                    setTtsVoice('Kore');
-                  }
-                }}
-                className={`py-2 px-1.5 rounded-lg transition text-center cursor-pointer ${
-                  ttsProvider === 'gemini'
-                    ? 'bg-amber-600 text-white shadow-xs'
+                onClick={() => setVoiceModalTab('neural')}
+                className={`py-2 px-1 rounded-lg transition text-center cursor-pointer ${
+                  voiceModalTab === 'neural'
+                    ? 'bg-amber-600 text-white shadow-xs font-bold'
                     : 'text-stone-700 dark:text-stone-300 hover:text-stone-900'
                 }`}
               >
-                AI Neural (Gemini)
+                🌟 Studyjny
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setTtsProvider('elevenlabs');
-                  if (!['ErXwobaYiN019PkySvjV', '21m00Tcm4TlvDq8ikWAM', 'EXAVITQu4vr4xnSDxMaL'].includes(ttsVoice)) {
-                    setTtsVoice('ErXwobaYiN019PkySvjV');
-                  }
-                }}
-                className={`py-2 px-1.5 rounded-lg transition text-center cursor-pointer ${
-                  ttsProvider === 'elevenlabs'
-                    ? 'bg-amber-600 text-white shadow-xs'
+                onClick={() => setVoiceModalTab('gemini')}
+                className={`py-2 px-1 rounded-lg transition text-center cursor-pointer ${
+                  voiceModalTab === 'gemini'
+                    ? 'bg-amber-600 text-white shadow-xs font-bold'
                     : 'text-stone-700 dark:text-stone-300 hover:text-stone-900'
                 }`}
               >
-                ElevenLabs
+                🤖 Gemini
               </button>
               <button
                 type="button"
-                onClick={() => setTtsProvider('system')}
-                className={`py-2 px-1.5 rounded-lg transition text-center cursor-pointer ${
-                  ttsProvider === 'system'
-                    ? 'bg-amber-600 text-white shadow-xs'
+                onClick={() => setVoiceModalTab('elevenlabs')}
+                className={`py-2 px-1 rounded-lg transition text-center cursor-pointer ${
+                  voiceModalTab === 'elevenlabs'
+                    ? 'bg-amber-600 text-white shadow-xs font-bold'
                     : 'text-stone-700 dark:text-stone-300 hover:text-stone-900'
                 }`}
               >
-                Urządzenie (Offline)
+                ✨ ElevenLabs
+              </button>
+              <button
+                type="button"
+                onClick={() => setVoiceModalTab('system')}
+                className={`py-2 px-1 rounded-lg transition text-center cursor-pointer ${
+                  voiceModalTab === 'system'
+                    ? 'bg-amber-600 text-white shadow-xs font-bold'
+                    : 'text-stone-700 dark:text-stone-300 hover:text-stone-900'
+                }`}
+              >
+                📱 Urządzenie
               </button>
             </div>
 
-            {/* Tab 1: Gemini Neural Voices (Included & Ultra-Realistic) */}
-            {ttsProvider === 'gemini' && (
+            {/* TAB 1: Studio Neural Voices (Marek & Zofia - Recommended, 100% Free, Zero Limits) */}
+            {voiceModalTab === 'neural' && (
               <div className="space-y-3">
-                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50 rounded-xl text-xs text-amber-950 dark:text-amber-200 leading-relaxed">
-                  🎙️ <strong>Zaawansowane głosy neuronowe:</strong> Krystalicznie czysta, naturalna intonacja powieściowa w języku polskim. Brak limitów znaków.
+                <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-xs text-emerald-950 dark:text-emerald-200 leading-relaxed">
+                  🌟 <strong>Zalecany wybór:</strong> 100% darmowe, krystalicznie czyste głosy lektorskie o jakości profesjonalnego audiobooka. <strong>Brak limitów zapytań</strong>, błyskawiczne generowanie i zero przycięć!
                 </div>
 
                 <div className="space-y-2">
                   {[
-                    { id: 'Kore', name: 'Kore', gender: 'Kobiecy', desc: 'Ciepła narratorka, kojący ton — idealna do powieści i opowiadań', def: true },
-                    { id: 'Fenrir', name: 'Fenrir', gender: 'Męski', desc: 'Głęboki radiowy bas — fantasy, kryminały i literatura faktu' },
-                    { id: 'Aoede', name: 'Aoede', gender: 'Kobiecy', desc: 'Melodyjny, ekspresyjny tembr — żywe dialogi i emocje' },
-                    { id: 'Puck', name: 'Puck', gender: 'Męski', desc: 'Młodzieńczy, przyjazny głos — lżejsza literatura i poradniki' },
-                    { id: 'Charon', name: 'Charon', gender: 'Męski', desc: 'Dojrzały, spokojny bas lektorski — klasyka i powaga' },
+                    {
+                      id: 'pl-PL-MarekNeural',
+                      name: 'Marek (Radiowy męski bas)',
+                      gender: 'Męski',
+                      desc: 'Głęboki tembr, idealna dykcja i intonacja — kryminały, fantasy, thrillery i literatura faktu',
+                      def: true,
+                    },
+                    {
+                      id: 'pl-PL-ZofiaNeural',
+                      name: 'Zofia (Ciepła narratorka)',
+                      gender: 'Kobiecy',
+                      desc: 'Spokojna, kojąca narracja powieściowa — idealna do romansów, powieści obyczajowych i poezji',
+                    },
                   ].map((v) => {
-                    const isSelected = ttsVoice === v.id;
+                    const isSelected = ttsProvider === 'neural' && ttsVoice === v.id;
                     const isTesting = sampleTestingVoice === v.id;
                     return (
                       <div
                         key={v.id}
-                        onClick={() => setTtsVoice(v.id)}
+                        onClick={() => selectVoice(v.id, 'neural')}
                         className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
                           isSelected
                             ? 'border-amber-600 bg-amber-50/50 dark:bg-amber-950/40 text-stone-900 dark:text-white ring-1 ring-amber-600/30'
@@ -1847,8 +2323,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                               {v.gender}
                             </span>
                             {v.def && (
-                              <span className="text-[9px] px-1 rounded-sm bg-amber-100 text-amber-800 font-semibold">
-                                Domyślny
+                              <span className="text-[9px] px-1 rounded-sm bg-emerald-100 text-emerald-800 font-semibold">
+                                Bez limitów
                               </span>
                             )}
                             {isSelected && (
@@ -1857,7 +2333,74 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5 truncate">
+                          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                            {v.desc}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            testVoiceSample(v.id, 'neural');
+                          }}
+                          className="px-2.5 py-1 rounded-lg border border-stone-300 dark:border-stone-700 text-[11px] font-medium hover:bg-white dark:hover:bg-stone-700 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                          title="Posłuchaj próbki"
+                        >
+                          {isTesting ? (
+                            <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Volume2 className="w-3.5 h-3.5 text-amber-600" />
+                          )}
+                          <span>Próbka</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: Gemini Neural Voices */}
+            {voiceModalTab === 'gemini' && (
+              <div className="space-y-3">
+                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50 rounded-xl text-xs text-amber-950 dark:text-amber-200 leading-relaxed">
+                  🎙️ <strong>Modele Gemini AI:</strong> Nowoczesne głosy sztucznej inteligencji. W razie chwilowego wyczerpania limitu darmowych zapytań (3/min), aplikacja <strong>automatycznie i płynnie</strong> kontynuuje czytanie głosem studyjnym bez przerywania odtwarzania.
+                </div>
+
+                <div className="space-y-2">
+                  {[
+                    { id: 'Kore', name: 'Kore', gender: 'Kobiecy', desc: 'Ciepła narratorka AI, kojący ton do literatury obyczajowej' },
+                    { id: 'Fenrir', name: 'Fenrir', gender: 'Męski', desc: 'Głęboki radiowy bas — fantasy, kryminały i opowiadania' },
+                    { id: 'Aoede', name: 'Aoede', gender: 'Kobiecy', desc: 'Melodyjny, ekspresyjny tembr kobiecy — żywe dialogi' },
+                    { id: 'Puck', name: 'Puck', gender: 'Męski', desc: 'Młodzieńczy, przyjazny głos lektorski do lżejszej literatury' },
+                    { id: 'Charon', name: 'Charon', gender: 'Męski', desc: 'Dojrzały, spokojny bas lektorski — klasyka i powaga' },
+                  ].map((v) => {
+                    const isSelected = ttsProvider === 'gemini' && ttsVoice === v.id;
+                    const isTesting = sampleTestingVoice === v.id;
+                    return (
+                      <div
+                        key={v.id}
+                        onClick={() => selectVoice(v.id, 'gemini')}
+                        className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? 'border-amber-600 bg-amber-50/50 dark:bg-amber-950/40 text-stone-900 dark:text-white ring-1 ring-amber-600/30'
+                            : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800/50 text-stone-800 dark:text-stone-200'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold">{v.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-300 font-medium">
+                              {v.gender}
+                            </span>
+                            {isSelected && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold flex items-center gap-0.5">
+                                <CheckCircle2 className="w-3 h-3" /> Aktywny
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
                             {v.desc}
                           </p>
                         </div>
@@ -1885,106 +2428,263 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
               </div>
             )}
 
-            {/* Tab 2: ElevenLabs Voices */}
-            {ttsProvider === 'elevenlabs' && (
+            {/* TAB 3: ElevenLabs Voices */}
+            {voiceModalTab === 'elevenlabs' && (
               <div className="space-y-3">
+                {/* ElevenLabs API Key card */}
                 <div className="p-3 bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 rounded-xl space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <label className="font-semibold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
                       <Key className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Klucz API ElevenLabs (opcjonalny):</span>
+                      <span>Twój klucz API ElevenLabs:</span>
                     </label>
-                    <span className="text-[10px] text-stone-500">Zapisany w przeglądarce</span>
+                    <a
+                      href="https://elevenlabs.io"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-amber-600 hover:underline"
+                    >
+                      Pobierz darmowy klucz ↗
+                    </a>
                   </div>
-                  <input
-                    type="password"
-                    value={elevenLabsApiKey}
-                    onChange={(e) => setElevenLabsApiKey(e.target.value)}
-                    placeholder="xi-... (jeśli posiadasz własne konto)"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg text-xs font-mono text-stone-900 dark:text-stone-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                  <p className="text-[11px] text-stone-500 leading-relaxed">
-                    💡 Jeśli nie wprowadzisz własnego klucza ElevenLabs, aplikacja używa inteligentnego silnika <strong>AI Neural (Gemini)</strong>, który brzmi tak samo naturalnie bez opłat.
-                  </p>
+
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showElevenKeyPassword ? 'text' : 'password'}
+                        value={elevenLabsApiKey}
+                        onChange={(e) => setElevenLabsApiKey(e.target.value)}
+                        placeholder="xi-... (wklej klucz z panelu elevenlabs.io)"
+                        className="w-full pr-8 px-3 py-1.5 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg text-xs font-mono text-stone-900 dark:text-stone-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowElevenKeyPassword(!showElevenKeyPassword)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
+                        title={showElevenKeyPassword ? 'Ukryj' : 'Pokaż'}
+                      >
+                        {showElevenKeyPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={verifyElevenLabsKeyInUi}
+                        disabled={elevenLabsChecking || !elevenLabsApiKey.trim()}
+                        className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                        title="Zweryfikuj poprawność klucza"
+                      >
+                        {elevenLabsChecking ? (
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span>Sprawdź</span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => loadElevenVoicesFromAccount(elevenLabsApiKey)}
+                        disabled={loadingCustomVoices}
+                        className="px-2 py-1.5 rounded-lg bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-800 dark:text-stone-200 text-xs font-medium transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        title="Pobierz głosy i sklonowane modele z Twojego konta ElevenLabs"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingCustomVoices ? 'animate-spin' : ''}`} />
+                        <span className="hidden sm:inline">Pobierz z konta</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {elevenLabsKeyValid && (
+                    <div
+                      className={`text-[11px] p-2 rounded-lg ${
+                        elevenLabsKeyValid.valid
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}
+                    >
+                      {elevenLabsKeyValid.valid ? (
+                        <span>
+                          ✅ Klucz poprawny! Wykorzystano:{' '}
+                          <strong>{elevenLabsKeyValid.characterCount?.toLocaleString()}</strong> /{' '}
+                          {elevenLabsKeyValid.characterLimit?.toLocaleString()} znaków (Plan:{' '}
+                          {elevenLabsKeyValid.tier})
+                        </span>
+                      ) : (
+                        <span>⚠️ {elevenLabsKeyValid.error || 'Nieprawidłowy klucz'}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {!elevenLabsApiKey.trim() && (
+                    <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-lg text-[11px] text-amber-900 dark:text-amber-200 space-y-1.5">
+                      <p>
+                        💡 Głosy ElevenLabs wymagają własnego klucza API z <strong>elevenlabs.io</strong>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVoiceModalTab('neural');
+                          selectVoice('pl-PL-MarekNeural', 'neural');
+                        }}
+                        className="px-2.5 py-1 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 transition cursor-pointer"
+                      >
+                        Przełącz na darmowego Lektora Studyjnego (Marek / Zofia) ➔
+                      </button>
+                    </div>
+                  )}
                 </div>
 
+                {/* Filter and Search Bar for ElevenLabs Voices */}
                 <div className="space-y-2">
-                  <span className="text-xs font-bold text-stone-800 dark:text-stone-200 block">
-                    Popularne głosy ElevenLabs:
-                  </span>
-                  {[
-                    { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni (Polski Lektor)', desc: 'Płynny, ciepły polski głos męski ElevenLabs' },
-                    { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', desc: 'Kultowy, ultra-realistyczny kobiecy głos ElevenLabs' },
-                    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', desc: 'Ekspresyjny, emocjonalny głos lektorski' },
-                  ].map((v) => {
-                    const isSelected = ttsVoice === v.id || elevenLabsVoiceId === v.id;
-                    const isTesting = sampleTestingVoice === v.id;
-                    return (
-                      <div
-                        key={v.id}
-                        onClick={() => {
-                          setTtsVoice(v.id);
-                          setElevenLabsVoiceId(v.id);
-                        }}
-                        className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
-                          isSelected
-                            ? 'border-amber-600 bg-amber-50/50 dark:bg-amber-950/40 text-stone-900 dark:text-white ring-1 ring-amber-600/30'
-                            : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800/50 text-stone-800 dark:text-stone-200'
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      Głosy lektorskie ElevenLabs ({filteredElevenVoices.length} z {allElevenVoices.length}):
+                    </span>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={elevenSearchQuery}
+                        onChange={(e) => setElevenSearchQuery(e.target.value)}
+                        placeholder="Szukaj lektora..."
+                        className="w-full sm:w-44 px-2.5 py-1 pl-7 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-lg text-xs text-stone-900 dark:text-stone-100 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+                      />
+                      <Search className="w-3.5 h-3.5 text-stone-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Filter pills */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    {[
+                      { id: 'all', label: `Wszystkie (${allElevenVoices.length})` },
+                      { id: 'polish', label: '🇵🇱 Polski lektor' },
+                      { id: 'female', label: 'Kobiecy' },
+                      { id: 'male', label: 'Męski' },
+                      ...(customElevenVoices.length > 0 ? [{ id: 'custom', label: `Z Twojego konta (${customElevenVoices.length})` }] : []),
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setElevenCategoryFilter(tab.id)}
+                        className={`px-2 py-0.5 rounded-full font-medium transition cursor-pointer ${
+                          elevenCategoryFilter === tab.id
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200'
                         }`}
                       >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold">{v.name}</span>
-                            {isSelected && (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold flex items-center gap-0.5">
-                                <CheckCircle2 className="w-3 h-3" /> Aktywny
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5 truncate">
-                            {v.desc}
-                          </p>
-                        </div>
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
 
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            testVoiceSample(v.id, 'elevenlabs');
-                          }}
-                          className="px-2.5 py-1 rounded-lg border border-stone-300 dark:border-stone-700 text-[11px] font-medium hover:bg-white dark:hover:bg-stone-700 flex items-center gap-1 shrink-0 transition cursor-pointer"
-                        >
-                          {isTesting ? (
-                            <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Volume2 className="w-3.5 h-3.5 text-amber-600" />
-                          )}
-                          <span>Próbka</span>
-                        </button>
+                  {/* Voices list */}
+                  <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                    {filteredElevenVoices.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-stone-500">
+                        Brak głosów pasujących do &quot;{elevenSearchQuery}&quot;. Spróbuj innej frazy.
                       </div>
-                    );
-                  })}
+                    ) : (
+                      filteredElevenVoices.map((v) => {
+                        const isSelected = ttsProvider === 'elevenlabs' && (ttsVoice === v.id || elevenLabsVoiceId === v.id);
+                        const isTesting = sampleTestingVoice === v.id;
+                        return (
+                          <div
+                            key={v.id}
+                            onClick={() => {
+                              if (!elevenLabsApiKey.trim()) {
+                                setTtsNotification('💡 ElevenLabs wymaga klucza API. Wpisz klucz powyżej lub wybierz Lektora Studyjnego (Marek / Zofia).');
+                                setTimeout(() => setTtsNotification(null), 5000);
+                                return;
+                              }
+                              selectVoice(v.id, 'elevenlabs');
+                            }}
+                            className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                              isSelected
+                                ? 'border-amber-600 bg-amber-50/50 dark:bg-amber-950/40 text-stone-900 dark:text-white ring-1 ring-amber-600/30'
+                                : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800/50 text-stone-800 dark:text-stone-200'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs font-bold">{v.name}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-300 font-medium">
+                                  {v.gender}
+                                </span>
+                                {v.category && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-semibold">
+                                    {v.category}
+                                  </span>
+                                )}
+                                {isSelected && (
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold flex items-center gap-0.5">
+                                    <CheckCircle2 className="w-3 h-3" /> Aktywny
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5 line-clamp-2">
+                                {v.desc}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                testVoiceSample(v.id, 'elevenlabs');
+                              }}
+                              className="px-2.5 py-1 rounded-lg border border-stone-300 dark:border-stone-700 text-[11px] font-medium hover:bg-white dark:hover:bg-stone-700 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                              title="Posłuchaj próbki"
+                            >
+                              {isTesting ? (
+                                <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Volume2 className="w-3.5 h-3.5 text-amber-600" />
+                              )}
+                              <span>Próbka</span>
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Tab 3: System Voice Offline */}
-            {ttsProvider === 'system' && (
-              <div className="p-4 bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 rounded-xl space-y-2 text-xs">
-                <p className="font-semibold text-stone-800 dark:text-stone-200">
-                  Wbudowany syntezator mowy urządzenia (Offline)
-                </p>
-                <p className="text-stone-500 leading-relaxed">
-                  Używa lokalnego silnika zainstalowanego w Twoim telefonie lub komputerze (np. Android TTS / iOS Siri). Działa bez połączenia z siecią, idealne w podróży i trybie samolotowym.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => testVoiceSample('system', 'system')}
-                  className="px-3 py-1.5 rounded-lg bg-stone-900 text-white font-medium hover:bg-stone-800 transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Volume2 className="w-3.5 h-3.5" />
-                  <span>Przetestuj głos urządzenia</span>
-                </button>
+            {/* TAB 4: System Voice Offline */}
+            {voiceModalTab === 'system' && (
+              <div className="p-4 bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 rounded-xl space-y-3 text-xs">
+                <div>
+                  <p className="font-semibold text-stone-800 dark:text-stone-200">
+                    📱 Wbudowany syntezator mowy urządzenia (Offline)
+                  </p>
+                  <p className="text-stone-500 leading-relaxed mt-1">
+                    Używa lokalnego silnika zainstalowanego w Twoim telefonie lub przeglądarce (Android TTS / iOS Siri). Działa całkowicie bez internetu (w trybie samolotowym), lecz ma syntetyczne, robotyczne brzmienie.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => selectVoice('system', 'system')}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                      ttsProvider === 'system'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-stone-900 text-white hover:bg-stone-800'
+                    }`}
+                  >
+                    {ttsProvider === 'system' ? '✓ Wybrany jako aktywny' : 'Aktywuj syntezator urządzenia'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => testVoiceSample('system', 'system')}
+                    className="px-3 py-1.5 rounded-lg border border-stone-300 dark:border-stone-600 font-medium hover:bg-stone-100 dark:hover:bg-stone-700 transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Przetestuj próbkę</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1992,7 +2692,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             <div className="pt-2 border-t border-stone-100 dark:border-stone-800 space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-stone-800 dark:text-stone-200">
-                  Prędkość odtwarzania:
+                  Prędkość czytania:
                 </span>
                 <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
                   {ttsSpeed}x
@@ -2018,14 +2718,14 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
 
             <div className="flex justify-between items-center pt-2">
               <span className="text-[11px] text-stone-400">
-                💡 Kliknij dowolny akapit w tekście, aby zacząć słuchać od tego miejsca
+                💡 Kliknij dowolny akapit w tekście, aby słuchać od wybranego miejsca
               </span>
               <button
                 type="button"
                 onClick={() => setShowVoiceModal(false)}
                 className="px-4 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold transition cursor-pointer"
               >
-                Zatwierdź
+                Gotowe
               </button>
             </div>
           </div>

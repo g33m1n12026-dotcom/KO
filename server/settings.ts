@@ -37,9 +37,18 @@ export interface AccountSettingsData {
     sessionCookie?: string;
     isConnected?: boolean;
   };
+  elevenlabs?: {
+    apiKey?: string;
+  };
 }
 
-const SETTINGS_FILE = path.join(process.cwd(), 'data', 'settings.json');
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch {}
 
 let cachedSettings: AccountSettingsData = {
   internetArchive: {
@@ -76,6 +85,9 @@ let cachedSettings: AccountSettingsData = {
     password: process.env.FOURSHARED_PASSWORD || 'QazXsw321',
     sessionCookie: process.env.FOURSHARED_COOKIE || '',
     isConnected: true,
+  },
+  elevenlabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '',
   },
 };
 
@@ -120,6 +132,9 @@ export function loadSettings(): AccountSettingsData {
             password: parsed.fourShared?.password ?? cachedSettings.fourShared.password ?? 'QazXsw321',
             sessionCookie: parsed.fourShared?.sessionCookie ?? cachedSettings.fourShared.sessionCookie ?? '',
             isConnected: Boolean(parsed.fourShared?.sessionCookie || parsed.fourShared?.email),
+          },
+          elevenlabs: {
+            apiKey: parsed.elevenlabs?.apiKey ?? cachedSettings.elevenlabs?.apiKey ?? process.env.ELEVENLABS_API_KEY ?? '',
           },
         };
       }
@@ -322,6 +337,9 @@ export function saveSettings(newSettings: Partial<AccountSettingsData>): Account
         sessionCookie: newSettings.fourShared?.sessionCookie !== undefined ? newSettings.fourShared.sessionCookie : cachedSettings.fourShared.sessionCookie,
         isConnected: Boolean(newSettings.fourShared?.sessionCookie || newSettings.fourShared?.email || cachedSettings.fourShared.sessionCookie),
       },
+      elevenlabs: {
+        apiKey: newSettings.elevenlabs?.apiKey !== undefined ? newSettings.elevenlabs.apiKey : (cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || ''),
+      },
     };
 
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2), 'utf-8');
@@ -341,6 +359,7 @@ export function getPublicAccountStatus() {
   const isDocerConnected = Boolean(doc.sessionCookie || doc.email);
   const fsAcc = cachedSettings.fourShared;
   const is4sharedConnected = Boolean(fsAcc.sessionCookie || fsAcc.email);
+  const elKey = cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '';
 
   return {
     internetArchive: {
@@ -379,11 +398,15 @@ export function getPublicAccountStatus() {
       emailMasked: fsAcc.email ? `${fsAcc.email.slice(0, 3)}***@${fsAcc.email.split('@')[1] || '...'}` : 'diw***@flakeian.com',
       hasPassword: Boolean(fsAcc.password),
     },
+    elevenlabs: {
+      hasKey: Boolean(elKey),
+      apiKeyMasked: elKey ? `${elKey.slice(0, 4)}...${elKey.slice(-4)}` : '',
+    },
   };
 }
 
 export interface AccountTestResult {
-  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive';
+  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive' | 'elevenlabs';
   name: string;
   ok: boolean;
   message: string;
@@ -542,6 +565,51 @@ export async function testAllAccounts(): Promise<AccountTestResult[]> {
       ok: false,
       message: err.message || 'Timeout połączenia z Archive.org',
       latencyMs: Date.now() - iaStart,
+    });
+  }
+
+  // 6. Test ElevenLabs
+  const elKey = cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '';
+  if (elKey) {
+    const elStart = Date.now();
+    try {
+      const elRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+        headers: { 'xi-api-key': elKey },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (elRes.ok) {
+        const elData: any = await elRes.json();
+        results.push({
+          account: 'elevenlabs',
+          name: 'ElevenLabs AI (Lektorzy)',
+          ok: true,
+          message: `Klucz aktywny (Plan: ${elData.tier}, limit: ${elData.character_limit?.toLocaleString()} znaków).`,
+          latencyMs: Date.now() - elStart,
+        });
+      } else {
+        results.push({
+          account: 'elevenlabs',
+          name: 'ElevenLabs AI (Lektorzy)',
+          ok: false,
+          message: `Błąd autoryzacji ElevenLabs (HTTP ${elRes.status}).`,
+          latencyMs: Date.now() - elStart,
+        });
+      }
+    } catch (e: any) {
+      results.push({
+        account: 'elevenlabs',
+        name: 'ElevenLabs AI (Lektorzy)',
+        ok: false,
+        message: e.message || 'Błąd połączenia z ElevenLabs',
+        latencyMs: Date.now() - elStart,
+      });
+    }
+  } else {
+    results.push({
+      account: 'elevenlabs',
+      name: 'ElevenLabs AI (Lektorzy)',
+      ok: false,
+      message: 'Brak klucza API ElevenLabs (dostępne bezpłatne głosy studyjne Marek/Zofia).',
     });
   }
 

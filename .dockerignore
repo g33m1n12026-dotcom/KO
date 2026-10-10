@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.aistudio
+tmp
+data/tts_cache
+data/epubs
+*.mp3
+.env
+.dev.env.json

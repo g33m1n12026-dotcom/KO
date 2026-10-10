@@ -14,13 +14,17 @@ import { fetchRemoteBookBuffer } from './search';
 import { convertToCbz } from './comic';
 import { executeStorybookJob } from './storybook';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data');
 const EPUB_DIR = path.join(DATA_DIR, 'epubs');
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
 const DELETED_JOBS_FILE = path.join(DATA_DIR, 'deleted_jobs.json');
 
-if (!fs.existsSync(EPUB_DIR)) {
-  fs.mkdirSync(EPUB_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(EPUB_DIR)) {
+    fs.mkdirSync(EPUB_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Nie można utworzyć katalogu EPUB_DIR:', err);
 }
 
 // Job registry with disk persistence
@@ -239,13 +243,16 @@ function loadJobsFromDisk(): void {
 // Auto sync with remote Render server (so Kindle and Web UI share the exact same library and tasks)
 let lastRenderSync = 0;
 export async function syncWithRenderServer(): Promise<void> {
+  const remoteUrl = process.env.REMOTE_SYNC_URL;
+  if (!remoteUrl) return; // Do not poll suspended servers if not configured
+
   const now = Date.now();
-  if (now - lastRenderSync < 6000) return; // rate limit sync to every 6s
+  if (now - lastRenderSync < 10000) return; // rate limit sync to every 10s
   lastRenderSync = now;
 
   try {
-    const res = await fetch('https://ko-zviz.onrender.com/api/jobs', {
-      signal: AbortSignal.timeout(4000),
+    const res = await fetch(`${remoteUrl.replace(/\/+$/, '')}/api/jobs`, {
+      signal: AbortSignal.timeout(3000),
       headers: { 'Accept': 'application/json' },
     });
     if (res.ok) {
@@ -262,8 +269,10 @@ export async function syncWithRenderServer(): Promise<void> {
             (rjNormTitle && deletedTitles.has(rjNormTitle));
 
           if (isDeleted) {
-            fetch(`https://ko-zviz.onrender.com/api/jobs/${encodeURIComponent(rj.id)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
-            fetch(`https://ko-zviz.onrender.com/api/koreader/tasks/${encodeURIComponent(rj.id)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
+            if (remoteUrl) {
+              fetch(`${remoteUrl.replace(/\/+$/, '')}/api/jobs/${encodeURIComponent(rj.id)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
+              fetch(`${remoteUrl.replace(/\/+$/, '')}/api/koreader/tasks/${encodeURIComponent(rj.id)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
+            }
             continue;
           }
 
@@ -392,9 +401,12 @@ export function deleteJob(id: string): boolean {
   }
   saveDeletedJobs();
 
-  // Propagate deletion to Render so both servers stay clean
-  fetch(`https://ko-zviz.onrender.com/api/jobs/${encodeURIComponent(targetId)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
-  fetch(`https://ko-zviz.onrender.com/api/koreader/tasks/${encodeURIComponent(targetId)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
+  // Propagate deletion to remote server if configured
+  const remoteSyncUrl = process.env.REMOTE_SYNC_URL;
+  if (remoteSyncUrl) {
+    fetch(`${remoteSyncUrl.replace(/\/+$/, '')}/api/jobs/${encodeURIComponent(targetId)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
+    fetch(`${remoteSyncUrl.replace(/\/+$/, '')}/api/koreader/tasks/${encodeURIComponent(targetId)}`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }).catch(() => {});
+  }
 
   // Remove the specific job from Map
   jobs.delete(targetId);

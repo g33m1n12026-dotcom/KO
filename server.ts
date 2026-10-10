@@ -34,35 +34,58 @@ import {
   getTunnelStatus,
 } from './server/tunnel';
 import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared, testAllAccounts } from './server/settings';
-import { AVAILABLE_VOICES, synthesizeSpeech } from './server/tts';
+import { AVAILABLE_VOICES, synthesizeSpeech, verifyElevenLabsKey, fetchElevenLabsVoices } from './server/tts';
 
 dotenv.config();
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 }, // up to 100 MB
 });
 
-async function startServer() {
-  const app = express();
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+export const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-  // Auto-start public tunnel in background for Kindle connectivity
-  startTunnel(PORT).catch((err) => console.warn('Początkowy start tunelu:', err));
+  // Auto-start public tunnel in background for Kindle connectivity (skip on Vercel serverless)
+  if (!process.env.VERCEL) {
+    startTunnel(PORT).catch((err) => console.warn('Początkowy start tunelu:', err));
+  }
 
-  // Helper to determine base public URL (prioritizes Render.com and active live tunnel for Kindle)
+  // Helper to determine base public URL (uses current live host, proxy or tunnel)
   const getAppBaseUrl = (req: express.Request) => {
+    if (process.env.APP_URL) {
+      return process.env.APP_URL.replace(/\/+$/, '');
+    }
+    if (process.env.VERCEL_URL) {
+      return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, '');
+    }
+    if (process.env.SPACE_HOST) {
+      return `https://${process.env.SPACE_HOST}`.replace(/\/+$/, '');
+    }
+    if (process.env.KOYEB_PUBLIC_DOMAIN) {
+      return `https://${process.env.KOYEB_PUBLIC_DOMAIN}`.replace(/\/+$/, '');
+    }
+    if (process.env.APP_BASE_URL) {
+      return process.env.APP_BASE_URL.replace(/\/+$/, '');
+    }
     if (process.env.RENDER_EXTERNAL_URL) {
       return process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, '');
     }
-    const host = req.headers['x-forwarded-host'] || req.get('host') || '';
-    if (typeof host === 'string' && host.includes('onrender.com')) {
-      return `https://${host}`;
+    const proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+    const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || '';
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      return `${proto}://${host}`;
     }
-    // Domyślny, w 100% działający serwer produkcyjny Render użytkownika (bez błędu 302)
-    return 'https://ko-zviz.onrender.com';
+    const tunnel = getTunnelStatus();
+    if (tunnel.url) {
+      return tunnel.url;
+    }
+    if (host) {
+      return `${proto}://${host}`;
+    }
+    return `http://localhost:${PORT}`;
   };
 
   // ----------------------------------------------------
@@ -480,8 +503,18 @@ async function startServer() {
   app.get('/api/tts/voices', (req, res) => {
     res.json({
       voices: AVAILABLE_VOICES,
-      defaultVoice: 'Kore',
+      defaultVoice: 'pl-PL-MarekNeural',
     });
+  });
+
+  app.get(['/api/tts/elevenlabs/voices', '/api/tts/elevenlabs-voices'], async (req, res) => {
+    try {
+      const apiKey = typeof req.query.apiKey === 'string' ? req.query.apiKey : undefined;
+      const voices = await fetchElevenLabsVoices(apiKey);
+      res.json({ voices });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Nie udało się pobrać głosów ElevenLabs' });
+    }
   });
 
   app.post('/api/tts', async (req, res) => {
@@ -508,6 +541,16 @@ async function startServer() {
     } catch (err: any) {
       console.warn('Błąd syntezy mowy:', err.message);
       res.status(500).json({ error: err.message || 'Błąd generowania głosu lektora' });
+    }
+  });
+
+  app.post('/api/tts/elevenlabs/verify', async (req, res) => {
+    try {
+      const { apiKey } = req.body || {};
+      const result = await verifyElevenLabsKey(apiKey || '');
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ valid: false, error: err.message || 'Błąd sprawdzania klucza' });
     }
   });
 
@@ -559,23 +602,26 @@ async function startServer() {
     }
 
     if (!fullPath || !fs.existsSync(fullPath)) {
-      try {
-        const remoteRes = await fetch(`https://ko-zviz.onrender.com/api/download/${encodeURIComponent(rawId)}`, {
-          signal: AbortSignal.timeout(15000),
-        });
-        if (remoteRes.ok) {
-          const ab = await remoteRes.arrayBuffer();
-          const buf = Buffer.from(ab);
-          if (buf.length > 500) {
-            const fallbackName = job?.outputEpubFilename || `${rawId}.epub`;
-            const savePath = path.join(process.cwd(), 'data', 'epubs', fallbackName);
-            fs.writeFileSync(savePath, buf);
-            fullPath = savePath;
-            filename = fallbackName;
+      const remoteUrl = process.env.REMOTE_SYNC_URL;
+      if (remoteUrl) {
+        try {
+          const remoteRes = await fetch(`${remoteUrl.replace(/\/+$/, '')}/api/download/${encodeURIComponent(rawId)}`, {
+            signal: AbortSignal.timeout(4000),
+          });
+          if (remoteRes.ok) {
+            const ab = await remoteRes.arrayBuffer();
+            const buf = Buffer.from(ab);
+            if (buf.length > 500) {
+              const fallbackName = job?.outputEpubFilename || `${rawId}.epub`;
+              const savePath = path.join(process.cwd(), 'data', 'epubs', fallbackName);
+              fs.writeFileSync(savePath, buf);
+              fullPath = savePath;
+              filename = fallbackName;
+            }
           }
+        } catch (err: any) {
+          console.warn(`Nie udało się pobrać pliku ${rawId} z serwera zapasowego:`, err?.message);
         }
-      } catch (err: any) {
-        console.warn(`Nie udało się pobrać pliku ${rawId} z Render:`, err?.message);
       }
     }
 
@@ -710,27 +756,32 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
-  // Vite Integration (Dev vs Production)
+  // Vite Integration (Dev vs Production) & Listen
   // ----------------------------------------------------
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true, allowedHosts: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+  async function startServer() {
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { middlewareMode: true, allowedHosts: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`KOReader AI Cloud Server running on http://0.0.0.0:${PORT}`);
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`KOReader AI Cloud Server running on http://0.0.0.0:${PORT}`);
-  });
-}
+  if (!process.env.VERCEL) {
+    startServer().catch(err => {
+      console.error('Błąd startu serwera:', err);
+    });
+  }
 
-startServer().catch(err => {
-  console.error('Błąd startu serwera:', err);
-});
+  export default app;

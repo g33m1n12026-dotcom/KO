@@ -26,6 +26,7 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
   const [docerPassword, setDocerPassword] = useState('');
   const [fourSharedEmail, setFourSharedEmail] = useState('');
   const [fourSharedPassword, setFourSharedPassword] = useState('');
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
 
   const [accountStatus, setAccountStatus] = useState<{
     internetArchive: { hasKeys: boolean; hasCookie: boolean; accessKeyMasked?: string };
@@ -34,6 +35,7 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
     chomikuj?: { isConnected: boolean; accountName?: string; emailMasked?: string; hasPassword?: boolean };
     docer?: { isConnected: boolean; emailMasked?: string; hasPassword?: boolean };
     fourShared?: { isConnected: boolean; emailMasked?: string; hasPassword?: boolean };
+    elevenlabs?: { hasKey: boolean; apiKeyMasked?: string };
   } | null>(null);
 
   const [isTesting, setIsTesting] = useState(false);
@@ -120,6 +122,9 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
             email: fourSharedEmail.trim() || undefined,
             password: fourSharedPassword.trim() || undefined,
           },
+          elevenlabs: {
+            apiKey: elevenLabsKey.trim() || undefined,
+          },
         }),
       });
 
@@ -144,6 +149,7 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
       setDocerPassword('');
       setFourSharedEmail('');
       setFourSharedPassword('');
+      setElevenLabsKey('');
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       setErrorMsg(err.message || 'Wystąpił błąd podczas zapisu');
@@ -655,6 +661,49 @@ export const AccountsSettingsModal: React.FC<AccountsSettingsModalProps> = ({ is
               <span>Platforma: 4shared.com</span>
               <a href="https://www.4shared.com" target="_blank" rel="noreferrer" className="underline hover:text-stone-800 flex items-center gap-1">
                 Otwórz 4shared.com <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* 7. ElevenLabs Text-to-Speech API */}
+          <div className="p-4 rounded-xl border border-stone-200 bg-stone-50/70 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🎙️</span>
+                <span className="font-bold text-sm text-stone-900">ElevenLabs (Naturalne Głosy AI)</span>
+              </div>
+              {accountStatus?.elevenlabs?.hasKey ? (
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Klucz aktywny
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-stone-200 text-stone-600">
+                  Nieskonfigurowane
+                </span>
+              )}
+            </div>
+
+            <p className="text-stone-600 leading-relaxed text-xs">
+              Klucz API ElevenLabs odblokowuje ponad 20 ultra-realistycznych głosów lektorskich (m.in. Antoni, Rachel, Bella, Adam) oraz pozwala pobrać Twoje własne sklonowane głosy z biblioteki.
+            </p>
+
+            <div className="pt-1">
+              <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                Klucz API (xi-...):
+              </label>
+              <input
+                type="password"
+                value={elevenLabsKey}
+                onChange={(e) => setElevenLabsKey(e.target.value)}
+                placeholder={accountStatus?.elevenlabs?.apiKeyMasked ? `Zapisany klucz: ${accountStatus.elevenlabs.apiKeyMasked}` : 'xi-... (wklej klucz z elevenlabs.io)'}
+                className="w-full px-3 py-2 bg-white rounded-lg border border-stone-200 focus:outline-none focus:ring-1 focus:ring-stone-900 font-mono text-xs"
+              />
+            </div>
+
+            <div className="pt-1 flex items-center justify-between text-[11px] text-stone-500">
+              <span>Platforma: ElevenLabs.io (Multilingual V2)</span>
+              <a href="https://elevenlabs.io" target="_blank" rel="noreferrer" className="underline hover:text-stone-800 flex items-center gap-1">
+                Pobierz klucz z elevenlabs.io <ExternalLink className="w-2.5 h-2.5" />
               </a>
             </div>
           </div>
