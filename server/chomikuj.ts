@@ -1,5 +1,4 @@
 import JSZip from 'jszip';
-import { PDFParse } from 'pdf-parse';
 import https from 'https';
 import { BookSearchResult } from '../src/types';
 import { generateMirrorSearchLinks } from './mirrors';
@@ -804,6 +803,7 @@ export async function verifyBookContentLegitimacy(
   // 2. PDF deep inspection
   if (isPdf) {
     try {
+      const { PDFParse } = await import('pdf-parse');
       const uint8 = new Uint8Array(buffer);
       const parser = new PDFParse(uint8);
       const textRes = await parser.getText();
