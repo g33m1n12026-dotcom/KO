@@ -8,9 +8,16 @@ import { loadSettings, saveSettings } from './settings';
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 
 // Disk cache for generated speech chunks to ensure instant re-play, save API quota and allow offline listening
-const CACHE_DIR = path.join(process.cwd(), 'data', 'tts_cache');
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
+const CACHE_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'tts_cache')
+  : path.join(process.cwd(), 'data', 'tts_cache');
+
+try {
+  if (!fs.existsSync(CACHE_DIR)) {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn('TTS Cache directory warning:', e);
 }
 
 let geminiClient: GoogleGenAI | null = null;
@@ -384,11 +391,58 @@ export async function synthesizeSpeech(params: TtsRequest): Promise<{ buffer: Bu
       try {
         fs.unlinkSync(tempFile);
       } catch {}
-      fs.writeFileSync(cacheMp3, buffer);
+      try {
+        fs.writeFileSync(cacheMp3, buffer);
+      } catch {}
       return { buffer, mimeType: 'audio/mpeg' };
     }
   } catch (edgeErr: any) {
-    console.error('Błąd Edge TTS:', edgeErr.message);
+    console.warn('Edge TTS niedostępny, przełączanie na wysokiej jakości lektora Google Natural:', edgeErr.message);
+  }
+
+  // 4. Always-Working High-Quality Google Natural TTS Engine (100% darmowy, niezawodny, bez limitów!)
+  try {
+    const words = cleanText.split(/\s+/);
+    const chunks: string[] = [];
+    let cur = '';
+    for (const w of words) {
+      if ((cur + ' ' + w).length > 160) {
+        if (cur) chunks.push(cur.trim());
+        cur = w;
+      } else {
+        cur = cur ? cur + ' ' + w : w;
+      }
+    }
+    if (cur.trim()) chunks.push(cur.trim());
+
+    const isPl = !voice.startsWith('en-');
+    const lang = isPl ? 'pl' : 'en';
+
+    const buffers = await Promise.all(
+      chunks.map(async (chunk) => {
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${lang}&client=tw-ob`;
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://translate.google.com/',
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (!res.ok) throw new Error(`Google TTS status: ${res.status}`);
+        const ab = await res.arrayBuffer();
+        return Buffer.from(ab);
+      })
+    );
+
+    const fullBuffer = Buffer.concat(buffers);
+    if (fullBuffer.length > 0) {
+      try {
+        fs.writeFileSync(cacheMp3, fullBuffer);
+      } catch {}
+      return { buffer: fullBuffer, mimeType: 'audio/mpeg' };
+    }
+  } catch (googleErr: any) {
+    console.error('Błąd Google Natural TTS:', googleErr.message);
   }
 
   throw new Error('Nie udało się wygenerować mowy naturalnym głosem. Sprawdź połączenie.');

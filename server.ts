@@ -4,7 +4,6 @@ import fs from 'fs';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import QRCode from 'qrcode';
-import { createServer as createViteServer } from 'vite';
 
 import { getAvailableKeys, recommendBooksByDescription, getAIAssist } from './server/ai';
 import {
@@ -760,6 +759,7 @@ app.use(express.urlencoded({ extended: true }));
   // ----------------------------------------------------
   async function startServer() {
     if (process.env.NODE_ENV !== 'production') {
+      const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { middlewareMode: true, allowedHosts: true },
         appType: 'spa',
