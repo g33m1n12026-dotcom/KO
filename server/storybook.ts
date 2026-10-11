@@ -38,32 +38,28 @@ async function callAiText(systemPrompt: string, userPrompt: string, engine: stri
 
   let lastErr = '';
 
-  // 1. Try Gemini with retry and alternative model fallbacks
+  // 1. Try Gemini with retry
   if (geminiKey) {
     const gemini = getGemini();
-    const geminiModels = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash'];
-
-    for (const m of geminiModels) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const res = await gemini.models.generateContent({
-            model: m,
-            contents: `${systemPrompt}\n\n${userPrompt}`,
-            config: {
-              temperature: 0.7,
-            },
-          });
-          const text = res.text?.trim();
-          if (text) return text;
-        } catch (e: any) {
-          lastErr = e?.message || String(e);
-          console.warn(`Gemini (${m}) próba ${attempt + 1}/3 ostrzeżenie:`, lastErr);
-          if (lastErr.includes('503') || lastErr.includes('high demand') || lastErr.includes('429')) {
-            await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-            continue;
-          }
-          break; // Try next model if non-retriable error
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await gemini.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: `${systemPrompt}\n\n${userPrompt}`,
+          config: {
+            temperature: 0.7,
+          },
+        });
+        const text = res.text?.trim();
+        if (text) return text;
+      } catch (e: any) {
+        lastErr = e?.message || String(e);
+        console.warn(`Gemini (gemini-3.8-flash) próba ${attempt + 1}/3 ostrzeżenie:`, lastErr);
+        if (lastErr.includes('503') || lastErr.includes('high demand') || lastErr.includes('429')) {
+          await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+          continue;
         }
+        break;
       }
     }
   }
@@ -83,6 +79,7 @@ async function callAiText(systemPrompt: string, userPrompt: string, engine: stri
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
+          max_tokens: 3500,
           temperature: 0.7,
         }),
       });

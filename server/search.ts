@@ -906,7 +906,7 @@ export async function resolveDirectDownloadUrl(url: string): Promise<string> {
         const settings = loadSettings();
         const userId = settings.zlibrary?.userId;
         const userKey = settings.zlibrary?.userKey;
-        const domains = ['https://singlelogin.rs', 'https://singlelogin.re', 'https://z-library.sk'];
+        const domains = ['https://singlelogin.rs', 'https://z-lib.id', 'https://singlelogin.re', 'https://z-library.sk'];
         for (const domain of domains) {
           try {
             const res = await fetch(`${domain}/eapi/book/${bookId}/${hash}/file`, {

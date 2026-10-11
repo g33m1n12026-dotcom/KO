@@ -14,10 +14,14 @@ import { fetchRemoteBookBuffer } from './search';
 import { convertToCbz } from './comic';
 import { executeStorybookJob } from './storybook';
 
-const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data');
-const EPUB_DIR = path.join(DATA_DIR, 'epubs');
-const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
-const DELETED_JOBS_FILE = path.join(DATA_DIR, 'deleted_jobs.json');
+const SEED_DATA_DIR = path.join(process.cwd(), 'data');
+const SEED_EPUB_DIR = path.join(SEED_DATA_DIR, 'epubs');
+const SEED_JOBS_FILE = path.join(SEED_DATA_DIR, 'jobs.json');
+
+const WRITABLE_DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'data') : SEED_DATA_DIR;
+const EPUB_DIR = path.join(WRITABLE_DATA_DIR, 'epubs');
+const JOBS_FILE = path.join(WRITABLE_DATA_DIR, 'jobs.json');
+const DELETED_JOBS_FILE = path.join(WRITABLE_DATA_DIR, 'deleted_jobs.json');
 
 try {
   if (!fs.existsSync(EPUB_DIR)) {
@@ -103,72 +107,82 @@ export function saveJobsToDisk(): void {
 }
 
 function loadJobsFromDisk(): void {
-  try {
-    if (fs.existsSync(JOBS_FILE)) {
-      const raw = fs.readFileSync(JOBS_FILE, 'utf-8');
-      const parsed: Job[] = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const now = Date.now();
-        for (const job of parsed) {
-          const normTitle = normalizeKey(job.title);
-          const normFile = (job.outputEpubFilename || '').toLowerCase();
+  const filesToRead = [SEED_JOBS_FILE];
+  if (JOBS_FILE !== SEED_JOBS_FILE && fs.existsSync(JOBS_FILE)) {
+    filesToRead.push(JOBS_FILE);
+  }
 
-          if (
-            !job.id ||
-            deletedJobIds.has(job.id) ||
-            (normTitle && deletedTitles.has(normTitle)) ||
-            (normFile && deletedFilenames.has(normFile))
-          ) {
-            continue; // Skip previously deleted jobs
-          }
+  for (const fpath of filesToRead) {
+    try {
+      if (fs.existsSync(fpath)) {
+        const raw = fs.readFileSync(fpath, 'utf-8');
+        const parsed: Job[] = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const now = Date.now();
+          for (const job of parsed) {
+            const normTitle = normalizeKey(job.title);
+            const normFile = (job.outputEpubFilename || '').toLowerCase();
 
-          if (job.title) {
-            job.title = job.title
-              .replace(/&apos;/g, "'")
-              .replace(/&quot;/g, '"')
-              .replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>');
-          }
-
-          // Watchdog: Un-stick jobs interrupted by previous server restart
-          if (['queued', 'extracting', 'translating', 'packaging'].includes(job.status)) {
-            const ageMs = now - (job.updatedAt || job.createdAt || 0);
-            if (ageMs > 5 * 60 * 1000) {
-              job.status = 'failed';
-              job.error = 'Zadanie zostało przerwane z powodu restartu serwera lub przekroczenia limitu czasu.';
-              job.logs.push(`[${new Date().toLocaleTimeString()}] Zatrzymano zadanie wiszące w kolejce po restarcie.`);
+            if (
+              !job.id ||
+              deletedJobIds.has(job.id) ||
+              (normTitle && deletedTitles.has(normTitle)) ||
+              (normFile && deletedFilenames.has(normFile))
+            ) {
+              continue; // Skip previously deleted jobs
             }
-          }
 
-          // Validate file presence on disk for completed jobs
-          if (job.status === 'completed' && job.outputEpubFilename) {
-            const filePath = path.join(EPUB_DIR, job.outputEpubFilename);
-            if (!fs.existsSync(filePath)) {
-              if (job.chapters && job.chapters.length > 0) {
-                // Auto-repair missing file from existing chapter data
-                generateEpubBuffer({
-                  title: job.title,
-                  author: 'KOReader AI Cloud',
-                  language: 'pl',
-                  chapters: job.chapters,
-                }).then((buf) => {
-                  fs.writeFileSync(filePath, buf);
-                  console.log(`Pomyślnie zregenerowano brakujący plik EPUB: ${job.outputEpubFilename}`);
-                }).catch((e) => console.warn(`Nie udało się zregenerować pliku ${job.outputEpubFilename}:`, e));
-              } else {
+            if (job.title) {
+              job.title = job.title
+                .replace(/&apos;/g, "'")
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>');
+            }
+
+            // Watchdog: Un-stick jobs interrupted by previous server restart
+            if (['queued', 'extracting', 'translating', 'packaging'].includes(job.status)) {
+              const ageMs = now - (job.updatedAt || job.createdAt || 0);
+              if (ageMs > 5 * 60 * 1000) {
                 job.status = 'failed';
-                job.error = 'Plik źródłowy nie jest już dostępny na dysku serwera';
+                job.error = 'Zadanie zostało przerwane z powodu restartu serwera lub przekroczenia limitu czasu.';
+                job.logs.push(`[${new Date().toLocaleTimeString()}] Zatrzymano zadanie wiszące w kolejce po restarcie.`);
               }
             }
-          }
 
-          jobs.set(job.id, job);
+            // Validate file presence on disk (check both writable and seed epubs directory)
+            if (job.status === 'completed' && job.outputEpubFilename) {
+              const fileInWritable = path.join(EPUB_DIR, job.outputEpubFilename);
+              const fileInSeed = path.join(SEED_EPUB_DIR, job.outputEpubFilename);
+              const fileExists = fs.existsSync(fileInWritable) || fs.existsSync(fileInSeed);
+
+              if (!fileExists) {
+                if (job.chapters && job.chapters.length > 0) {
+                  // Auto-repair missing file from existing chapter data
+                  generateEpubBuffer({
+                    title: job.title,
+                    author: 'KOReader AI Cloud',
+                    language: 'pl',
+                    chapters: job.chapters,
+                  }).then((buf) => {
+                    fs.writeFileSync(fileInWritable, buf);
+                    console.log(`Pomyślnie zregenerowano brakujący plik EPUB: ${job.outputEpubFilename}`);
+                  }).catch((e) => console.warn(`Nie udało się zregenerować pliku ${job.outputEpubFilename}:`, e));
+                } else {
+                  job.status = 'failed';
+                  job.error = 'Plik źródłowy nie jest już dostępny na dysku serwera';
+                }
+              }
+            }
+
+            jobs.set(job.id, job);
+          }
         }
       }
+    } catch (err) {
+      console.warn(`Błąd odczytu ${fpath}:`, err);
     }
-  } catch (err) {
-    console.warn('Błąd odczytu data/jobs.json:', err);
   }
 
   // Auto-scan EPUB_DIR for any completed files on disk not yet in jobs
@@ -177,12 +191,17 @@ function loadJobsFromDisk(): void {
       const files = fs.readdirSync(EPUB_DIR);
       for (const file of files) {
         if (!file.endsWith('.epub') && !file.endsWith('.cbz')) continue;
+        const normFile = file.toLowerCase();
+        if (deletedFilenames.has(normFile)) continue;
         const alreadyIndexed = Array.from(jobs.values()).some(j => j.outputEpubFilename === file);
         if (!alreadyIndexed) {
           const filePath = path.join(EPUB_DIR, file);
           const stat = fs.statSync(filePath);
           const cleanTitle = file.replace(/\.[^/.]+$/, '').replace(/[_.-]+/g, ' ').trim();
+          const normTitle = normalizeKey(cleanTitle);
+          if (normTitle && deletedTitles.has(normTitle)) continue;
           const autoId = `job_file_${file.replace(/[^a-zA-Z0-9]/g, '_')}`;
+          if (deletedJobIds.has(autoId)) continue;
           const isCbz = file.toLowerCase().endsWith('.cbz');
           const autoJob: Job = {
             id: autoId,
@@ -349,41 +368,73 @@ export function getJobById(id: string): Job | undefined {
 export function getEpubFilePath(filename: string): string | null {
   if (!filename) return null;
   const safeFilename = path.basename(filename);
-  const directPath = path.join(EPUB_DIR, safeFilename);
-  if (fs.existsSync(directPath)) {
-    return directPath;
+
+  const searchDirs = [EPUB_DIR];
+  if (SEED_EPUB_DIR !== EPUB_DIR) {
+    searchDirs.push(SEED_EPUB_DIR);
   }
 
-  // 1. Try URL decoded path
-  try {
-    const decoded = decodeURIComponent(safeFilename);
-    const decodedPath = path.join(EPUB_DIR, decoded);
-    if (fs.existsSync(decodedPath)) return decodedPath;
-  } catch {}
+  for (const dir of searchDirs) {
+    if (!fs.existsSync(dir)) continue;
 
-  // 2. Try sanitized ASCII filename
-  const cleanBase = sanitizeToAsciiFilename(safeFilename.replace(/\.(epub|cbz)$/i, ''));
-  const ext = safeFilename.endsWith('.cbz') ? '.cbz' : '.epub';
-  const asciiPath = path.join(EPUB_DIR, `${cleanBase}${ext}`);
-  if (fs.existsSync(asciiPath)) return asciiPath;
+    const directPath = path.join(dir, safeFilename);
+    if (fs.existsSync(directPath)) {
+      return directPath;
+    }
 
-  // 3. Scan directory for matching prefix or timestamp
-  if (fs.existsSync(EPUB_DIR)) {
-    const files = fs.readdirSync(EPUB_DIR);
+    // 1. Try URL decoded path
+    try {
+      const decoded = decodeURIComponent(safeFilename);
+      const decodedPath = path.join(dir, decoded);
+      if (fs.existsSync(decodedPath)) return decodedPath;
+    } catch {}
+
+    // 2. Try sanitized ASCII filename
+    const cleanBase = sanitizeToAsciiFilename(safeFilename.replace(/\.(epub|cbz)$/i, ''));
+    const ext = safeFilename.endsWith('.cbz') ? '.cbz' : '.epub';
+    const asciiPath = path.join(dir, `${cleanBase}${ext}`);
+    if (fs.existsSync(asciiPath)) return asciiPath;
+
+    // 3. Scan directory for matching prefix or timestamp
+    const files = fs.readdirSync(dir);
     const tsMatch = safeFilename.match(/\d{10,}/);
     if (tsMatch) {
       const match = files.find(f => f.includes(tsMatch[0]));
-      if (match) return path.join(EPUB_DIR, match);
+      if (match) return path.join(dir, match);
     }
 
     const normTarget = cleanBase.replace(/[^a-z0-9]/gi, '').substring(0, 20);
     if (normTarget.length > 4) {
       const match = files.find(f => f.replace(/[^a-z0-9]/gi, '').includes(normTarget));
-      if (match) return path.join(EPUB_DIR, match);
+      if (match) return path.join(dir, match);
     }
   }
 
   return null;
+}
+
+export function importJobs(incoming: Job[]): void {
+  let changed = false;
+  for (const job of incoming) {
+    if (!job || !job.id) continue;
+    const normTitle = normalizeKey(job.title);
+    const normFile = (job.outputEpubFilename || '').toLowerCase();
+    if (
+      deletedJobIds.has(job.id) ||
+      (normTitle && deletedTitles.has(normTitle)) ||
+      (normFile && deletedFilenames.has(normFile))
+    ) {
+      continue;
+    }
+    const existing = jobs.get(job.id);
+    if (!existing || (job.updatedAt || 0) > (existing.updatedAt || 0)) {
+      jobs.set(job.id, job);
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveJobsToDisk();
+  }
 }
 
 export function deleteJob(id: string): boolean {
@@ -433,6 +484,17 @@ export function deleteJob(id: string): boolean {
 
   saveJobsToDisk();
   return true;
+}
+
+export function clearFailedJobs(): number {
+  let count = 0;
+  for (const job of Array.from(jobs.values())) {
+    if (job.status === 'failed' || (job.error && job.status !== 'completed')) {
+      deleteJob(job.id);
+      count++;
+    }
+  }
+  return count;
 }
 
 export function createUploadJob(

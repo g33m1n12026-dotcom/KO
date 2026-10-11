@@ -29,9 +29,11 @@ import {
   createStorybookJob,
   getEpubFilePath,
   deleteJob,
+  clearFailedJobs,
   saveJobsToDisk,
   resumeJob,
   packageJobNow,
+  importJobs,
 } from './server/jobs';
 import { generateEpubBuffer, sanitizeToAsciiFilename } from './server/epub';
 import { searchOnlineBooks, findDirectBookDownload } from './server/search';
@@ -58,6 +60,15 @@ const upload = multer({
 });
 
 export const app = express();
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -70,6 +81,17 @@ app.use(express.urlencoded({ extended: true }));
   const getAppBaseUrl = (req: express.Request) => {
     if (process.env.APP_URL) {
       return process.env.APP_URL.replace(/\/+$/, '');
+    }
+    const proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+    const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || '';
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      return `${proto}://${host}`;
+    }
+    if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+      return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(/\/+$/, '');
+    }
+    if (process.env.VERCEL) {
+      return 'https://ko-kohl.vercel.app';
     }
     if (process.env.VERCEL_URL) {
       return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, '');
@@ -85,11 +107,6 @@ app.use(express.urlencoded({ extended: true }));
     }
     if (process.env.RENDER_EXTERNAL_URL) {
       return process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, '');
-    }
-    const proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
-    const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || '';
-    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-      return `${proto}://${host}`;
     }
     const tunnel = getTunnelStatus();
     if (tunnel.url) {
@@ -151,21 +168,24 @@ app.use(express.urlencoded({ extended: true }));
 
       // Auto-scan mirrors for each recommended book so reader/user can download with 1 click
       if (Array.isArray(data.recommendations) && data.recommendations.length > 0) {
-        await Promise.all(
-          data.recommendations.map(async (rec) => {
-            try {
-              const q = rec.searchQuery || `${rec.author} ${rec.title}`;
-              const found = await findDirectBookDownload(q, 'PL');
-              if (found) {
-                rec.downloadUrl = found.downloadUrl;
-                rec.downloadFormat = found.format;
-                if (found.language) rec.downloadLanguage = found.language;
+        await Promise.race([
+          Promise.all(
+            data.recommendations.map(async (rec) => {
+              try {
+                const q = rec.searchQuery || `${rec.author} ${rec.title}`;
+                const found = await findDirectBookDownload(q, 'PL');
+                if (found) {
+                  rec.downloadUrl = found.downloadUrl;
+                  rec.downloadFormat = found.format;
+                  if (found.language) rec.downloadLanguage = found.language;
+                }
+              } catch {
+                // Ignore individual mirror lookup timeout
               }
-            } catch {
-              // Ignore individual mirror lookup timeout
-            }
-          })
-        );
+            })
+          ),
+          new Promise((resolve) => setTimeout(resolve, 3500)),
+        ]);
       }
 
       res.json(data);
@@ -408,6 +428,14 @@ app.use(express.urlencoded({ extended: true }));
     res.json(getAllJobs());
   });
 
+  app.post(['/api/jobs/sync', '/api/koreader/tasks/sync'], (req, res) => {
+    const incoming = Array.isArray(req.body) ? req.body : req.body?.jobs || [];
+    if (Array.isArray(incoming) && incoming.length > 0) {
+      importJobs(incoming);
+    }
+    res.json(getAllJobs());
+  });
+
   app.get('/api/jobs/:id', (req, res) => {
     const job = getJobById(req.params.id);
     if (!job) return res.status(404).json({ error: 'Zadanie nie zostało znalezione' });
@@ -436,6 +464,11 @@ app.use(express.urlencoded({ extended: true }));
       return res.status(404).json({ error: 'Książka lub zadanie nie istnieje albo zostało już usunięte' });
     }
     res.json({ success: true, message: 'Książka została usunięta z biblioteki i pamięci serwera' });
+  });
+
+  app.post(['/api/jobs/clear-failed', '/api/koreader/tasks/clear-failed'], (req, res) => {
+    const count = clearFailedJobs();
+    res.json({ success: true, count, message: `Usunięto ${count} błędnych zadań z serwera.` });
   });
 
   // ----------------------------------------------------

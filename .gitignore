@@ -6,8 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
-data/
+data/tts_cache/
+data/cache/
 tmp/
 *.mp3
 .aistudio/
 
+.vercel

@@ -52,6 +52,75 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
   const [directUploadError, setDirectUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Synchronization with permanent Vercel cloud server
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const handleSyncWithCloud = async () => {
+    setIsSyncingCloud(true);
+    setSyncMessage(null);
+    try {
+      const cloudUrl = 'https://ko-kohl.vercel.app';
+      // 1. Fetch from cloud
+      let cloudJobs: Job[] = [];
+      try {
+        const cloudRes = await fetch(`${cloudUrl}/api/jobs`, { signal: AbortSignal.timeout(6000) });
+        if (cloudRes.ok) {
+          cloudJobs = await cloudRes.json();
+        }
+      } catch (e) {
+        console.warn('Nie udało się pobrać z chmury Vercel:', e);
+      }
+
+      // 2. Push local jobs to cloud
+      if (localJobs.length > 0) {
+        try {
+          await fetch(`${cloudUrl}/api/jobs/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobs: localJobs }),
+            signal: AbortSignal.timeout(6000),
+          });
+        } catch (e) {
+          console.warn('Nie udało się wysłać zadań na Vercel:', e);
+        }
+      }
+
+      // 3. Save cloud jobs locally
+      if (cloudJobs.length > 0) {
+        try {
+          const syncLocal = await fetch('/api/jobs/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobs: cloudJobs }),
+          });
+          if (syncLocal.ok) {
+            const merged: Job[] = await syncLocal.json();
+            setLocalJobs(merged);
+          }
+        } catch (e) {
+          console.warn('Błąd lokalnego zapisu synchronizacji:', e);
+        }
+      }
+
+      setSyncMessage('Biblioteka zsynchronizowana z serwerem w chmurze Vercel!');
+      onRefresh();
+      setTimeout(() => setSyncMessage(null), 5000);
+    } catch (err: any) {
+      setSyncMessage(`Błąd synchronizacji: ${err.message || 'Błąd połączenia'}`);
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  useEffect(() => {
+    // Auto sync on mount
+    const timer = setTimeout(() => {
+      handleSyncWithCloud().catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleDirectFileUpload = async (file: File) => {
     setIsUploadingDirect(true);
     setDirectUploadSuccess(null);
@@ -115,6 +184,7 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
     const ids = failedJobs.map((j) => j.id);
     setLocalJobs((prev) => prev.filter((j) => j.status !== 'failed'));
     ids.forEach((id) => onDeleteJob?.(id));
+    fetch('/api/jobs/clear-failed', { method: 'POST' }).catch(() => {});
     for (const id of ids) {
       fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
     }
@@ -175,14 +245,36 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
           </button>
 
           <button
+            onClick={handleSyncWithCloud}
+            disabled={isSyncingCloud}
+            className="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-900 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+            title="Synchronizuj listę książek z serwerem Vercel (https://ko-kohl.vercel.app)"
+          >
+            {isSyncingCloud ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-700" />
+            ) : (
+              <UploadCloud className="w-3.5 h-3.5 text-emerald-700" />
+            )}
+            <span>{isSyncingCloud ? 'Synchronizacja...' : 'Sync z chmurą'}</span>
+          </button>
+
+          <button
             onClick={onRefresh}
-            className="px-3 py-1.5 rounded-lg border border-stone-200 text-stone-700 bg-stone-50 hover:bg-stone-100 text-xs font-medium flex items-center gap-1.5 transition active:scale-95"
+            className="px-3 py-1.5 rounded-lg border border-stone-200 text-stone-700 bg-stone-50 hover:bg-stone-100 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Odśwież status</span>
           </button>
         </div>
       </div>
+
+      {/* Sync Status Banner */}
+      {syncMessage && (
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-medium animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{syncMessage}</span>
+        </div>
+      )}
 
       {/* Upload Alerts */}
       {directUploadSuccess && (

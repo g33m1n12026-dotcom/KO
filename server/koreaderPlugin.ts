@@ -12,7 +12,7 @@ return {
 `;
 }
 
-export function getMainLua(defaultServerUrl: string = process.env.APP_BASE_URL || 'http://192.168.1.100:3000'): string {
+export function getMainLua(defaultServerUrl: string = process.env.APP_BASE_URL || 'https://ko-kohl.vercel.app'): string {
   return `--[[
     KOReader Plugin: aibooks.koplugin
     AI Cloud Translator & PDF/Comic Optimizer for Kindle 10
@@ -122,10 +122,24 @@ local AIBooks = WidgetContainer:extend{
 }
 
 function AIBooks:init()
+    self:onDispatcherRegisterActions()
+    if self.ui and self.ui.registerModule then
+        self.ui:registerModule("aibooks", self)
+    end
     self:loadSettings()
     self:ensureTargetDir()
     self:ensureOpdsCatalog()
 end
+
+function AIBooks:onDispatcherRegisterActions()
+    local ok_disp, Dispatcher = pcall(require, "dispatcher")
+    if ok_disp and Dispatcher and Dispatcher.registerAction then
+        Dispatcher:registerAction("aibooks_menu", { category="none", event="ShowAIBooksMenu", title=_("📚 AI Książki"), general=true })
+        Dispatcher:registerAction("aibooks_tasks", { category="none", event="ShowAIBooksTasks", title=_("⏳ Zadania w toku"), general=true })
+        Dispatcher:registerAction("aibooks_opds", { category="none", event="ShowAIBooksOPDS", title=_("⚡ Katalog OPDS"), general=true })
+    end
+end
+
 
 function AIBooks:ensureTargetDir()
     local dir = self.target_folder
@@ -150,7 +164,7 @@ function AIBooks:ensureTargetDir()
         end
     end
     self.target_folder = dir
-    os.execute("mkdir -p \"" .. self.target_folder .. "\" 2>/dev/null")
+    os.execute('mkdir -p "' .. self.target_folder .. '" 2>/dev/null')
     local ok, lfs = pcall(require, "lfs")
     if ok and lfs and lfs.mkdir then
         pcall(lfs.mkdir, self.target_folder)
@@ -506,115 +520,57 @@ function AIBooks:showLocalFileActionDialog(filePath)
     UIManager:show(menu)
 end
 
--- Książka na życzenie (AI Storybook / Poradnik)
--- Książka na życzenie (Formularz AI Storybook / Poradnik)
-function AIBooks:showStorybookDialog()
-    self:showStorybookMultiInputCard()
-end
-
-function AIBooks:showStorybookMultiInputCard()
-    local ok_multi, MultiInputDialog = pcall(require, "ui/widget/multiinputdialog")
-    local f = self.storybook_form or {
-        title = "",
-        prompt = "",
-        type = "story",
-        genre = "Sci-Fi / Przygoda",
-        characters = "",
-        targetAudience = "Wszyscy (Dla każdego)",
-        targetAudienceKey = "all",
-        chapterCount = 5,
-        includeIllustrations = true,
-    }
-    self.storybook_form = f
-
-    if ok_multi and MultiInputDialog then
-        local dialog
-        dialog = MultiInputDialog:new{
-            title = _("✨ Formularz: Książka na życzenie"),
-            fields = {
+-- Książka na życzenie (AI Storybook / Poradnik - jedno proste okno bez zawieszania czytnika)
+function AIBooks:showStorybookDialog(prefilled_prompt)
+    local input
+    input = InputDialog:new{
+        title = _("✨ Generuj książkę (AI Storybook)"),
+        input_hint = _("np. Cyberpunkowy detektyw w Warszawie 2077"),
+        description = _("Opisz fabułę, temat lub bohaterów książki:"),
+        input = prefilled_prompt or "",
+        buttons = {
+            {
                 {
-                    hint = _("1. Tytuł książki (lub puste dla AI)"),
-                    text = f.title or "",
+                    text = _("Szablony"),
+                    callback = function()
+                        UIManager:close(input)
+                        self:showStorybookPresetsChoice()
+                    end,
                 },
                 {
-                    hint = _("2. Opis fabuły / motywy / temat (wymagane)"),
-                    text = f.prompt or "",
+                    text = _("Anuluj"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(input)
+                    end,
                 },
                 {
-                    hint = _("3. Gatunek (np. Sci-Fi, Bajka dla dzieci, Kryminał)"),
-                    text = f.genre or "Sci-Fi / Przygoda",
-                },
-                {
-                    hint = _("4. Główni bohaterowie (np. Wiktor i robot)"),
-                    text = f.characters or "",
-                },
-                {
-                    hint = _("5. Odbiorcy (Dzieci / Młodzież / Dorośli / Wszyscy)"),
-                    text = f.targetAudience or "Wszyscy",
-                },
-                {
-                    hint = _("6. Długość: liczba rozdziałów (3, 5, 8, 12)"),
-                    text = tostring(f.chapterCount or 5),
-                },
-            },
-            buttons = {
-                {
-                    {
-                        text = _("Szablony & Menu"),
-                        callback = function()
-                            local vals = dialog:getValues()
-                            if vals then
-                                f.title = vals[1] or f.title
-                                f.prompt = vals[2] or f.prompt
-                                f.genre = vals[3] or f.genre
-                                f.characters = vals[4] or f.characters
-                                f.targetAudience = vals[5] or f.targetAudience
-                                f.chapterCount = tonumber(vals[6]) or f.chapterCount
-                            end
-                            UIManager:close(dialog)
-                            self:showStorybookFormDialog()
-                        end,
-                    },
-                    {
-                        text = _("Anuluj"),
-                        id = "close",
-                        callback = function()
-                            UIManager:close(dialog)
-                        end,
-                    },
-                    {
-                        text = _("✨ GENERUJ KSIĄŻKĘ"),
-                        is_enter_default = true,
-                        callback = function()
-                            local vals = dialog:getValues()
-                            if vals then
-                                f.title = vals[1] or ""
-                                f.prompt = vals[2] or ""
-                                f.genre = vals[3] or f.genre
-                                f.characters = vals[4] or ""
-                                f.targetAudience = vals[5] or f.targetAudience
-                                f.chapterCount = tonumber(vals[6]) or 5
-                            end
-                            if not f.prompt or f.prompt:gsub("%s+", "") == "" then
-                                UIManager:show(InfoMessage:new{ text = _("⚠️ Wpisz najpierw opis fabuły lub temat książki!") })
-                                return
-                            end
-                            UIManager:close(dialog)
+                    text = _("✨ Generuj"),
+                    is_enter_default = true,
+                    callback = function()
+                        local prompt = input:getInputText()
+                        UIManager:close(input)
+                        if prompt and prompt:gsub("%s+", "") ~= "" then
                             self:withNetwork(function()
-                                self:performStorybookCreationFromForm(f)
+                                self:performStorybookCreationFromForm({
+                                    prompt = prompt,
+                                    type = "story",
+                                    chapterCount = 4,
+                                    includeIllustrations = true,
+                                })
                             end)
-                        end,
-                    },
+                        else
+                            UIManager:show(InfoMessage:new{ text = _("Wpisz temat lub fabułę książki!") })
+                        end
+                    end,
                 },
             },
-        }
-        UIManager:show(dialog)
-        if dialog.onShowKeyboard then dialog:onShowKeyboard() end
-        return
-    end
-
-    self:showStorybookFormDialog()
+        },
+    }
+    UIManager:show(input)
+    if input.onShowKeyboard then input:onShowKeyboard() end
 end
+
 
 function AIBooks:showStorybookFormDialog()
     local f = self.storybook_form or {
@@ -921,9 +877,8 @@ function AIBooks:showStorybookPresetsChoice()
                 f.characters = p.characters
                 f.targetAudience = p.audience
                 f.targetAudienceKey = p.audienceKey
-                f.chapterCount = p.chapters
                 UIManager:show(InfoMessage:new{ text = _("Wczytano szablon: ") .. p.title, timeout = 1.5 })
-                self:showStorybookFormDialog()
+                self:showStorybookDialog(p.prompt)
             end,
         })
     end
@@ -1534,12 +1489,12 @@ function AIBooks:uploadFileForProcessing(filepath, conversionMode)
     end)
 end
 
--- Lista aktywnych zadań i pobieranie gotowych plików EPUB / CBZ
--- Lista aktywnych zadań i szybkie zarządzanie e-bookami (zoptymalizowane pod e-ink)
-function AIBooks:showTasksList(force_refresh)
+-- Lista aktywnych zadań i szybkie zarządzanie e-bookami (zoptymalizowane pod e-ink z osobną zakładką na błędy)
+function AIBooks:showTasksList(force_refresh, target_tab)
+    target_tab = target_tab or "books"
     -- Użyj pamięci podręcznej jeśli pobrano w ciągu ostatnich 15 sekund (błyskawiczne otwieranie bez czekania na sieć)
     if not force_refresh and self.cached_tasks and self.cached_tasks_time and (os.time() - self.cached_tasks_time < 15) then
-        self:renderTasksMenu(self.cached_tasks)
+        self:renderTasksMenu(self.cached_tasks, target_tab)
         return
     end
 
@@ -1571,24 +1526,57 @@ function AIBooks:showTasksList(force_refresh)
         self.cached_tasks_time = os.time()
         collectgarbage("step", 50)
 
-        self:renderTasksMenu(tasks)
+        self:renderTasksMenu(tasks, target_tab)
     end)
 end
 
-function AIBooks:renderTasksMenu(tasks)
+function AIBooks:renderTasksMenu(tasks, current_tab)
+    current_tab = current_tab or "books"
     if not tasks or #tasks == 0 then
         UIManager:show(InfoMessage:new{ text = _("Brak zadań w chmurze.") })
         return
     end
 
+    local bookTasks = {}
+    local failedTasks = {}
+    for _, t in ipairs(tasks) do
+        if t.status == "failed" or (t.error and t.status ~= "completed") then
+            table.insert(failedTasks, t)
+        else
+            table.insert(bookTasks, t)
+        end
+    end
+
+    if current_tab == "errors" then
+        self:renderErrorsSubmenu(tasks, bookTasks, failedTasks)
+    else
+        self:renderBooksSubmenu(tasks, bookTasks, failedTasks)
+    end
+end
+
+-- Zakładka 1: Książki w chmurze (czysta lista gotowych książek i zadań w toku - zero błędów)
+function AIBooks:renderBooksSubmenu(tasks, bookTasks, failedTasks)
     local items = {
         {
+            text = #failedTasks > 0
+                and (_("⚠️ Osobna zakładka: Błędy zadań (") .. #failedTasks .. _(") ➔"))
+                or _("✅ Błędy zadań: brak (0) ➔"),
+            callback = function() self:renderTasksMenu(tasks, "errors") end,
+        },
+        {
             text = _("🔄 Odśwież zadania z chmury"),
-            callback = function() self:showTasksList(true) end,
+            callback = function() self:showTasksList(true, "books") end,
         },
     }
 
-    for _, t in ipairs(tasks) do
+    if #bookTasks == 0 then
+        table.insert(items, {
+            text = _("ℹ️ Brak aktywnych książek w chmurze."),
+            callback = function() end,
+        })
+    end
+
+    for _, t in ipairs(bookTasks) do
         local formatIcon = (t.outputFormat == "cbz" or (t.outputEpubFilename and t.outputEpubFilename:match("%.cbz$"))) and "🎨 [CBZ] " or "📖 [EPUB] "
         
         -- Sprawdź czy plik jest już fizycznie pobrany na Kindle
@@ -1616,7 +1604,6 @@ function AIBooks:renderTasksMenu(tasks)
             or t.status == "translating" and ("⏳ Tłumaczenie (" .. (t.progress or 0) .. "%) - " .. (t.currentChapter or 0) .. "/" .. (t.totalChapters or 0))
             or t.status == "extracting" and "📄 Analiza treści..."
             or t.status == "packaging" and "📦 Pakowanie e-booka..."
-            or t.status == "failed" and "❌ Błąd"
             or "Oczekuje w kolejce..."
 
         local label = formatIcon .. t.title .. "\\n[" .. status_str .. "]"
@@ -1640,10 +1627,163 @@ function AIBooks:renderTasksMenu(tasks)
     })
 
     local menu = Menu:new{
-        title = _("Zadania w chmurze & Biblioteka:"),
+        title = _("📚 Zadania: Książki w chmurze (") .. #bookTasks .. _("):"),
         item_table = items,
     }
     UIManager:show(menu)
+end
+
+-- Zakładka 2: Osobna zakładka na błędy i nieudane zadania (oddzielone od książek)
+function AIBooks:renderErrorsSubmenu(tasks, bookTasks, failedTasks)
+    local items = {
+        {
+            text = _("📚 ⬅️ Przełącz na: Książki w chmurze (") .. #bookTasks .. _(")"),
+            callback = function() self:renderTasksMenu(tasks, "books") end,
+        },
+        {
+            text = _("🔄 Odśwież zadania z chmury"),
+            callback = function() self:showTasksList(true, "errors") end,
+        },
+    }
+
+    if #failedTasks > 0 then
+        table.insert(items, {
+            text = _("🗑️ Wyczyść wszystkie błędy z serwera (") .. #failedTasks .. _(")"),
+            callback = function() self:confirmClearAllFailed(failedTasks) end,
+        })
+
+        for _, t in ipairs(failedTasks) do
+            local errMsg = t.error or (t.logs and #t.logs > 0 and t.logs[#t.logs]) or "Niepowodzenie przetwarzania"
+            errMsg = errMsg:gsub("[\r\n]+", " "):sub(1, 40)
+            local label = "❌ " .. (t.title or "Zadanie"):sub(1, 32) .. "\\n[Błąd: " .. errMsg .. "]"
+
+            table.insert(items, {
+                text = label,
+                callback = function()
+                    self:showFailedTaskActionMenu(t)
+                end,
+            })
+        end
+    else
+        table.insert(items, {
+            text = _("✅ Brak błędów! Wszystkie zadania i książki działają poprawnie."),
+            callback = function() end,
+        })
+    end
+
+    table.insert(items, {
+        text = _("❌ Zamknij / Wróć"),
+        callback = function() end,
+    })
+
+    local menu = Menu:new{
+        title = _("⚠️ Zadania: Rejestr błędów (") .. #failedTasks .. _("):"),
+        item_table = items,
+    }
+    UIManager:show(menu)
+end
+
+-- Czyszczenie wszystkich błędów jednym kliknięciem
+function AIBooks:confirmClearAllFailed(failedTasks)
+    local confirm = ConfirmBox:new{
+        text = _("Czy na pewno chcesz usunąć wszystkie błędy (") .. #failedTasks .. _(") z biblioteki serwera chmurowego?"),
+        ok_text = _("Usuń błędy"),
+        cancel_text = _("Anuluj"),
+        ok_callback = function()
+            self:withNetwork(function()
+                local response_body = {}
+                local res, code = doHttpRequest{
+                    url = self.server_url .. "/api/koreader/tasks/clear-failed",
+                    method = "POST",
+                    headers = { ["Content-Type"] = "application/json" },
+                    sink = ltn12.sink.table(response_body),
+                }
+                self.cached_tasks = nil
+                if code == 200 then
+                    UIManager:show(InfoMessage:new{ text = _("✅ Wszystkie błędy zostały usunięte z serwera."), timeout = 2 })
+                else
+                    for _, ft in ipairs(failedTasks) do
+                        doHttpRequest{
+                            url = self.server_url .. "/api/koreader/tasks/" .. ft.id,
+                            method = "DELETE",
+                            sink = ltn12.sink.null(),
+                        }
+                    end
+                    UIManager:show(InfoMessage:new{ text = _("✅ Błędy usunięte."), timeout = 2 })
+                end
+                self:showTasksList(true, "errors")
+            end)
+        end,
+    }
+    UIManager:show(confirm)
+end
+
+-- Szczegółowe menu pojedynczego błędu z możliwością ponowienia lub usunięcia
+function AIBooks:showFailedTaskActionMenu(task)
+    local title = task.title or "Zadanie"
+    local errMsg = task.error or (task.logs and #task.logs > 0 and task.logs[#task.logs]) or "Wystąpił błąd podczas przetwarzania zadania."
+    local actionItems = {
+        {
+            text = _("📄 Szczegóły błędu:\\n") .. errMsg:sub(1, 90),
+            callback = function()
+                local logSummary = ""
+                if task.logs and #task.logs > 0 then
+                    logSummary = "\\n\\nOstatnie komunikaty:\\n" .. table.concat(task.logs, "\\n", math.max(1, #task.logs - 3), #task.logs)
+                end
+                UIManager:show(InfoMessage:new{
+                    text = _("Szczegóły błędu zadania:\\n\\n") .. title .. _("\\n\\nBłąd: ") .. errMsg .. logSummary,
+                })
+            end,
+        },
+        {
+            text = _("🔄 Spróbuj wznowić zadanie w chmurze"),
+            callback = function()
+                self:resumeServerTask(task)
+            end,
+        },
+        {
+            text = _("🗑️ Usuń ten błąd z serwera"),
+            callback = function()
+                self:deleteServerTask(task, function()
+                    self:showTasksList(true, "errors")
+                end)
+            end,
+        },
+        {
+            text = _("⬅️ Wróć do zakładki błędów"),
+            callback = function()
+                self:renderTasksMenu(self.cached_tasks or {}, "errors")
+            end,
+        },
+    }
+
+    local menu = Menu:new{
+        title = _("Błąd: ") .. title:sub(1, 30),
+        item_table = actionItems,
+    }
+    UIManager:show(menu)
+end
+
+-- Wznawianie zadania z błędem
+function AIBooks:resumeServerTask(task)
+    local info = InfoMessage:new{ text = _("Wznawianie zadania na serwerze..."), timeout = 1 }
+    UIManager:show(info)
+    self:withNetwork(function()
+        local response_body = {}
+        local res, code = doHttpRequest{
+            url = self.server_url .. "/api/koreader/tasks/" .. task.id .. "/resume",
+            method = "POST",
+            headers = { ["Content-Type"] = "application/json" },
+            sink = ltn12.sink.table(response_body),
+        }
+        UIManager:close(info)
+        if code == 200 then
+            UIManager:show(InfoMessage:new{ text = _("✅ Zadanie wznowione! Przejdź do zakładki 'Książki'.") })
+            self:showTasksList(true, "books")
+        else
+            UIManager:show(InfoMessage:new{ text = _("Nie udało się wznowić: ") .. (table.concat(response_body):sub(1, 80)) })
+        end
+    end)
 end
 
 -- Całkowicie asynchroniczne, nieblokujące pobieranie pliku na czytnik (NIGDY nie zawiesza KOReadera!)
@@ -1675,16 +1815,7 @@ function AIBooks:downloadTaskFileDirectly(task, dest_path)
         os.remove(stat_file)
 
         -- Uruchom proces curl/wget w TLE (&), dzięki czemu wątek UI KOReadera wraca NATYCHMIAST (w 3 ms)
-        local script = string.format(
-            'sh -c \'echo "RUNNING" > "%s"; ' ..
-            'if command -v curl >/dev/null 2>&1; then ' ..
-            '  curl -L -k -s -S --connect-timeout 10 -m 300 -H "bypass-tunnel-reminder: 1" -o "%s" "%s"; EC=$?; ' ..
-            'elif command -v wget >/dev/null 2>&1; then ' ..
-            '  wget -q --no-check-certificate --timeout=15 -t 3 --header="bypass-tunnel-reminder: 1" -O "%s" "%s"; EC=$?; ' ..
-            'else EC=127; fi; ' ..
-            'if [ $EC -eq 0 ] && [ -s "%s" ]; then ' ..
-            '  mv -f "%s" "%s"; echo "SUCCESS" > "%s"; ' ..
-            'else rm -f "%s"; echo "FAILED:$EC" > "%s"; fi\' & echo $! > "%s"',
+        local script = string.format([[sh -c 'echo "RUNNING" > "%s"; if command -v curl >/dev/null 2>&1; then curl -L -k -s -S --connect-timeout 10 -m 300 -H "bypass-tunnel-reminder: 1" -o "%s" "%s"; EC=$?; elif command -v wget >/dev/null 2>&1; then wget -q --no-check-certificate --timeout=15 -t 3 --header="bypass-tunnel-reminder: 1" -O "%s" "%s"; EC=$?; else EC=127; fi; if [ $EC -eq 0 ] && [ -s "%s" ]; then mv -f "%s" "%s"; echo "SUCCESS" > "%s"; else rm -f "%s"; echo "FAILED:$EC" > "%s"; fi' & echo $! > "%s"]],
             stat_file,
             part_dest, download_url,
             part_dest, download_url,
@@ -1776,7 +1907,7 @@ function AIBooks:downloadTaskFileDirectly(task, dest_path)
                     local pid = pf2:read("*line")
                     pf2:close()
                     if pid and pid:match("^%d+$") then
-                        os.execute("kill -9 " .. pid .. " 2>/dev/null")
+                        os.execute('kill -9 ' .. pid .. ' 2>/dev/null')
                     end
                 end
                 os.remove(pid_file)
@@ -1854,13 +1985,15 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
     table.insert(actionItems, {
         text = _("🗑️ Usuń pozycję z serwera chmurowego"),
         callback = function()
-            self:deleteServerTask(task)
+            self:deleteServerTask(task, function()
+                self:showTasksList(true, "books")
+            end)
         end,
     })
 
     table.insert(actionItems, {
         text = _("❌ Wróć"),
-        callback = function() self:showTasksList(false) end,
+        callback = function() self:renderTasksMenu(self.cached_tasks or {}, "books") end,
     })
 
     local menu = Menu:new{
@@ -1871,9 +2004,9 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
 end
 
 -- Usuwanie zadania / książki z serwera
-function AIBooks:deleteServerTask(task)
+function AIBooks:deleteServerTask(task, onDone)
     local confirm = ConfirmBox:new{
-        text = _("Czy na pewno chcesz usunąć:\\n'") .. (task.title or "książkę"):sub(1, 30) .. _("'\\nz biblioteki serwera chmurowego?"),
+        text = _("Czy na pewno chcesz usunąć:\\n'") .. (task.title or "pozycję"):sub(1, 30) .. _("'\\nz biblioteki serwera chmurowego?"),
         ok_text = _("Usuń"),
         cancel_text = _("Anuluj"),
         ok_callback = function()
@@ -1887,7 +2020,11 @@ function AIBooks:deleteServerTask(task)
                 if code == 200 then
                     self.cached_tasks = nil
                     UIManager:show(InfoMessage:new{ text = _("✅ Pozycja usunięta z serwera."), timeout = 2 })
-                    self:showTasksList(true)
+                    if onDone then
+                        onDone()
+                    else
+                        self:showTasksList(true, "books")
+                    end
                 else
                     self:handleHttpError(code, status)
                 end
@@ -2000,15 +2137,50 @@ export async function generatePluginZip(serverUrl: string): Promise<Buffer> {
   if (folder) {
     folder.file('_meta.lua', getMetaLua());
     folder.file('main.lua', getMainLua(serverUrl));
-    folder.file(
-      'README.txt',
-      `KOReader AI Book Cloud Plugin for Kindle 10
-Instalacja:
-1. Rozpakuj ten folder do: /koreader/plugins/aibooks.koplugin na czytniku Kindle.
-2. Zrestartuj KOReadera.
-3. W menu glownym (Narzędzia lub Lupka) albo przytrzymując plik PDF/EPUB wybierz "AI Książki, Komiksy i Tłumacz".
-`
-    );
+    const readmeContent = `======================================================================
+  Wtyczka KOReader AI Cloud dla czytnika Kindle 10 (aibooks.koplugin)
+======================================================================
+
+Twój serwer w chmurze (Vercel):
+• Adres serwera:   ${serverUrl}
+• Katalog OPDS:    ${serverUrl}/opds
+• Aplikacja WWW:   ${serverUrl}/
+
+----------------------------------------------------------------------
+1. INSTALACJA NA CZYTNIKU KINDLE:
+----------------------------------------------------------------------
+1. Podłącz czytnik Kindle kablem USB do komputera.
+2. Skopiuj cały folder "aibooks.koplugin" do katalogu:
+   /koreader/plugins/aibooks.koplugin/
+   (upewnij się, że pliki main.lua i _meta.lua znajdują się w tym folderze).
+3. Bezpiecznie odłącz Kindle i uruchom/zrestartuj KOReadera.
+4. W menu KOReadera (ikona Narzędzia/Książki lub Lupka) wybierz:
+   "AI Książki, Komiksy i Tłumacz".
+
+----------------------------------------------------------------------
+2. KATALOG OPDS (NAJWYGODNIEJSZE POBIERANIE W TLE BEZ ZAWIESZANIA):
+----------------------------------------------------------------------
+Wtyczka automatycznie rejestruje katalog OPDS w ustawieniach KOReadera!
+Możesz go również dodać ręcznie w każdej chwili:
+1. W KOReaderze kliknij ikonę wyszukiwania (Lupka).
+2. Wybierz "Katalogi OPDS" -> "+" (Dodaj katalog).
+3. Wpisz nazwę: "KOReader AI Cloud"
+4. Wpisz adres URL: ${serverUrl}/opds
+5. Gotowe! Książki dodane w chmurze lub aplikacji pojawią się natychmiast
+   i pobiorą się jednym kliknięciem bezpośrednio do pamięci Kindle.
+
+----------------------------------------------------------------------
+3. POBIERANIE BEZPOŚREDNIO Z APLIKACJI / TELEFONU:
+----------------------------------------------------------------------
+• Zeskanuj kod QR aparatem telefonu (w menu wtyczki kliknij "Kod QR")
+  lub wejdź na: ${serverUrl}/?mobile=1
+• Wyszukaj książkę, kliknij "Pobierz", a plik automatycznie trafi
+  do Twojej chmurowej biblioteki i katalogu OPDS czytnika.
+• Jeśli czytasz na telefonie, masz do dyspozycji inteligentnego lektora
+  z naturalnymi polskimi głosami (Marek / Zofia)!
+`;
+    folder.file('README.txt', readmeContent);
+    folder.file('README.md', readmeContent);
   }
 
   const uint8 = await zip.generateAsync({ type: 'uint8array' });

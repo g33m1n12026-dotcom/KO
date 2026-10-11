@@ -24,12 +24,18 @@ interface KindlePluginGuideProps {
 }
 
 export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl }) => {
-  // Compute default suggested URL (uses live app server URL)
-  const [selectedServerUrl, setSelectedServerUrl] = useState<string>(() => serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
+  // Default to user production server on Vercel
+  const [selectedServerUrl, setSelectedServerUrl] = useState<string>(() => {
+    if (serverUrl && !serverUrl.includes('ais-dev-') && !serverUrl.includes('localhost') && !serverUrl.includes('127.0.0.1')) {
+      return serverUrl;
+    }
+    return 'https://ko-kohl.vercel.app';
+  });
   const [activeCodeTab, setActiveCodeTab] = useState<'meta' | 'main'>('main');
   const [pluginCode, setPluginCode] = useState<{ metaLua: string; mainLua: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedOpds, setCopiedOpds] = useState(false);
   const [isGeneratingZip, setIsGeneratingZip] = useState(false);
 
   // Live Tunnel State
@@ -100,6 +106,12 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
     setTimeout(() => setCopiedUrl(false), 2000);
   };
 
+  const handleCopyOpds = () => {
+    navigator.clipboard.writeText(`${selectedServerUrl}/opds`);
+    setCopiedOpds(true);
+    setTimeout(() => setCopiedOpds(false), 2000);
+  };
+
   // Generowanie prawdziwego, binarnego ZIP bezpośrednio w pamięci przeglądarki (omija wszelkie filtry proxy)
   const handleDownloadZipClient = async () => {
     setIsGeneratingZip(true);
@@ -117,10 +129,49 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
       if (folder) {
         folder.file('_meta.lua', code.metaLua);
         folder.file('main.lua', code.mainLua);
-        folder.file(
-          'README.txt',
-          `KOReader AI Book Cloud Plugin for Kindle 10\n\nInstalacja:\n1. Skopiuj caly folder "aibooks.koplugin" do katalogu "koreader/plugins/" na czytniku Kindle.\n2. Pelna sciezka: /koreader/plugins/aibooks.koplugin/main.lua\n3. Zrestartuj KOReadera.\n4. W menu glownym lub po przytrzymaniu pliku PDF/EPUB wybierz "AI Ksiazki i Tlumacz".\n\nSkonfigurowany adres serwera:\n${selectedServerUrl}\n`
-        );
+        const readmeContent = `======================================================================
+  Wtyczka KOReader AI Cloud dla czytnika Kindle 10 (aibooks.koplugin)
+======================================================================
+
+Twój serwer w chmurze (Vercel):
+• Adres serwera:   ${selectedServerUrl}
+• Katalog OPDS:    ${selectedServerUrl}/opds
+• Aplikacja WWW:   ${selectedServerUrl}/
+
+----------------------------------------------------------------------
+1. INSTALACJA NA CZYTNIKU KINDLE:
+----------------------------------------------------------------------
+1. Podłącz czytnik Kindle kablem USB do komputera.
+2. Skopiuj cały folder "aibooks.koplugin" do katalogu:
+   /koreader/plugins/aibooks.koplugin/
+   (upewnij się, że pliki main.lua i _meta.lua znajdują się w tym folderze).
+3. Bezpiecznie odłącz Kindle i uruchom/zrestartuj KOReadera.
+4. W menu KOReadera (ikona Narzędzia/Książki lub Lupka) wybierz:
+   "AI Książki, Komiksy i Tłumacz".
+
+----------------------------------------------------------------------
+2. KATALOG OPDS (NAJWYGODNIEJSZE POBIERANIE W TLE BEZ ZAWIESZANIA):
+----------------------------------------------------------------------
+Wtyczka automatycznie rejestruje katalog OPDS w ustawieniach KOReadera!
+Możesz go również dodać ręcznie w każdej chwili:
+1. W KOReaderze kliknij ikonę wyszukiwania (Lupka).
+2. Wybierz "Katalogi OPDS" -> "+" (Dodaj katalog).
+3. Wpisz nazwę: "KOReader AI Cloud"
+4. Wpisz adres URL: ${selectedServerUrl}/opds
+5. Gotowe! Książki dodane w chmurze lub aplikacji pojawią się natychmiast
+   i pobiorą się jednym kliknięciem bezpośrednio do pamięci Kindle.
+
+----------------------------------------------------------------------
+3. POBIERANIE BEZPOŚREDNIO Z APLIKACJI / TELEFONU:
+----------------------------------------------------------------------
+• Zeskanuj kod QR aparatem telefonu lub wejdź na: ${selectedServerUrl}/?mobile=1
+• Wyszukaj książkę, kliknij "Pobierz", a plik automatycznie trafi
+  do Twojej chmurowej biblioteki i katalogu OPDS czytnika.
+• Jeśli czytasz na telefonie, masz do dyspozycji inteligentnego lektora
+  z naturalnymi polskimi głosami (Marek / Zofia)!
+`;
+        folder.file('README.txt', readmeContent);
+        folder.file('README.md', readmeContent);
       }
 
       const blob = await zip.generateAsync({
@@ -195,6 +246,9 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
             </p>
             <p className="text-xs text-emerald-800 leading-relaxed">
               <strong>Co zrobiliśmy?</strong> Wtyczka uruchamia teraz proces pobierania w <strong>asynchronicznym tle systemu Kindle</strong> (nieblokujący podproces z cyklicznym monitorowaniem <code>UIManager:scheduleIn</code>). Podczas pobierania możesz swobodnie czytać lub przeglądać menu, a gdy plik jest gotowy, czytnik natychmiast pyta, czy otworzyć książkę! Dodatkowo wtyczka automatycznie rejestruje wbudowany <strong>Katalog OPDS KOReadera</strong> (<code>/opds</code>).
+            </p>
+            <p className="text-xs text-emerald-950 font-medium leading-relaxed bg-white/60 p-2 rounded-lg border border-emerald-200/80">
+              📋 <strong>Nowy porządek w zadaniach:</strong> Błędy i nieudane zlecenia nie mieszają się już z Twoimi książkami! W menu <em>Zadania w toku</em> lista książek jest całkowicie czysta, a na błędy jest dedykowana osobna zakładka z opcją 1-klikowego wyczyszczenia wszystkich problematycznych zadań z serwera.
             </p>
           </div>
         </div>
@@ -279,6 +333,18 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
             <span className="text-[11px] text-stone-400 font-medium">Szybki wybór:</span>
             <button
               type="button"
+              onClick={() => setSelectedServerUrl('https://ko-kohl.vercel.app')}
+              className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 cursor-pointer ${
+                selectedServerUrl === 'https://ko-kohl.vercel.app'
+                  ? 'bg-stone-900 text-white border-stone-900 font-semibold shadow-xs'
+                  : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100 font-semibold'
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+              <span>☁️ Chmura Vercel (https://ko-kohl.vercel.app) [ZALECANY]</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setSelectedServerUrl(serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''))}
               className={`text-[11px] px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 cursor-pointer ${
                 selectedServerUrl === (serverUrl || (typeof window !== 'undefined' ? window.location.origin : ''))
@@ -313,6 +379,48 @@ export const KindlePluginGuide: React.FC<KindlePluginGuideProps> = ({ serverUrl 
             >
               📶 Domowe Wi-Fi (LAN)
             </button>
+          </div>
+        </div>
+
+        {/* Live QR Code & OPDS Direct Link for Kindle & Phone */}
+        <div className="pt-3 border-t border-stone-100">
+          <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
+            <div className="p-2.5 bg-white border border-stone-200 rounded-xl shrink-0 text-center shadow-2xs">
+              <img
+                src={`/api/qr.png?url=${encodeURIComponent(selectedServerUrl + '/?mobile=1')}`}
+                alt="Kod QR do aplikacji"
+                className="w-28 h-28 mx-auto rounded-lg"
+              />
+              <span className="text-[10px] text-stone-500 font-mono mt-1 block">Zeskanuj telefonem</span>
+            </div>
+
+            <div className="space-y-2 flex-1 w-full text-xs">
+              <div className="space-y-0.5">
+                <h4 className="font-bold text-stone-900 flex items-center gap-1.5 text-xs">
+                  <span>📱 Skanuj telefonem & Katalog OPDS dla czytnika Kindle</span>
+                </h4>
+                <p className="text-[11px] text-stone-600 leading-relaxed">
+                  Zeskanuj kod QR aparatem smartfona, aby otworzyć aplikację z wyszukiwarką książek. Książki dodane na telefonie trafiają natychmiast do chmury i katalogu OPDS czytnika!
+                </p>
+              </div>
+
+              <div className="p-2.5 bg-white border border-stone-200 rounded-lg space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-stone-700 text-[11px]">Adres katalogu OPDS (wpisz w KOReaderze):</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyOpds}
+                    className="px-2 py-0.5 text-[10px] rounded bg-stone-100 hover:bg-stone-200 text-stone-800 font-medium flex items-center gap-1 transition cursor-pointer"
+                  >
+                    {copiedOpds ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedOpds ? 'Skopiowano!' : 'Kopiuj'}</span>
+                  </button>
+                </div>
+                <code className="block p-1.5 bg-stone-50 rounded border border-stone-100 font-mono text-emerald-800 text-[11px] select-all break-all font-semibold">
+                  {selectedServerUrl}/opds
+                </code>
+              </div>
+            </div>
           </div>
         </div>
 

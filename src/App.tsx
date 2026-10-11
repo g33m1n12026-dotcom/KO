@@ -75,11 +75,24 @@ export default function App() {
     setJobs((prev) => [newJob, ...prev.filter((j) => j.id !== newJob.id)]);
     setSelectedJob(newJob);
     setActiveTab('library');
+    // Background sync to Vercel so Kindle sees it immediately in OPDS
+    if (!window.location.host.includes('ko-kohl.vercel.app')) {
+      fetch('https://ko-kohl.vercel.app/api/jobs/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobs: [newJob] }),
+      }).catch(() => {});
+    }
   };
 
   const handleDeleteJob = useCallback((jobId: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
     if (selectedJob?.id === jobId) setSelectedJob(null);
+    if (!window.location.host.includes('ko-kohl.vercel.app')) {
+      fetch(`https://ko-kohl.vercel.app/api/jobs/${encodeURIComponent(jobId)}`, {
+        method: 'DELETE',
+      }).catch(() => {});
+    }
   }, [selectedJob]);
 
   return (

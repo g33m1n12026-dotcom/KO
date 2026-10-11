@@ -66,7 +66,7 @@ Zwróć WYŁĄCZNIE poprawny, surowy obiekt JSON (bez markdown, bez znaczników 
   // 1. Try Gemini
   const gemini = getGemini();
   if (gemini) {
-    for (const model of ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash']) {
+    for (const model of ['gemini-3.8-flash', 'gemini-2.5-flash']) {
       try {
         const resp = await gemini.models.generateContent({
           model,
