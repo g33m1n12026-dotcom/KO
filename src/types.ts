@@ -3,9 +3,10 @@ export interface Job {
   title: string;
   sourceLang: string;
   targetLang: string;
-  engine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini';
+  engine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere';
   conversionMode?: 'translate' | 'epub_clean' | 'comic_cbz' | 'original';
   outputFormat?: 'epub' | 'cbz' | 'pdf' | 'mobi' | 'txt';
+  detailedFormat?: string; // e.g. "EPUB 3", "EPUB 2", "PDF", "MOBI", "CBZ (Komiks)"
   status: 'queued' | 'extracting' | 'translating' | 'packaging' | 'completed' | 'failed';
   progress: number; // 0 - 100
   totalChapters: number;
@@ -43,7 +44,7 @@ export interface StorybookRequest {
   chapterCount: number;
   targetAudience?: 'all' | 'adults' | 'young_adults' | 'children';
   includeIllustrations: boolean;
-  engine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini';
+  engine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere';
   author?: string;
 }
 

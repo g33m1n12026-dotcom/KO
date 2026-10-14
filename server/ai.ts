@@ -9,13 +9,17 @@ export interface TranslationOptions {
   sourceLang?: string;
   targetLang?: string;
   context?: string; // chapter title, book title, or glossary
-  preferredEngine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini';
+  preferredEngine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere';
 }
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
+const COHERE_KEY = process.env.COHERE_API_KEY || '';
+const LLM7_KEY = process.env.LLM7_API_KEY || '';
+const GROQ_KEY = process.env.GROQ_API_KEY || '';
+const MISTRAL_KEY = process.env.MISTRAL_API_KEY || '';
 
 // Lazy Google GenAI instance
 let geminiClient: GoogleGenAI | null = null;
@@ -32,6 +36,10 @@ const quotaExhausted = {
   openai: false,
   openrouter: false,
   gemini: false,
+  cohere: false,
+  llm7: false,
+  groq: false,
+  mistral: false,
 };
 
 export function getAvailableKeys() {
@@ -40,19 +48,27 @@ export function getAvailableKeys() {
     openai: Boolean(OPENAI_KEY && OPENAI_KEY.startsWith('sk-')),
     claude: Boolean(ANTHROPIC_KEY && ANTHROPIC_KEY.startsWith('sk-ant-')),
     gemini: Boolean(GEMINI_KEY),
+    cohere: Boolean(COHERE_KEY),
+    llm7: Boolean(LLM7_KEY),
+    groq: Boolean(GROQ_KEY),
+    mistral: Boolean(MISTRAL_KEY),
     quotaExhausted: { ...quotaExhausted },
   };
 }
 
-function getSortedEngines(preferred: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini'): Array<'claude' | 'openai' | 'openrouter' | 'gemini'> {
-  let base: Array<'claude' | 'openai' | 'openrouter' | 'gemini'> = [];
-  if (preferred === 'gemini') base = ['gemini', 'openrouter', 'claude', 'openai'];
-  else if (preferred === 'claude') base = ['claude', 'gemini', 'openrouter', 'openai'];
-  else if (preferred === 'openai') base = ['openai', 'gemini', 'openrouter', 'claude'];
-  else if (preferred === 'openrouter') base = ['openrouter', 'gemini', 'claude', 'openai'];
+function getSortedEngines(preferred: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral'): Array<'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral'> {
+  let base: Array<'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral'> = [];
+  if (preferred === 'groq') base = ['groq', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'mistral') base = ['mistral', 'groq', 'gemini', 'cohere', 'llm7', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'cohere') base = ['cohere', 'gemini', 'groq', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'llm7') base = ['llm7', 'cohere', 'groq', 'gemini', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'gemini') base = ['gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'claude') base = ['claude', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'openai'];
+  else if (preferred === 'openai') base = ['openai', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude'];
+  else if (preferred === 'openrouter') base = ['openrouter', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'claude', 'openai'];
   else {
-    // smart auto: prioritize available and healthy engines (Gemini & OpenRouter currently active)
-    base = ['gemini', 'openrouter', 'claude', 'openai'];
+    // smart auto: ultra-fast Groq (Qwen/Llama 27B) & Gemini 3.8 -> Cohere Command-R+ -> LLM7 DeepSeek -> Mistral
+    base = ['groq', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
   }
 
   // Sort so engines with quotaExhausted are tried last
@@ -179,6 +195,187 @@ async function translateWithOpenAI(prompt: string, text: string): Promise<string
 
   const data = await response.json();
   return data.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Call Cohere API (Command-R+ / Command-R) for high-quality literary translation
+ */
+async function translateWithCohere(prompt: string, text: string): Promise<string> {
+  const key = COHERE_KEY;
+  if (!key) throw new Error('Brak klucza Cohere API');
+
+  const models = ['command-r-plus-08-2024', 'command-r-08-2024'];
+  let lastError = '';
+
+  for (const model of models) {
+    try {
+      const response = await fetch('https://api.cohere.com/v2/chat', {
+        method: 'POST',
+        signal: AbortSignal.timeout(35000),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: `Przetłumacz ten fragment tekstu:\n\n${text}` },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.message?.content?.[0]?.text;
+        if (content && content.trim().length > 0) {
+          return content.trim();
+        }
+      } else {
+        lastError = await response.text();
+      }
+    } catch (e: any) {
+      lastError = e?.message || String(e);
+    }
+  }
+
+  throw new Error(`Błąd Cohere API: ${lastError}`);
+}
+
+/**
+ * Call LLM7 API using free-tier high speed models (DeepSeek-V4-Flash / GLM-5.3-Flash)
+ * 100 000 tokens / day, 250 req/h
+ */
+async function translateWithLlm7(prompt: string, text: string): Promise<string> {
+  const key = LLM7_KEY;
+  if (!key) throw new Error('Brak klucza LLM7 API');
+
+  const models = ['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'codestral-latest'];
+  let lastError = '';
+
+  for (const model of models) {
+    try {
+      const response = await fetch('https://api.llm7.io/v1/chat/completions', {
+        method: 'POST',
+        signal: AbortSignal.timeout(35000),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: `Przetłumacz ten fragment tekstu:\n\n${text}` },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (content && content.trim().length > 0) {
+          return content.trim();
+        }
+      } else {
+        lastError = await response.text();
+      }
+    } catch (e: any) {
+      lastError = e?.message || String(e);
+    }
+  }
+
+  throw new Error(`Błąd LLM7 API: ${lastError}`);
+}
+
+/**
+ * Call Groq API for ultra-fast translation (Qwen 3.8 27B / GPT-OSS 120B / LLaMA)
+ */
+async function translateWithGroq(prompt: string, text: string): Promise<string> {
+  const key = GROQ_KEY;
+  if (!key) throw new Error('Brak klucza Groq API');
+
+  const models = ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
+  let lastError = '';
+
+  for (const model of models) {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        signal: AbortSignal.timeout(25000),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: `Przetłumacz ten fragment tekstu:\n\n${text}` },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (content && content.trim().length > 0) {
+          return content.trim();
+        }
+      } else {
+        lastError = await response.text();
+      }
+    } catch (e: any) {
+      lastError = e?.message || String(e);
+    }
+  }
+
+  throw new Error(`Błąd Groq API: ${lastError}`);
+}
+
+/**
+ * Call Mistral AI API for translation (ministral-3b / ministral-14b / codestral)
+ */
+async function translateWithMistral(prompt: string, text: string): Promise<string> {
+  const key = MISTRAL_KEY;
+  if (!key) throw new Error('Brak klucza Mistral API');
+
+  const models = ['ministral-3b-latest', 'ministral-14b-latest', 'codestral-latest'];
+  let lastError = '';
+
+  for (const model of models) {
+    try {
+      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        signal: AbortSignal.timeout(30000),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: `Przetłumacz ten fragment tekstu:\n\n${text}` },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (content && content.trim().length > 0) {
+          return content.trim();
+        }
+      } else {
+        lastError = await response.text();
+      }
+    } catch (e: any) {
+      lastError = e?.message || String(e);
+    }
+  }
+
+  throw new Error(`Błąd Mistral API: ${lastError}`);
 }
 
 /**
@@ -337,10 +534,30 @@ export async function translateText(options: TranslationOptions): Promise<{ text
 
   for (const eng of order) {
     try {
-      if (eng === 'gemini' && GEMINI_KEY) {
+      if (eng === 'groq' && GROQ_KEY) {
+        const translated = await translateWithGroq(systemPrompt, text);
+        if (translated && translated.trim().length > 0) {
+          return { text: postProcessPolishKindle(translated), usedEngine: 'Groq (Qwen 27B / GPT-OSS 120B)' };
+        }
+      } else if (eng === 'gemini' && GEMINI_KEY) {
         const translated = await translateWithGemini(systemPrompt, text);
         if (translated && translated.trim().length > 0) {
-          return { text: postProcessPolishKindle(translated), usedEngine: 'Google Gemini 3.1 Flash' };
+          return { text: postProcessPolishKindle(translated), usedEngine: 'Google Gemini 3.8 Flash' };
+        }
+      } else if (eng === 'mistral' && MISTRAL_KEY) {
+        const translated = await translateWithMistral(systemPrompt, text);
+        if (translated && translated.trim().length > 0) {
+          return { text: postProcessPolishKindle(translated), usedEngine: 'Mistral (Ministral / Codestral)' };
+        }
+      } else if (eng === 'cohere' && COHERE_KEY) {
+        const translated = await translateWithCohere(systemPrompt, text);
+        if (translated && translated.trim().length > 0) {
+          return { text: postProcessPolishKindle(translated), usedEngine: 'Cohere (Command-R+)' };
+        }
+      } else if (eng === 'llm7' && LLM7_KEY) {
+        const translated = await translateWithLlm7(systemPrompt, text);
+        if (translated && translated.trim().length > 0) {
+          return { text: postProcessPolishKindle(translated), usedEngine: 'LLM7 (DeepSeek-V4-Flash)' };
         }
       } else if (eng === 'openrouter' && OPENROUTER_KEY) {
         const translated = await translateWithOpenRouter(systemPrompt, text);
@@ -461,6 +678,87 @@ Twoje zadanie:
               continue;
             }
             break;
+          }
+        }
+        if (rawJson) break;
+      } else if (eng === 'groq' && GROQ_KEY) {
+        for (const m of ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b']) {
+          try {
+            const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${GROQ_KEY}`,
+              },
+              body: JSON.stringify({
+                model: m,
+                response_format: { type: 'json_object' },
+                messages: [
+                  { role: 'user', content: `${prompt}\n\nPamiętaj: zwróć WYŁĄCZNIE poprawny JSON!` },
+                ],
+              }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              rawJson = data.choices?.[0]?.message?.content || '';
+              if (rawJson) break;
+            }
+          } catch (gErr: any) {
+            console.warn(`Groq (${m}) doradca notice:`, gErr?.message || gErr);
+          }
+        }
+        if (rawJson) break;
+      } else if (eng === 'cohere' && COHERE_KEY) {
+        for (const m of ['command-r-plus-08-2024', 'command-r-08-2024']) {
+          try {
+            const resp = await fetch('https://api.cohere.com/v2/chat', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${COHERE_KEY}`,
+              },
+              body: JSON.stringify({
+                model: m,
+                response_format: { type: 'json_object' },
+                messages: [
+                  { role: 'user', content: `${prompt}\n\nPamiętaj: zwróć WYŁĄCZNIE poprawny JSON!` },
+                ],
+              }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              rawJson = data.message?.content?.[0]?.text || '';
+              if (rawJson) break;
+            }
+          } catch (cErr: any) {
+            console.warn(`Cohere (${m}) doradca notice:`, cErr?.message || cErr);
+          }
+        }
+        if (rawJson) break;
+      } else if (eng === 'llm7' && LLM7_KEY) {
+        for (const m of ['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash']) {
+          try {
+            const resp = await fetch('https://api.llm7.io/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${LLM7_KEY}`,
+              },
+              body: JSON.stringify({
+                model: m,
+                response_format: { type: 'json_object' },
+                messages: [
+                  { role: 'user', content: `${prompt}\n\nPamiętaj: zwróć WYŁĄCZNIE poprawny JSON!` },
+                ],
+              }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              rawJson = data.choices?.[0]?.message?.content || '';
+              if (rawJson) break;
+            }
+          } catch (lErr: any) {
+            console.warn(`LLM7 (${m}) doradca notice:`, lErr?.message || lErr);
           }
         }
         if (rawJson) break;
@@ -754,7 +1052,51 @@ export async function getAIAssist(
 
   for (const eng of engines) {
     try {
-      if (eng === 'gemini' && GEMINI_KEY) {
+      if (eng === 'groq' && GROQ_KEY) {
+        try {
+          const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${GROQ_KEY}`,
+            },
+            body: JSON.stringify({
+              model: 'qwen/qwen3.8-27b',
+              messages: [{ role: 'user', content: userPrompt }],
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const textRes = data.choices?.[0]?.message?.content;
+            if (textRes) return textRes.trim();
+          }
+        } catch (gErr: any) {
+          console.warn('Groq assistant error:', gErr?.message || gErr);
+        }
+      } else if (eng === 'mistral' && MISTRAL_KEY) {
+        try {
+          const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${MISTRAL_KEY}`,
+            },
+            body: JSON.stringify({
+              model: 'ministral-3b-latest',
+              messages: [{ role: 'user', content: userPrompt }],
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const textRes = data.choices?.[0]?.message?.content;
+            if (textRes) return textRes.trim();
+          }
+        } catch (mErr: any) {
+          console.warn('Mistral assistant error:', mErr?.message || mErr);
+        }
+      } else if (eng === 'gemini' && GEMINI_KEY) {
         const ai = getGemini();
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
@@ -771,6 +1113,51 @@ export async function getAIAssist(
             }
             break;
           }
+        }
+      } else if (eng === 'cohere' && COHERE_KEY) {
+        try {
+          const resp = await fetch('https://api.cohere.com/v2/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${COHERE_KEY}`,
+            },
+            body: JSON.stringify({
+              model: 'command-r-plus-08-2024',
+              messages: [{ role: 'user', content: userPrompt }],
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const textRes = data.message?.content?.[0]?.text;
+            if (textRes) return textRes.trim();
+          }
+        } catch (cErr: any) {
+          console.warn('Cohere assistant error:', cErr?.message || cErr);
+        }
+      } else if (eng === 'llm7' && LLM7_KEY) {
+        try {
+          const resp = await fetch('https://api.llm7.io/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${LLM7_KEY}`,
+            },
+            body: JSON.stringify({
+              model: 'DeepSeek-V4-Flash-0731',
+              max_tokens: 1500,
+              messages: [{ role: 'user', content: userPrompt }],
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const textRes = data.choices?.[0]?.message?.content;
+            if (textRes) return textRes.trim();
+          }
+        } catch (lErr: any) {
+          console.warn('LLM7 assistant error:', lErr?.message || lErr);
         }
       } else if (eng === 'openrouter' && OPENROUTER_KEY) {
         const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {

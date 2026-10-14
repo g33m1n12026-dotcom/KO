@@ -106,6 +106,38 @@ export function saveJobsToDisk(): void {
   }
 }
 
+export async function detectFileDetailedFormat(filename?: string, buffer?: Buffer): Promise<string> {
+  if (!filename) return 'EPUB';
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'PDF';
+  if (lower.endsWith('.cbz') || lower.endsWith('.cbr')) return 'CBZ';
+  if (lower.endsWith('.mobi') || lower.endsWith('.azw') || lower.endsWith('.azw3')) return 'MOBI';
+  if (lower.endsWith('.txt')) return 'TXT';
+
+  if (lower.endsWith('.epub')) {
+    try {
+      const dataBuf = buffer || (fs.existsSync(path.join(EPUB_DIR, filename)) ? fs.readFileSync(path.join(EPUB_DIR, filename)) : (fs.existsSync(path.join(SEED_EPUB_DIR, filename)) ? fs.readFileSync(path.join(SEED_EPUB_DIR, filename)) : null));
+      if (dataBuf) {
+        const zip = await JSZip.loadAsync(dataBuf);
+        for (const name of Object.keys(zip.files)) {
+          if (name.endsWith('.opf')) {
+            const opf = await zip.files[name].async('text');
+            const vMatch = opf.match(/<package[^>]*version=["']([^"']+)["']/i);
+            if (vMatch && vMatch[1].startsWith('3')) {
+              return 'EPUB 3';
+            }
+            return 'EPUB 2';
+          }
+        }
+      }
+    } catch {}
+    return 'EPUB';
+  }
+
+  const extMatch = filename.match(/\.([a-z0-9]+)$/i);
+  return extMatch ? extMatch[1].toUpperCase() : 'EPUB';
+}
+
 function loadJobsFromDisk(): void {
   const filesToRead = [SEED_JOBS_FILE];
   if (JOBS_FILE !== SEED_JOBS_FILE && fs.existsSync(JOBS_FILE)) {
@@ -174,6 +206,12 @@ function loadJobsFromDisk(): void {
                   job.error = 'Plik źródłowy nie jest już dostępny na dysku serwera';
                 }
               }
+            }
+
+            if (job.status === 'completed' && job.outputEpubFilename && !job.detailedFormat) {
+              detectFileDetailedFormat(job.outputEpubFilename).then((fmt) => {
+                job.detailedFormat = fmt;
+              }).catch(() => {});
             }
 
             jobs.set(job.id, job);
@@ -581,6 +619,11 @@ export function createDirectFileJob(
     ],
   };
 
+  detectFileDetailedFormat(filename).then((df) => {
+    newJob.detailedFormat = df;
+    saveJobsToDisk();
+  }).catch(() => {});
+
   jobs.set(id, newJob);
   saveJobsToDisk();
   return newJob;
@@ -778,8 +821,9 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
         job.progress = 100;
         job.outputEpubFilename = outputFilename;
         job.outputFormat = ext.replace('.', '') as any;
+        job.detailedFormat = await detectFileDetailedFormat(outputFilename, targetBuffer);
         job.logs.push(
-          `[${new Date().toLocaleTimeString()}] SUKCES! Plik (${(targetBuffer.length / 1024).toFixed(1)} KB) został zapisany i jest gotowy w bibliotece oraz do wysłania na Kindle.`
+          `[${new Date().toLocaleTimeString()}] SUKCES! Plik (${(targetBuffer.length / 1024).toFixed(1)} KB, Format: ${job.detailedFormat}) został zapisany i jest gotowy w bibliotece oraz do wysłania na Kindle.`
         );
         job.updatedAt = Date.now();
         saveJobsToDisk();
@@ -805,6 +849,7 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
       job.progress = 100;
       job.outputEpubFilename = cbzFilename;
       job.outputFormat = 'cbz';
+      job.detailedFormat = 'CBZ';
       job.logs.push(
         `[${new Date().toLocaleTimeString()}] SUKCES! Gotowy zoptymalizowany komiks CBZ (${pageCount} stron). Plik otwiera się błyskawicznie w KOReaderze bez zacinania czytnika!`
       );
@@ -960,6 +1005,7 @@ async function packageJobInternal(
   job.progress = 100;
   job.outputEpubFilename = outputFilename;
   job.outputFormat = 'epub';
+  job.detailedFormat = 'EPUB 3';
   job.error = undefined;
   job.logs.push(`[${new Date().toLocaleTimeString()}] SUKCES! Plik ${outputFilename} jest gotowy do pobrania na Kindle.`);
   job.updatedAt = Date.now();
@@ -1046,4 +1092,167 @@ export function resumeJob(jobId: string): boolean {
   })();
 
   return true;
+}
+
+/**
+ * Re-converts an existing book in the library to a different requested format:
+ * - 'epub': Convert PDF/MOBI/TXT into standard lightweight reflowable EPUB 3
+ * - 'cbz': Convert PDF/scan into optimized comic archive CBZ
+ * - 'txt': Extract pure clean plain text
+ */
+export async function convertExistingJobToFormat(jobId: string, targetFormat: 'epub' | 'cbz' | 'txt'): Promise<Job> {
+  const job = jobs.get(jobId);
+  if (!job) {
+    throw new Error('Nie znaleziono książki o podanym ID.');
+  }
+
+  const existingFilename = job.outputEpubFilename;
+  if (!existingFilename) {
+    throw new Error('Książka nie posiada jeszcze zapisanego pliku źródłowego.');
+  }
+
+  const filePath = getEpubFilePath(existingFilename);
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error('Plik źródłowy nie istnieje na dysku.');
+  }
+
+  const fileBuffer = fs.readFileSync(filePath);
+  const safeTitle = sanitizeToAsciiFilename(job.title);
+  const now = Date.now();
+
+  if (targetFormat === 'cbz') {
+    job.logs.push(`[${new Date().toLocaleTimeString()}] Rozpoczęto dodatkową konwersję do formatu komiksowego (CBZ)...`);
+    const { filename: cbzFilename, buffer: cbzBuffer, pageCount } = await convertToCbz(fileBuffer, job.title);
+    const newPath = path.join(EPUB_DIR, cbzFilename);
+    fs.writeFileSync(newPath, cbzBuffer);
+
+    job.outputEpubFilename = cbzFilename;
+    job.outputFormat = 'cbz';
+    job.detailedFormat = 'CBZ';
+    job.originalSize = cbzBuffer.length;
+    job.updatedAt = now;
+    job.logs.push(`[${new Date().toLocaleTimeString()}] SUKCES! Utworzono komiks CBZ (${pageCount} stron, ${(cbzBuffer.length / 1024).toFixed(1)} KB).`);
+    saveJobsToDisk();
+    return job;
+  }
+
+  if (targetFormat === 'epub') {
+    job.logs.push(`[${new Date().toLocaleTimeString()}] Rozpoczęto dodatkową konwersję do czytnikowego EPUB 3...`);
+    const { title, author, chapters, coverImageBuffer } = await parseDocumentBuffer(fileBuffer, existingFilename);
+    if (!chapters || chapters.length === 0) {
+      throw new Error('Nie udało się wyodrębnić tekstu do utworzenia EPUB.');
+    }
+
+    job.chapters = chapters;
+    job.totalChapters = chapters.length;
+
+    for (const c of job.chapters) {
+      c.title = cleanHtmlEntitiesToUtf8(heuristicOcrProofread(c.title));
+      const clean = cleanHtmlEntitiesToUtf8(heuristicOcrProofread(c.originalText));
+      c.translatedText = clean
+        .replace(/ ([wzouiWZOUIA]) /g, ' $1\u00A0')
+        .replace(/>([wzouiWZOUIA]) /g, '>$1\u00A0');
+      c.status = 'completed';
+    }
+
+    const outputFilename = `${safeTitle}_epub3_${now}.epub`;
+    const outputPath = path.join(EPUB_DIR, outputFilename);
+
+    const epubBuffer = await generateEpubBuffer({
+      title: job.title,
+      author: author || job.author || 'Autor',
+      language: 'pl',
+      chapters: job.chapters,
+      coverImageBuffer,
+    });
+
+    fs.writeFileSync(outputPath, epubBuffer);
+
+    job.outputEpubFilename = outputFilename;
+    job.outputFormat = 'epub';
+    job.detailedFormat = 'EPUB 3';
+    job.originalSize = epubBuffer.length;
+    job.updatedAt = now;
+    job.logs.push(`[${new Date().toLocaleTimeString()}] SUKCES! Przekonwertowano do lekkiego EPUB 3 (${chapters.length} rozdziałów, ${(epubBuffer.length / 1024).toFixed(1)} KB).`);
+    saveJobsToDisk();
+    return job;
+  }
+
+  if (targetFormat === 'txt') {
+    job.logs.push(`[${new Date().toLocaleTimeString()}] Rozpoczęto ekstrakcję czystego tekstu (TXT)...`);
+    const { chapters } = await parseDocumentBuffer(fileBuffer, existingFilename);
+    let fullText = `${job.title}\n\n`;
+    for (const c of chapters) {
+      fullText += `=== ${c.title} ===\n\n${c.originalText.replace(/<[^>]+>/g, '')}\n\n`;
+    }
+
+    const txtFilename = `${safeTitle}_tekst_${now}.txt`;
+    const txtPath = path.join(EPUB_DIR, txtFilename);
+    const txtBuffer = Buffer.from(fullText, 'utf-8');
+    fs.writeFileSync(txtPath, txtBuffer);
+
+    job.outputEpubFilename = txtFilename;
+    job.outputFormat = 'txt';
+    job.detailedFormat = 'TXT';
+    job.originalSize = txtBuffer.length;
+    job.updatedAt = now;
+    job.logs.push(`[${new Date().toLocaleTimeString()}] SUKCES! Utworzono plik czystego tekstu TXT (${(txtBuffer.length / 1024).toFixed(1)} KB).`);
+    saveJobsToDisk();
+    return job;
+  }
+
+  throw new Error(`Nieobsługiwany format docelowy: ${targetFormat}`);
+}
+
+/**
+ * Extracts and formats chapters for the web reader for any book format (PDF, EPUB, MOBI, TXT)
+ */
+export async function extractChaptersForWebReader(jobId: string): Promise<{ title: string; chapters: Array<{ id: string; title: string; content: string }> }> {
+  const job = jobs.get(jobId);
+  if (!job) {
+    throw new Error('Nie znaleziono książki');
+  }
+
+  // 1. If job already has extracted chapters with text
+  if (job.chapters && job.chapters.length > 0) {
+    return {
+      title: job.title,
+      chapters: job.chapters.map((c, i) => ({
+        id: `ch_${i}`,
+        title: c.title || `Rozdział ${i + 1}`,
+        content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
+      })),
+    };
+  }
+
+  // 2. Read from file on disk (PDF, EPUB, MOBI, CBZ, TXT)
+  const existingFilename = job.outputEpubFilename;
+  if (!existingFilename) {
+    throw new Error('Książka nie posiada jeszcze pliku na serwerze.');
+  }
+
+  const filePath = getEpubFilePath(existingFilename);
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error('Plik nie został odnaleziony na dysku serwera.');
+  }
+
+  const fileBuffer = fs.readFileSync(filePath);
+  const parsed = await parseDocumentBuffer(fileBuffer, existingFilename);
+
+  if (parsed.chapters && parsed.chapters.length > 0) {
+    job.chapters = parsed.chapters;
+    job.totalChapters = parsed.chapters.length;
+    saveJobsToDisk();
+
+    return {
+      title: parsed.title || job.title,
+      chapters: parsed.chapters.map((c, i) => ({
+        id: `ch_${i}`,
+        title: c.title || `Rozdział ${i + 1}`,
+        content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
+      })),
+    };
+  }
+
+  throw new Error('Nie udało się wyodrębnić czytelnych rozdziałów z tego pliku.');
 }

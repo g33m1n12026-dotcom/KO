@@ -40,6 +40,22 @@ export interface AccountSettingsData {
   elevenlabs?: {
     apiKey?: string;
   };
+  cohere?: {
+    apiKey?: string;
+  };
+  llm7?: {
+    apiKey?: string;
+  };
+  groq?: {
+    apiKey?: string;
+  };
+  mistral?: {
+    apiKey?: string;
+  };
+  cloudflare?: {
+    accountId?: string;
+    apiToken?: string;
+  };
 }
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data');
@@ -135,6 +151,22 @@ export function loadSettings(): AccountSettingsData {
           },
           elevenlabs: {
             apiKey: parsed.elevenlabs?.apiKey ?? cachedSettings.elevenlabs?.apiKey ?? process.env.ELEVENLABS_API_KEY ?? '',
+          },
+          cohere: {
+            apiKey: parsed.cohere?.apiKey ?? cachedSettings.cohere?.apiKey ?? process.env.COHERE_API_KEY ?? '',
+          },
+          llm7: {
+            apiKey: parsed.llm7?.apiKey ?? cachedSettings.llm7?.apiKey ?? process.env.LLM7_API_KEY ?? '',
+          },
+          groq: {
+            apiKey: parsed.groq?.apiKey ?? cachedSettings.groq?.apiKey ?? process.env.GROQ_API_KEY ?? '',
+          },
+          mistral: {
+            apiKey: parsed.mistral?.apiKey ?? cachedSettings.mistral?.apiKey ?? process.env.MISTRAL_API_KEY ?? '',
+          },
+          cloudflare: {
+            accountId: parsed.cloudflare?.accountId ?? cachedSettings.cloudflare?.accountId ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
+            apiToken: parsed.cloudflare?.apiToken ?? cachedSettings.cloudflare?.apiToken ?? process.env.CLOUDFLARE_API_TOKEN ?? '',
           },
         };
       }
@@ -402,11 +434,17 @@ export function getPublicAccountStatus() {
       hasKey: Boolean(elKey),
       apiKeyMasked: elKey ? `${elKey.slice(0, 4)}...${elKey.slice(-4)}` : '',
     },
+    cohere: {
+      hasKey: Boolean(cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY),
+      apiKeyMasked: (cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY)
+        ? `${(cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY)!.slice(0, 4)}...${(cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY)!.slice(-4)}`
+        : '',
+    },
   };
 }
 
 export interface AccountTestResult {
-  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive' | 'elevenlabs';
+  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive' | 'elevenlabs' | 'cohere';
   name: string;
   ok: boolean;
   message: string;
@@ -611,6 +649,51 @@ export async function testAllAccounts(): Promise<AccountTestResult[]> {
       ok: false,
       message: 'Brak klucza API ElevenLabs (dostępne bezpłatne głosy studyjne Marek/Zofia).',
     });
+  }
+
+  // 7. Test Cohere Command-R+
+  const cohereKey = cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY || '';
+  if (cohereKey) {
+    const cStart = Date.now();
+    try {
+      const cRes = await fetch('https://api.cohere.com/v2/chat', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cohereKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'command-r-08-2024',
+          messages: [{ role: 'user', content: 'Ping' }],
+        }),
+        signal: AbortSignal.timeout(6000),
+      });
+      if (cRes.ok) {
+        results.push({
+          account: 'cohere',
+          name: 'Cohere AI (Command-R+ / Tłumacz & Doradca)',
+          ok: true,
+          message: 'Klucz aktywny (Command-R+ i Command-R gotowe do pracy).',
+          latencyMs: Date.now() - cStart,
+        });
+      } else {
+        results.push({
+          account: 'cohere',
+          name: 'Cohere AI (Command-R+ / Tłumacz & Doradca)',
+          ok: false,
+          message: `Błąd autoryzacji Cohere (HTTP ${cRes.status}).`,
+          latencyMs: Date.now() - cStart,
+        });
+      }
+    } catch (e: any) {
+      results.push({
+        account: 'cohere',
+        name: 'Cohere AI (Command-R+ / Tłumacz & Doradca)',
+        ok: false,
+        message: e.message || 'Błąd połączenia z Cohere',
+        latencyMs: Date.now() - cStart,
+      });
+    }
   }
 
   return results;

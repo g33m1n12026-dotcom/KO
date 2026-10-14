@@ -18,11 +18,12 @@ export default function App() {
     return 'search';
   });
   const [serverUrl, setServerUrl] = useState<string>(window.location.origin);
-  const [keysStatus, setKeysStatus] = useState<{ openrouter: boolean; openai: boolean; claude: boolean; gemini?: boolean }>({
+  const [keysStatus, setKeysStatus] = useState<{ openrouter: boolean; openai: boolean; claude: boolean; gemini?: boolean; cohere?: boolean }>({
     openrouter: true,
     openai: false,
     claude: false,
     gemini: true,
+    cohere: true,
   });
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -157,7 +158,7 @@ export default function App() {
             <span>Zoptymalizowany pod Kindle 10 (E-Ink & 512 MB RAM)</span>
           </div>
           <div className="flex items-center gap-3">
-            <span>Silniki: Claude 3.5 Sonnet, GPT-4o, OpenRouter</span>
+            <span>Silniki: Google Gemini 3.8 Flash, Cohere Command-R+, OpenRouter</span>
             <span>•</span>
             <a href="/opds" target="_blank" rel="noreferrer" className="underline hover:text-stone-800">
               Katalog OPDS

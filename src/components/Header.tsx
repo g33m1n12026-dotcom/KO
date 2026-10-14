@@ -6,7 +6,7 @@ interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   serverUrl: string;
-  keysStatus: { openrouter: boolean; openai: boolean; claude: boolean; gemini?: boolean };
+  keysStatus: { openrouter: boolean; openai: boolean; claude: boolean; gemini?: boolean; cohere?: boolean };
 }
 
 export const Header: React.FC<HeaderProps> = ({

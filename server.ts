@@ -33,6 +33,8 @@ import {
   saveJobsToDisk,
   resumeJob,
   packageJobNow,
+  convertExistingJobToFormat,
+  extractChaptersForWebReader,
   importJobs,
 } from './server/jobs';
 import { generateEpubBuffer, sanitizeToAsciiFilename } from './server/epub';
@@ -442,6 +444,16 @@ app.use(express.urlencoded({ extended: true }));
     res.json(job);
   });
 
+  app.get(['/api/jobs/:id/chapters', '/api/koreader/tasks/:id/chapters'], async (req, res) => {
+    try {
+      const data = await extractChaptersForWebReader(req.params.id);
+      res.json(data);
+    } catch (err: any) {
+      console.warn('Błąd ekstrakcji rozdziałów do czytnika web:', err.message);
+      res.status(500).json({ error: err.message || 'Nie udało się otworzyć pliku w czytniku' });
+    }
+  });
+
   app.post(['/api/jobs/:id/resume', '/api/koreader/tasks/:id/resume'], (req, res) => {
     const success = resumeJob(req.params.id);
     if (!success) {
@@ -456,6 +468,17 @@ app.use(express.urlencoded({ extended: true }));
       return res.status(404).json({ error: 'Nie można spakować zadania (brak rozdziałów)' });
     }
     res.json({ success: true, message: 'Zadanie zostało spakowane i jest gotowe do pobrania.' });
+  });
+
+  app.post(['/api/jobs/:id/convert', '/api/koreader/tasks/:id/convert'], async (req, res) => {
+    try {
+      const targetFormat = req.body.format || 'epub';
+      const updatedJob = await convertExistingJobToFormat(req.params.id, targetFormat);
+      res.json({ success: true, job: updatedJob, message: `Pomyślnie przekonwertowano książkę do formatu ${targetFormat.toUpperCase()}.` });
+    } catch (err: any) {
+      console.error('Błąd konwersji formatu książki:', err);
+      res.status(500).json({ error: err.message || 'Błąd konwersji formatu książki' });
+    }
   });
 
   app.delete(['/api/jobs/:id', '/api/koreader/tasks/:id'], (req, res) => {

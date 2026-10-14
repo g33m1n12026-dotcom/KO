@@ -140,6 +140,9 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   const [ttsLoading, setTtsLoading] = useState<boolean>(false);
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
   const [voiceModalTab, setVoiceModalTab] = useState<'neural' | 'gemini' | 'elevenlabs' | 'system'>('neural');
+  const [radioDramaMode, setRadioDramaMode] = useState<boolean>(
+    () => localStorage.getItem('koreader_radio_drama_mode') === 'true'
+  );
 
   const openVoiceModal = () => {
     setVoiceModalTab(ttsProvider);
@@ -718,12 +721,29 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       const contentType = res.headers.get('content-type') || '';
       const blob = await res.blob();
 
-      // Check if it's a PDF
+      // Check if it's a PDF or plain text
       if (
         contentType.includes('application/pdf') ||
         job.outputFormat === 'pdf' ||
         job.outputEpubFilename?.toLowerCase().endsWith('.pdf')
       ) {
+        try {
+          const chResp = await fetch(`/api/jobs/${job.id}/chapters`);
+          if (chResp.ok) {
+            const chData = await chResp.json();
+            if (chData.chapters && chData.chapters.length > 0) {
+              setChapters(chData.chapters);
+              const safeCh = Math.min(savedChapterIdx, Math.max(0, chData.chapters.length - 1));
+              setCurrentChapterIdx(safeCh);
+              setCurrentParagraphIdx(savedParagraphIdx);
+              return;
+            }
+          }
+        } catch (pdfErr) {
+          console.warn('Nie udało się pobrać rozdziałów PDF:', pdfErr);
+        }
+
+        // If extraction hasn't completed yet, show PDF notice with one-click conversion button
         setChapters([
           {
             id: 'pdf_notice',
@@ -733,7 +753,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <div style="font-size: 3rem; margin-bottom: 1rem;">📄</div>
                 <h2 style="font-size: 1.25rem; font-weight: bold; margin-bottom: 0.5rem; color: #1c1917;">Dokument PDF: ${job.title}</h2>
                 <p style="color: #78716c; margin-bottom: 1.5rem; font-size: 0.875rem; max-width: 480px; margin-left: auto; margin-right: auto;">
-                  Ten plik został zapisany w formacie PDF. Możesz go pobrać bezpośrednio na dysk komputera lub przesłać na czytnik Kindle za pomocą zakładki <em>Pilot Kindle</em>.
+                  Ten plik został zapisany w formacie PDF. Możesz go czytać po automatycznej konwersji do EPUB lub pobrać bezpośrednio na urządzenie.
                 </p>
                 <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
                   <a href="/api/download/${job.id}" download="${job.outputEpubFilename || 'dokument.pdf'}" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.625rem 1.25rem; background: #1c1917; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 500; font-size: 0.875rem;">
@@ -1170,6 +1190,26 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           : 'pl-PL-MarekNeural';
         setTtsNotification('💡 ElevenLabs wymaga klucza API — odtwarzam bezpłatnym Lektorem Studyjnym (Marek/Zofia).');
         setTimeout(() => setTtsNotification(null), 4000);
+      }
+
+      // Słuchowisko radiowe (Radio Drama Mode):
+      // Inteligentny podział na role: narrator męski (Marek) / kwestie dialogowe i żeńskie (Zofia)
+      if (radioDramaMode && effProvider === 'neural') {
+        const isDialogue = /^[\-—–„"«]/.test(paragraphText.trim()) || /["»”]/.test(paragraphText.trim());
+        const isFeminineDialogue = isDialogue && /\b(powiedziała|odparła|szepnęła|krzyknęła|zapytała|westchnęła|zawołała|rzekła|stwierdziła|ona|dziewczyna|kobieta|matka|siostra)\b/i.test(paragraphText);
+        const isMasculineDialogue = isDialogue && /\b(powiedział|odparł|szepnął|krzyknął|zapytał|westchnął|zawołał|rzekł|stwierdził|on|chłopak|mężczyzna|ojciec|brat)\b/i.test(paragraphText);
+
+        if (isFeminineDialogue) {
+          effVoice = 'pl-PL-ZofiaNeural';
+        } else if (isMasculineDialogue) {
+          effVoice = 'pl-PL-MarekNeural';
+        } else if (isDialogue) {
+          // Naprzemienny lub wyróżniony głos dialogowy
+          effVoice = activeVoice === 'pl-PL-MarekNeural' ? 'pl-PL-ZofiaNeural' : 'pl-PL-MarekNeural';
+        } else {
+          // Główny narrator
+          effVoice = activeVoice;
+        }
       }
 
       let audioUrl = prefetchCacheRef.current[pIdx];
@@ -1615,6 +1655,32 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                   {getVoiceDisplayName(ttsVoice, ttsProvider)}
                 </span>
                 <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
+              </button>
+
+              {/* Radio Drama Mode (Słuchowisko wielogłosowe) */}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !radioDramaMode;
+                  setRadioDramaMode(nextVal);
+                  localStorage.setItem('koreader_radio_drama_mode', String(nextVal));
+                  prefetchCacheRef.current = {};
+                  setTtsNotification(
+                    nextVal
+                      ? '🎭 Tryb Słuchowiska WŁĄCZONY! Dialogi i role kobiece czyta Zofia, a narrację i role męskie Marek.'
+                      : '🎙️ Tryb Słuchowiska wyłączony (czyta pojedynczy lektor).'
+                  );
+                  setTimeout(() => setTtsNotification(null), 4500);
+                }}
+                className={`px-2 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  radioDramaMode
+                    ? 'bg-indigo-700 text-white border-indigo-700 shadow-xs'
+                    : 'border-current/20 hover:bg-black/5 dark:hover:bg-white/5 opacity-80'
+                }`}
+                title="Słuchowisko radiowe: inteligentny podział na role męskie (Marek) i żeńskie/dialogowe (Zofia)"
+              >
+                <span>🎭</span>
+                <span className="hidden md:inline">Słuchowisko</span>
               </button>
 
               {/* Fullscreen Mode Button */}

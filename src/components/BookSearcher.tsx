@@ -205,7 +205,43 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
         if (searchResp.ok) {
           const searchData: any = await searchResp.json();
           const searchList: BookSearchResult[] = Array.isArray(searchData) ? searchData : searchData.results || [];
-          const matchWithDl = searchList.find((b) => !!b.downloadUrl);
+          
+          const targetAuthor = (item.author || '').toLowerCase().trim();
+          const authorTokens = targetAuthor.split(/\s+/).filter((w) => w.length > 2);
+          const authorSurname = authorTokens.length > 0 ? authorTokens[authorTokens.length - 1] : '';
+
+          // 1. First priority: matches author surname + has downloadUrl + is EPUB/MOBI
+          let matchWithDl = searchList.find((b) => {
+            if (!b.downloadUrl) return false;
+            const bAuthor = (b.author || '').toLowerCase();
+            const authorMatches = authorSurname ? bAuthor.includes(authorSurname) : true;
+            const fmt = (b.format || '').toUpperCase();
+            return authorMatches && (fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3');
+          });
+
+          // 2. Second priority: matches author surname + has downloadUrl (any format)
+          if (!matchWithDl && authorSurname) {
+            matchWithDl = searchList.find((b) => {
+              if (!b.downloadUrl) return false;
+              const bAuthor = (b.author || '').toLowerCase();
+              return bAuthor.includes(authorSurname);
+            });
+          }
+
+          // 3. Third priority: exact title match + EPUB/MOBI
+          if (!matchWithDl) {
+            matchWithDl = searchList.find((b) => {
+              if (!b.downloadUrl) return false;
+              const fmt = (b.format || '').toUpperCase();
+              return fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3';
+            });
+          }
+
+          // 4. Fallback: any file with downloadUrl
+          if (!matchWithDl) {
+            matchWithDl = searchList.find((b) => !!b.downloadUrl);
+          }
+
           if (matchWithDl && matchWithDl.downloadUrl) {
             downloadUrl = matchWithDl.downloadUrl;
           }
@@ -579,8 +615,14 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                           <span>Kopiuj</span>
                         </button>
                         {rec.downloadUrl && (
-                          <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            Plik gotowy w mirrorze
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                            rec.downloadFormat === 'EPUB'
+                              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                              : rec.downloadFormat === 'PDF'
+                              ? 'bg-stone-100 text-stone-800 border-stone-300'
+                              : 'bg-teal-50 text-teal-900 border-teal-300'
+                          }`}>
+                            Plik {rec.downloadFormat || 'EPUB'} w repozytorium
                           </span>
                         )}
                       </div>
@@ -1220,9 +1262,9 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
 
                                   if (isComic) {
                                     return (
-                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 flex items-center gap-1 shadow-2xs">
+                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-900 border border-indigo-200 flex items-center gap-1 shadow-2xs">
                                         <span>🎨</span>
-                                        <span>Komiks / Manga (Graficzny)</span>
+                                        <span>Komiks / Manga (CBZ)</span>
                                       </span>
                                     );
                                   }
@@ -1230,27 +1272,40 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                     return (
                                       <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs">
                                         <span>📦</span>
-                                        <span>Paczka ZIP (Wielopak wydań)</span>
+                                        <span>Paczka wydań (ZIP)</span>
                                       </span>
                                     );
                                   }
-                                  if (isTextEpub) {
+                                  if (item.format === 'EPUB') {
                                     return (
-                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
-                                        <span>📚</span>
-                                        <span>Książka tekstowa (EPUB/MOBI)</span>
+                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                                        <span>📖</span>
+                                        <span>E-book tekstowy (EPUB)</span>
+                                      </span>
+                                    );
+                                  }
+                                  if (item.format === 'MOBI' || item.format === 'AZW3') {
+                                    return (
+                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-teal-50 text-teal-900 border border-teal-300 flex items-center gap-1 shadow-2xs">
+                                        <span>📱</span>
+                                        <span>Format Kindle ({item.format})</span>
                                       </span>
                                     );
                                   }
                                   if (isPdfDoc) {
                                     return (
-                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-300 flex items-center gap-1 shadow-2xs">
+                                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-800 border border-stone-300 flex items-center gap-1 shadow-2xs">
                                         <span>📄</span>
-                                        <span>Dokument PDF / Skan</span>
+                                        <span>Dokument PDF (stały układ)</span>
                                       </span>
                                     );
                                   }
-                                  return null;
+                                  return (
+                                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200 flex items-center gap-1 shadow-2xs">
+                                      <span>📑</span>
+                                      <span>Format {item.format || 'Tekst'}</span>
+                                    </span>
+                                  );
                                 })()}
 
                                 {item.qualityBadge && (

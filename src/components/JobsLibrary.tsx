@@ -32,17 +32,29 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
     }
   };
 
-  const handlePackageNow = async (id: string) => {
-    setActionLoadingId(id);
+  const [convertingJobId, setConvertingJobId] = useState<string | null>(null);
+  const [conversionSuccessMsg, setConversionSuccessMsg] = useState<string | null>(null);
+
+  const handleConvertFormat = async (id: string, targetFormat: 'epub' | 'cbz' | 'txt') => {
+    setConvertingJobId(`${id}_${targetFormat}`);
     try {
-      const res = await fetch(`/api/jobs/${id}/package-now`, { method: 'POST' });
+      const res = await fetch(`/api/jobs/${id}/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: targetFormat }),
+      });
       if (res.ok) {
+        setConversionSuccessMsg(`Pomyślnie przekonwertowano do formatu ${targetFormat.toUpperCase()}!`);
+        setTimeout(() => setConversionSuccessMsg(null), 4000);
         onRefresh();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Nie udało się przekonwertować pliku');
       }
-    } catch (e) {
-      console.error('Błąd pakowania:', e);
+    } catch (e: any) {
+      alert('Błąd konwersji: ' + (e.message || 'Brak połączenia'));
     } finally {
-      setActionLoadingId(null);
+      setConvertingJobId(null);
     }
   };
 
@@ -399,9 +411,49 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                     <h4 className="font-semibold text-stone-900 text-sm leading-snug">
                       {job.title}
                     </h4>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">
-                      {job.sourceType === 'storybook' ? '✨ E-BOOK AI' : job.outputFormat === 'cbz' ? 'CBZ KOMIKS' : 'EPUB 3 PL'}
-                    </span>
+                    {(() => {
+                      const ext = (job.outputEpubFilename || '').toLowerCase();
+                      const formatLabel = job.detailedFormat 
+                        ? job.detailedFormat 
+                        : ext.endsWith('.pdf') 
+                        ? 'PDF' 
+                        : ext.endsWith('.cbz') 
+                        ? 'CBZ' 
+                        : ext.endsWith('.mobi') 
+                        ? 'MOBI' 
+                        : ext.endsWith('.txt') 
+                        ? 'TXT' 
+                        : 'EPUB';
+
+                      const isPdf = formatLabel.includes('PDF');
+                      const isEpub3 = formatLabel === 'EPUB 3';
+                      const isEpub2 = formatLabel === 'EPUB 2';
+                      const isCbz = formatLabel.includes('CBZ');
+                      const isMobi = formatLabel.includes('MOBI');
+
+                      return (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-2xs border ${
+                              isEpub3
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : isEpub2
+                                ? 'bg-teal-100 text-teal-900 border-teal-300'
+                                : isPdf
+                                ? 'bg-stone-200 text-stone-800 border-stone-300'
+                                : isCbz
+                                ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                                : isMobi
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            }`}
+                            title={`Dokładny format pliku: ${formatLabel}`}
+                          >
+                            {job.sourceType === 'storybook' ? '✨ E-BOOK AI' : formatLabel}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <p className="text-xs text-stone-500">
@@ -435,6 +487,56 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                       </button>
                     )}
 
+                    {/* Format Conversion dropdown / quick button */}
+                    <div className="relative group">
+                      <button
+                        type="button"
+                        className="px-2.5 py-1.5 rounded-lg border border-stone-200 hover:border-amber-400 bg-stone-50 hover:bg-amber-50 text-stone-700 hover:text-amber-950 text-xs font-medium flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                        title="Dodatkowe narzędzia: Przerób ten plik na inny format (EPUB 3 / CBZ Komiks / TXT)"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${convertingJobId?.startsWith(job.id) ? 'animate-spin text-amber-600' : 'text-stone-500'}`} />
+                        <span>Konwertuj</span>
+                      </button>
+                      <div className="hidden group-hover:flex group-focus-within:flex flex-col absolute right-0 bottom-full mb-1 bg-white border border-stone-200 rounded-xl shadow-lg p-1.5 z-30 min-w-[190px] animate-fadeIn">
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider px-2 py-1">
+                          Przerób format na:
+                        </span>
+                        {(!job.detailedFormat?.includes('EPUB 3')) && (
+                          <button
+                            type="button"
+                            onClick={() => handleConvertFormat(job.id, 'epub')}
+                            disabled={convertingJobId === `${job.id}_epub`}
+                            className="px-2.5 py-1.5 rounded-lg text-left text-xs text-stone-700 hover:bg-emerald-50 hover:text-emerald-900 flex items-center justify-between transition cursor-pointer"
+                          >
+                            <span>📖 Czytnikowy EPUB 3</span>
+                            {convertingJobId === `${job.id}_epub` && <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />}
+                          </button>
+                        )}
+                        {(!job.detailedFormat?.includes('CBZ')) && (
+                          <button
+                            type="button"
+                            onClick={() => handleConvertFormat(job.id, 'cbz')}
+                            disabled={convertingJobId === `${job.id}_cbz`}
+                            className="px-2.5 py-1.5 rounded-lg text-left text-xs text-stone-700 hover:bg-indigo-50 hover:text-indigo-900 flex items-center justify-between transition cursor-pointer"
+                          >
+                            <span>🎨 Komiks / Manga (CBZ)</span>
+                            {convertingJobId === `${job.id}_cbz` && <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />}
+                          </button>
+                        )}
+                        {(!job.detailedFormat?.includes('TXT')) && (
+                          <button
+                            type="button"
+                            onClick={() => handleConvertFormat(job.id, 'txt')}
+                            disabled={convertingJobId === `${job.id}_txt`}
+                            className="px-2.5 py-1.5 rounded-lg text-left text-xs text-stone-700 hover:bg-stone-100 flex items-center justify-between transition cursor-pointer"
+                          >
+                            <span>📄 Czysty tekst (TXT)</span>
+                            {convertingJobId === `${job.id}_txt` && <Loader2 className="w-3 h-3 animate-spin text-stone-600" />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     <button
                       type="button"
                       onClick={async () => {
@@ -458,10 +560,12 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                           alert('Błąd podczas pobierania: ' + (e.message || 'Brak połączenia'));
                         }
                       }}
-                      className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Pobierz EPUB</span>
+                      <span>
+                        Pobierz {job.outputFormat ? job.outputFormat.toUpperCase() : 'PLIK'}
+                      </span>
                     </button>
 
                     <button

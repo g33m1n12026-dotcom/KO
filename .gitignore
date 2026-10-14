@@ -8,8 +8,20 @@ coverage/
 !.env.example
 data/tts_cache/
 data/cache/
+data/epubs/
+data/settings.json
+data/jobs.json
+data/deleted_jobs.json
 tmp/
 *.mp3
+*.wav
+*.pdf
+*.epub
+*.cbz
+*.mobi
+*.cbr
+*.apk
+public/download/
 .aistudio/
 
 .vercel

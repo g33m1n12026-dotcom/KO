@@ -30,11 +30,20 @@ async function callAiText(systemPrompt: string, userPrompt: string, engine: stri
   const openrouterKey = process.env.OPENROUTER_API_KEY || '';
   const openaiKey = process.env.OPENAI_API_KEY || '';
   const anthropicKey = process.env.ANTHROPIC_API_KEY || '';
+  const cohereKey = process.env.COHERE_API_KEY || '';
+  const llm7Key = process.env.LLM7_API_KEY || '';
 
-  const providers = engine === 'claude' ? ['claude', 'gemini', 'openrouter']
-    : engine === 'openai' ? ['openai', 'gemini', 'openrouter']
-    : engine === 'openrouter' ? ['openrouter', 'gemini', 'claude']
-    : ['gemini', 'openrouter', 'claude', 'openai'];
+  const groqKey = process.env.GROQ_API_KEY || '';
+  const mistralKey = process.env.MISTRAL_API_KEY || '';
+
+  const providers = engine === 'groq' ? ['groq', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter']
+    : engine === 'mistral' ? ['mistral', 'groq', 'gemini', 'cohere', 'llm7', 'openrouter']
+    : engine === 'cohere' ? ['cohere', 'gemini', 'groq', 'llm7', 'mistral', 'openrouter']
+    : engine === 'llm7' ? ['llm7', 'groq', 'cohere', 'gemini', 'mistral', 'openrouter']
+    : engine === 'claude' ? ['claude', 'gemini', 'groq', 'cohere', 'llm7', 'openrouter']
+    : engine === 'openai' ? ['openai', 'gemini', 'groq', 'cohere', 'llm7', 'openrouter']
+    : engine === 'openrouter' ? ['openrouter', 'gemini', 'groq', 'cohere', 'llm7', 'claude']
+    : ['groq', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
 
   let lastErr = '';
 
@@ -64,7 +73,126 @@ async function callAiText(systemPrompt: string, userPrompt: string, engine: stri
     }
   }
 
-  // 2. Try OpenRouter if configured
+  // 2. Try Cohere Command-R+ if configured
+  if (cohereKey) {
+    for (const m of ['command-r-plus-08-2024', 'command-r-08-2024']) {
+      try {
+        const res = await fetch('https://api.cohere.com/v2/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cohereKey}`,
+          },
+          body: JSON.stringify({
+            model: m,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.message?.content?.[0]?.text?.trim();
+          if (text) return text;
+        }
+      } catch (e: any) {
+        lastErr = e?.message || String(e);
+      }
+    }
+  }
+
+  // 3. Try LLM7 free models if configured
+  if (llm7Key) {
+    for (const m of ['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash']) {
+      try {
+        const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${llm7Key}`,
+          },
+          body: JSON.stringify({
+            model: m,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            max_tokens: 3000,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
+          if (text) return text;
+        }
+      } catch (e: any) {
+        lastErr = e?.message || String(e);
+      }
+    }
+  }
+
+  // 4. Try Groq ultra-fast LLaMA/Qwen
+  if (groqKey) {
+    for (const m of ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b']) {
+      try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: m,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            max_tokens: 3000,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
+          if (text) return text;
+        }
+      } catch (e: any) {
+        lastErr = e?.message || String(e);
+      }
+    }
+  }
+
+  // 5. Try Mistral if configured
+  if (mistralKey) {
+    for (const m of ['ministral-3b-latest', 'ministral-14b-latest']) {
+      try {
+        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${mistralKey}`,
+          },
+          body: JSON.stringify({
+            model: m,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            max_tokens: 3000,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
+          if (text) return text;
+        }
+      } catch (e: any) {
+        lastErr = e?.message || String(e);
+      }
+    }
+  }
+
+  // 6. Try OpenRouter if configured
   if (openrouterKey) {
     try {
       const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
