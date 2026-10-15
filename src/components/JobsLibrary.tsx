@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X, Smartphone, UploadCloud, RotateCcw } from 'lucide-react';
+import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X, Smartphone, UploadCloud, RotateCcw, LayoutGrid, LayoutList } from 'lucide-react';
 import { Job } from '../types';
 
 interface JobsLibraryProps {
@@ -210,6 +210,22 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
     (j) => j.status === 'failed' && !completedTitles.has(j.title.toLowerCase().replace(/[^a-z0-9]/g, ''))
   );
 
+  const [libraryTab, setLibraryTab] = useState<'books' | 'active' | 'errors'>('books');
+  const [bookViewMode, setBookViewMode] = useState<'grid' | 'list'>(() => {
+    try {
+      return (localStorage.getItem('koreader_library_view_mode') as 'grid' | 'list') || 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+
+  const handleSetBookViewMode = (mode: 'grid' | 'list') => {
+    setBookViewMode(mode);
+    try {
+      localStorage.setItem('koreader_library_view_mode', mode);
+    } catch {}
+  };
+
   return (
     <div className="space-y-6">
       {/* Header bar */}
@@ -303,110 +319,263 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
         </div>
       )}
 
-      {/* Active Jobs Section */}
-      {activeJobs.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-2 px-1">
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            Przetwarzane w toku ({activeJobs.length})
-          </h3>
+      {/* Library View Switcher & Sub-tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-3">
+        <div className="flex items-center gap-1.5 p-1 bg-stone-100 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setLibraryTab('books')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              libraryTab === 'books'
+                ? 'bg-white text-stone-900 shadow-xs'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Gotowe książki ({completedJobs.length})</span>
+          </button>
 
-          <div className="space-y-3">
-            {activeJobs.map((job) => (
-              <div
-                key={job.id}
-                className="bg-white border border-amber-200/90 rounded-xl p-4 shadow-2xs space-y-3"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-semibold text-stone-900 text-sm">{job.title}</h4>
-                      {job.sourceType === 'storybook' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                          ✨ Książka na życzenie
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-stone-500">
-                      Silnik: <strong>{job.engine}</strong> • {job.sourceType === 'storybook' ? 'Tworzenie e-booka' : `Język docelowy: ${job.targetLang}`} • ID: <code className="font-mono text-[10px]">{job.id}</code>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
-                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900">
-                      {job.sourceType === 'storybook' ? (
-                        job.status === 'extracting' ? 'Planowanie fabuły...' :
-                        job.status === 'translating' ? `Pisanie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
-                        job.status === 'packaging' ? 'Generowanie rycin i EPUB...' :
-                        'Oczekuje w kolejce'
-                      ) : (
-                        job.status === 'extracting' ? 'Ekstrakcja tekstu...' :
-                        job.status === 'translating' ? `Tłumaczenie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
-                        job.status === 'packaging' ? 'Tworzenie EPUB...' :
-                        'Oczekuje w kolejce'
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      title="Anuluj i usuń zadanie"
-                      disabled={deletingId === job.id}
-                      onClick={() => setConfirmDeleteJob({ id: job.id, title: job.title })}
-                      className="p-1 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 border border-stone-200 transition active:scale-90 cursor-pointer"
-                    >
-                      {deletingId === job.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
+          <button
+            type="button"
+            onClick={() => setLibraryTab('active')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              libraryTab === 'active'
+                ? 'bg-white text-stone-900 shadow-xs'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${activeJobs.length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-stone-300'}`} />
+            <span>W toku ({activeJobs.length})</span>
+          </button>
 
-                {/* Progress bar */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-stone-600 font-medium">
-                    <span>Postęp</span>
-                    <span>{job.progress}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-amber-500 transition-all duration-500 rounded-full"
-                      style={{ width: `${Math.max(5, job.progress)}%` }}
-                    />
-                  </div>
-                </div>
+          {failedJobs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setLibraryTab('errors')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                libraryTab === 'errors'
+                  ? 'bg-rose-50 text-rose-900 border border-rose-200 shadow-xs'
+                  : 'text-rose-600 hover:text-rose-900'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              <span>Błędy ({failedJobs.length})</span>
+            </button>
+          )}
+        </div>
 
-                {/* Latest log */}
-                {job.logs && job.logs.length > 0 && (
-                  <div className="bg-stone-50 rounded-lg p-2 font-mono text-[11px] text-stone-600 truncate border border-stone-100">
-                    {job.logs[job.logs.length - 1]}
-                  </div>
-                )}
-              </div>
-            ))}
+        {libraryTab === 'books' && completedJobs.length > 0 && (
+          <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={() => handleSetBookViewMode('grid')}
+              className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer ${
+                bookViewMode === 'grid'
+                  ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                  : 'text-stone-500 hover:text-stone-800'
+              }`}
+              title="Widok kafelków"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Kafelki</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetBookViewMode('list')}
+              className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer ${
+                bookViewMode === 'list'
+                  ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                  : 'text-stone-500 hover:text-stone-800'
+              }`}
+              title="Widok listy"
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Lista</span>
+            </button>
           </div>
+        )}
+      </div>
+
+      {/* Active Jobs Tab */}
+      {libraryTab === 'active' && (
+        <div className="space-y-3 animate-fadeIn">
+          {activeJobs.length === 0 ? (
+            <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center text-stone-500 text-sm">
+              <Clock className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+              Kolejka jest pusta. Żadne zadanie nie jest aktualnie przetwarzane.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="bg-white border border-amber-200/90 rounded-xl p-4 shadow-2xs space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-stone-900 text-sm">{job.title}</h4>
+                        {job.sourceType === 'storybook' && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                            ✨ Książka na życzenie
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-stone-500">
+                        Silnik: <strong>{job.engine}</strong> • {job.sourceType === 'storybook' ? 'Tworzenie e-booka' : `Język docelowy: ${job.targetLang}`} • ID: <code className="font-mono text-[10px]">{job.id}</code>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900">
+                        {job.sourceType === 'storybook' ? (
+                          job.status === 'extracting' ? 'Planowanie fabuły...' :
+                          job.status === 'translating' ? `Pisanie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
+                          job.status === 'packaging' ? 'Generowanie rycin i EPUB...' :
+                          'Oczekuje w kolejce'
+                        ) : (
+                          job.status === 'extracting' ? 'Ekstrakcja tekstu...' :
+                          job.status === 'translating' ? `Tłumaczenie: Rozdz. ${job.currentChapter}/${job.totalChapters || '?'}` :
+                          job.status === 'packaging' ? 'Tworzenie EPUB...' :
+                          'Oczekuje w kolejce'
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        title="Anuluj i usuń zadanie"
+                        disabled={deletingId === job.id}
+                        onClick={() => setConfirmDeleteJob({ id: job.id, title: job.title })}
+                        className="p-1 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 border border-stone-200 transition active:scale-90 cursor-pointer"
+                      >
+                        {deletingId === job.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-stone-600 font-medium">
+                      <span>Postęp</span>
+                      <span>{job.progress}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500 transition-all duration-500 rounded-full"
+                        style={{ width: `${Math.max(5, job.progress)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Latest log */}
+                  {job.logs && job.logs.length > 0 && (
+                    <div className="bg-stone-50 rounded-lg p-2 font-mono text-[11px] text-stone-600 truncate border border-stone-100">
+                      {job.logs[job.logs.length - 1]}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Completed Books Library */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-2 px-1">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          Gotowe książki do czytania ({completedJobs.length})
-        </h3>
-
-        {completedJobs.length === 0 ? (
-          <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center text-stone-500 text-sm">
-            <BookCheck className="w-8 h-8 text-stone-300 mx-auto mb-2" />
-            Brak przetłumaczonych książek w bibliotece. Wybierz plik w pierwszej zakładce lub wyszukaj pozycję w sieci!
+      {/* Errors Tab (isolated completely from books) */}
+      {libraryTab === 'errors' && (
+        <div className="space-y-3 animate-fadeIn">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-bold text-red-700 uppercase tracking-wider flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              Wystąpione błędy ({failedJobs.length})
+            </h3>
+            <button
+              type="button"
+              onClick={clearAllFailed}
+              className="text-xs font-medium text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
+            >
+              Wyczyść wszystkie błędy
+            </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+          {failedJobs.length === 0 ? (
+            <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center text-stone-500 text-sm">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+              Brak jakichkolwiek błędów. Wszystko działa prawidłowo!
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {failedJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="bg-red-50/70 border border-red-200 rounded-xl p-4 text-xs text-red-800 flex items-start justify-between gap-3 shadow-2xs"
+                >
+                  <div className="space-y-2 flex-1">
+                    <div className="font-semibold text-stone-900 text-sm">{job.title}</div>
+                    <div className="text-red-700 bg-red-100/70 p-2.5 rounded-lg border border-red-200 font-mono text-[11px]">
+                      {job.error || 'Nieznany błąd podczas pobierania lub przetwarzania pliku.'}
+                    </div>
+                    {job.chapters && job.chapters.length > 0 && (
+                      <div className="text-[11px] text-stone-600 font-medium">
+                        Postęp: {job.chapters.filter((c) => c.status === 'completed').length} z {job.chapters.length} rozdziałów już przetłumaczonych.
+                      </div>
+                    )}
+                    {job.logs && job.logs.length > 0 && (
+                      <div className="mt-2 text-[10px] text-stone-500 font-mono bg-white p-2 rounded-md border border-stone-200 max-h-32 overflow-y-auto">
+                        {job.logs.slice(-5).map((l, i) => (
+                          <div key={i}>{l}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      title="Usuń to zgłoszenie błędu"
+                      onClick={() => executeDeleteJob(job.id)}
+                      className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-white rounded-lg transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    {job.chapters && job.chapters.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleResumeJob(job.id)}
+                        disabled={actionLoadingId === job.id}
+                        className="px-2 py-1 bg-amber-600 text-white rounded text-[10px] font-semibold hover:bg-amber-700 transition"
+                      >
+                        Wznów
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Completed Books Library Tab */}
+      {libraryTab === 'books' && (
+        <div className="space-y-3 animate-fadeIn">
+          {completedJobs.length === 0 ? (
+            <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center text-stone-500 text-sm">
+              <BookCheck className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+              Brak gotowych książek w bibliotece. Wybierz plik w pierwszej zakładce lub wyszukaj pozycję w sieci!
+            </div>
+          ) : (
+            <div className={bookViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-3"}>
             {completedJobs.map((job) => (
               <div
                 key={job.id}
-                className="bg-white border border-stone-200 rounded-xl p-5 hover:border-stone-300 transition shadow-2xs flex flex-col justify-between"
+                className={bookViewMode === 'grid'
+                  ? "bg-white border border-stone-200 rounded-xl p-5 hover:border-stone-300 transition shadow-2xs flex flex-col justify-between"
+                  : "bg-white border border-stone-200 rounded-xl p-3.5 hover:border-stone-300 transition shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3"
+                }
               >
-                <div className="space-y-2">
+                <div className="space-y-1.5 flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <h4 className="font-semibold text-stone-900 text-sm leading-snug">
                       {job.title}
@@ -457,16 +626,15 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                   </div>
 
                   <p className="text-xs text-stone-500">
-                    Rozdziałów: <strong>{job.totalChapters}</strong> • {job.sourceType === 'storybook' ? 'Autor: AI Storybook' : `Silnik AI: ${job.engine}`}
+                    Rozdziałów: <strong>{job.totalChapters}</strong> • {job.sourceType === 'storybook' ? 'Autor: AI Storybook' : `Silnik AI: ${job.engine}`} • Plik: <code className="font-mono text-[10px] text-stone-400">{job.outputEpubFilename}</code>
                   </p>
-
-                  <div className="text-[11px] text-stone-400 font-mono">
-                    Plik: {job.outputEpubFilename}
-                  </div>
                 </div>
 
                 {/* Actions */}
-                <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
+                <div className={bookViewMode === 'grid'
+                  ? "mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2"
+                  : "flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-stone-100"
+                }>
                   <button
                     onClick={() => toggleExpand(job.id)}
                     className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1"
@@ -623,86 +791,7 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
           </div>
         )}
       </div>
-
-      {/* Failed Jobs */}
-      {failedJobs.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-bold text-red-700 uppercase tracking-wider flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600" />
-              Błędy ({failedJobs.length})
-            </h3>
-            <button
-              type="button"
-              onClick={clearAllFailed}
-              className="text-xs font-medium text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
-            >
-              Wyczyść wszystkie błędy
-            </button>
-          </div>
-          <div className="space-y-2">
-            {failedJobs.map((job) => (
-              <div
-                key={job.id}
-                className="bg-red-50/50 border border-red-200 rounded-xl p-3.5 text-xs text-red-800 flex items-start justify-between gap-3"
-              >
-                <div className="space-y-2 flex-1">
-                  <div className="font-semibold text-stone-900">{job.title}</div>
-                  <div className="text-red-700">{job.error || 'Nieznany błąd'}</div>
-                  {job.chapters && job.chapters.length > 0 && (
-                    <div className="text-[11px] text-stone-600 font-medium">
-                      Postęp: {job.chapters.filter((c) => c.status === 'completed').length} z {job.chapters.length} rozdziałów już przetłumaczonych.
-                    </div>
-                  )}
-                  {job.logs && job.logs.length > 0 && (
-                    <div className="text-[10px] text-stone-500 font-mono">
-                      Ostatni wpis: {job.logs[job.logs.length - 1]}
-                    </div>
-                  )}
-                  {job.chapters && job.chapters.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleResumeJob(job.id)}
-                        disabled={actionLoadingId === job.id}
-                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium flex items-center gap-1 shadow-2xs transition cursor-pointer disabled:opacity-50"
-                      >
-                        {actionLoadingId === job.id ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <RotateCcw className="w-3 h-3" />
-                        )}
-                        <span>Wznów tłumaczenie (od rozdziału {job.currentChapter || 1})</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handlePackageNow(job.id)}
-                        disabled={actionLoadingId === job.id}
-                        className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-medium flex items-center gap-1 shadow-2xs transition cursor-pointer disabled:opacity-50"
-                      >
-                        {actionLoadingId === job.id ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="w-3 h-3" />
-                        )}
-                        <span>Spakuj gotowe rozdziały do EPUB</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  title="Usuń wpis o błędzie"
-                  onClick={() => executeDeleteJob(job.id)}
-                  className="p-1.5 rounded-lg text-red-400 hover:text-red-700 hover:bg-red-100 transition active:scale-90 cursor-pointer shrink-0"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+    )}
 
       {/* Delete Confirmation Modal (Avoids window.confirm in iframe) */}
       {confirmDeleteJob && (

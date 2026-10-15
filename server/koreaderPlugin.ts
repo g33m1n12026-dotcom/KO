@@ -119,6 +119,7 @@ local AIBooks = WidgetContainer:extend{
     name = "aibooks",
     server_url = "${defaultServerUrl}",
     target_folder = "/mnt/us/documents/AI_Books",
+    search_view_mode = "detailed",
 }
 
 function AIBooks:init()
@@ -284,9 +285,14 @@ function AIBooks:loadSettings()
     if f then
         f:close()
         local ok, data = pcall(dofile, settings_path)
-        if ok and type(data) == "table" and data.server_url and data.server_url ~= "" then
-            if not data.server_url:match("ais%-dev") and not data.server_url:match("ais%-pre") then
-                self.server_url = data.server_url:gsub("/+$", "")
+        if ok and type(data) == "table" then
+            if data.server_url and data.server_url ~= "" then
+                if not data.server_url:match("ais%-dev") and not data.server_url:match("ais%-pre") then
+                    self.server_url = data.server_url:gsub("/+$", "")
+                end
+            end
+            if data.search_view_mode and (data.search_view_mode == "compact" or data.search_view_mode == "detailed") then
+                self.search_view_mode = data.search_view_mode
             end
         end
     end
@@ -296,7 +302,7 @@ function AIBooks:saveSettings()
     local settings_path = DataStorage:getSettingsDir() .. "/aibooks_settings.lua"
     local f = io.open(settings_path, "w")
     if f then
-        f:write("return { server_url = [[" .. self.server_url .. "]] }\\n")
+        f:write("return { server_url = [[" .. self.server_url .. "]], search_view_mode = [[" .. (self.search_view_mode or "detailed") .. "]] }\n")
         f:close()
     end
     self:ensureOpdsCatalog()
@@ -1195,52 +1201,84 @@ function AIBooks:performSearch(query)
             return
         end
 
-        local menu_items = {}
-        for _, item in ipairs(results) do
-            local title = item.title or "Bez tytułu"
-            local author = item.author or "Autor nieznany"
-            local format = (item.format or "epub"):lower()
-            local titleLower = title:lower()
-            local downloadUrl = (item.downloadUrl or ""):lower()
+        self:renderSearchResultsMenu(query, results)
+    end)
+end
 
-            -- Precyzyjne rozpoznanie typu: paczka ZIP, komiks/manga, książka EPUB/MOBI, PDF
-            local typeTag = "📚 [EPUB]"
-            if format == "zip" or titleLower:match("%.zip") or titleLower:match("archive") or titleLower:match("paczka") or downloadUrl:match("%.zip") then
-                typeTag = "📦 [PACZKA ZIP]"
-            elseif titleLower:match("komiks") or titleLower:match("manga") or titleLower:match("graphic") or format == "cbz" or format == "cbr" or downloadUrl:match("komiks") then
-                typeTag = "🎨 [KOMIKS]"
-            elseif format == "pdf" or titleLower:match("%.pdf") then
-                typeTag = "📄 [PDF]"
-            elseif format == "mobi" or format == "azw3" then
-                typeTag = "📚 [MOBI]"
-            end
+function AIBooks:renderSearchResultsMenu(query, results)
+    local isCompact = self.search_view_mode == "compact"
+    local menu_items = {
+        {
+            text = isCompact
+                and _("👁️ Widok: Zwięzła lista ➔ [Przełącz na Okienka]")
+                or _("👁️ Widok: Okienka/Karty ➔ [Przełącz na Listę]"),
+            callback = function()
+                self.search_view_mode = isCompact and "detailed" or "compact"
+                self:saveSettings()
+                self:renderSearchResultsMenu(query, results)
+            end,
+        },
+        {
+            text = _("🖼️ Otwórz katalog OPDS z okładkami (płynny tryb Kindle)"),
+            callback = function()
+                self:openNativeOpds()
+            end,
+        },
+    }
 
-            local sizeInfo = (item.fileSize and item.fileSize ~= "") and (" • " .. item.fileSize) or ""
-            local sourceInfo = item.source or "Chomikuj / Sieć"
-            local langInfo = item.language or "PL"
+    for _, item in ipairs(results) do
+        local title = item.title or "Bez tytułu"
+        local author = item.author or "Autor nieznany"
+        local format = (item.format or "epub"):lower()
+        local titleLower = title:lower()
+        local downloadUrl = (item.downloadUrl or ""):lower()
 
-            local label = typeTag .. " " .. title:sub(1, 42)
-            local sub = "Autor: " .. author:sub(1, 28) .. "\\n" .. "[" .. langInfo .. "] " .. sourceInfo .. sizeInfo
+        -- Precyzyjne rozpoznanie typu: paczka ZIP, komiks/manga, książka EPUB/MOBI, PDF
+        local typeTag = "📚 [EPUB]"
+        if format == "zip" or titleLower:match("%.zip") or titleLower:match("archive") or titleLower:match("paczka") or downloadUrl:match("%.zip") then
+            typeTag = "📦 [PACZKA ZIP]"
+        elseif titleLower:match("komiks") or titleLower:match("manga") or titleLower:match("graphic") or format == "cbz" or format == "cbr" or downloadUrl:match("komiks") then
+            typeTag = "🎨 [KOMIKS]"
+        elseif format == "pdf" or titleLower:match("%.pdf") then
+            typeTag = "📄 [PDF]"
+        elseif format == "mobi" or format == "azw3" then
+            typeTag = "📚 [MOBI]"
+        end
 
-            table.insert(menu_items, {
-                text = label .. "\\n" .. sub,
-                callback = function()
-                    self:showBookActionDialog(item)
-                end,
-            })
+        local sizeInfo = (item.fileSize and item.fileSize ~= "") and (" • " .. item.fileSize) or ""
+        local sourceInfo = item.source or "Sieć"
+        local langInfo = (item.language or "PL"):upper()
+        local langFlag = langInfo == "PL" and "🇵🇱 [PL]" or (langInfo == "EN" and "🇬🇧 [EN]" or (langInfo == "DE" and "🇩🇪 [DE]" or ("🌐 [" .. langInfo .. "]")))
+
+        -- Bardzo czytelny nagłówek z językiem i formatem na samym początku dla ekranów E-Ink
+        local itemText
+        if isCompact then
+            itemText = langFlag .. " " .. typeTag .. " " .. title:sub(1, 40) .. " • " .. author:sub(1, 22) .. sizeInfo
+        else
+            local header = langFlag .. " " .. typeTag .. sizeInfo .. " (" .. sourceInfo .. ")"
+            local bookLine = title:sub(1, 48)
+            local authorLine = "Autor: " .. author:sub(1, 32)
+            itemText = header .. "\n📖 " .. bookLine .. "\n👤 " .. authorLine
         end
 
         table.insert(menu_items, {
-            text = _("❌ Zamknij / Wróć"),
-            callback = function() end,
+            text = itemText,
+            callback = function()
+                self:showBookActionDialog(item)
+            end,
         })
+    end
 
-        local menu = Menu:new{
-            title = _("Znalezione pozycje (Wybierz książkę):"),
-            item_table = menu_items,
-        }
-        UIManager:show(menu)
-    end)
+    table.insert(menu_items, {
+        text = _("❌ Zamknij / Wróć"),
+        callback = function() end,
+    })
+
+    local menu = Menu:new{
+        title = _("Wyniki (") .. #results .. _(" pozycji):"),
+        item_table = menu_items,
+    }
+    UIManager:show(menu)
 end
 
 
@@ -1577,7 +1615,22 @@ function AIBooks:renderBooksSubmenu(tasks, bookTasks, failedTasks)
     end
 
     for _, t in ipairs(bookTasks) do
-        local formatIcon = (t.outputFormat == "cbz" or (t.outputEpubFilename and t.outputEpubFilename:match("%.cbz$"))) and "🎨 [CBZ] " or "📖 [EPUB] "
+        local formatIcon = "📖 [EPUB] "
+        if t.detailedFormat and t.detailedFormat ~= "" then
+            if t.detailedFormat:match("CBZ") or t.detailedFormat:match("Komiks") then
+                formatIcon = "🎨 [" .. t.detailedFormat .. "] "
+            elseif t.detailedFormat:match("PDF") then
+                formatIcon = "📄 [PDF] "
+            elseif t.detailedFormat:match("MOBI") then
+                formatIcon = "📱 [MOBI] "
+            else
+                formatIcon = "📖 [" .. t.detailedFormat .. "] "
+            end
+        elseif t.outputFormat == "cbz" or (t.outputEpubFilename and t.outputEpubFilename:match("%.cbz$")) then
+            formatIcon = "🎨 [CBZ] "
+        elseif t.outputFormat == "pdf" or (t.outputEpubFilename and t.outputEpubFilename:match("%.pdf$")) then
+            formatIcon = "📄 [PDF] "
+        end
         
         -- Sprawdź czy plik jest już fizycznie pobrany na Kindle
         local rawFilename = t.outputEpubFilename or "ksiazka.epub"
@@ -1606,7 +1659,7 @@ function AIBooks:renderBooksSubmenu(tasks, bookTasks, failedTasks)
             or t.status == "packaging" and "📦 Pakowanie e-booka..."
             or "Oczekuje w kolejce..."
 
-        local label = formatIcon .. t.title .. "\\n[" .. status_str .. "]"
+        local label = formatIcon .. t.title .. "\n[" .. status_str .. "]"
 
         table.insert(items, {
             text = label,

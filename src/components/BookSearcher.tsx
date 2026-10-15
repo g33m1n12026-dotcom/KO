@@ -22,6 +22,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   Star,
+  LayoutGrid,
+  LayoutList,
 } from 'lucide-react';
 import { BookSearchResult, BookRecommendation, ShadowLibraryMirror, Job, MultilingualBookMeta } from '../types';
 import { AccountsSettingsModal } from './AccountsSettingsModal';
@@ -55,6 +57,20 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
   const [sourceFilter, setSourceFilter] = useState<'all' | 'trusted' | 'zlib' | 'wolnelektury' | 'libgen' | 'archive' | 'gutenberg' | 'openlibrary' | 'chomikuj' | '4shared' | 'docer'>('all');
   const [languageFilter, setLanguageFilter] = useState<string>('all');
   const [selectedSourceIdMap, setSelectedSourceIdMap] = useState<Record<string, string>>({});
+  const [searchViewMode, setSearchViewMode] = useState<'grid' | 'list'>(() => {
+    try {
+      return (localStorage.getItem('koreader_search_view_mode') as 'grid' | 'list') || 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+
+  const handleSetSearchViewMode = (mode: 'grid' | 'list') => {
+    setSearchViewMode(mode);
+    try {
+      localStorage.setItem('koreader_search_view_mode', mode);
+    } catch {}
+  };
 
   // 3. Mirrors Catalog State
   const [mirrors, setMirrors] = useState<ShadowLibraryMirror[]>([]);
@@ -1103,9 +1119,44 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                           </button>
                         ))}
                     </div>
+
+                    {/* View Switcher bar */}
+                    <div className="flex items-center justify-between pt-1 border-t border-stone-100">
+                      <span className="text-[11px] text-stone-500 font-medium">
+                        Układ wyników:
+                      </span>
+                      <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => handleSetSearchViewMode('grid')}
+                          className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                            searchViewMode === 'grid'
+                              ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                              : 'text-stone-500 hover:text-stone-900'
+                          }`}
+                          title="Widok okienek / kafelków z okładkami"
+                        >
+                          <LayoutGrid className="w-3.5 h-3.5" />
+                          <span>Okienka z okładkami</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetSearchViewMode('list')}
+                          className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                            searchViewMode === 'list'
+                              ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                              : 'text-stone-500 hover:text-stone-900'
+                          }`}
+                          title="Zwięzła lista wyników"
+                        >
+                          <LayoutList className="w-3.5 h-3.5" />
+                          <span>Lista</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className={searchViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-3"}>
                     {results
                       .filter((item) => {
                         if (sourceFilter !== 'all') {
@@ -1186,63 +1237,92 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                         return (
                           <div
                             key={rawItem.id}
-                            className="bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs"
+                            className={searchViewMode === 'list'
+                              ? "bg-white border border-stone-200 rounded-xl p-3.5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs gap-2.5"
+                              : "bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs"
+                            }
                           >
-                            <div className="space-y-2">
-                              <div className="flex items-start justify-between gap-2.5">
-                                <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                                  {item.coverUrl && (
+                            <div className="space-y-2.5">
+                              {/* Top Banner: Prominent Format & Language */}
+                              <div className="flex items-center justify-between gap-2 pb-1 border-b border-stone-100">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`text-xs font-bold px-2.5 py-0.5 rounded-md border flex items-center gap-1 shadow-2xs ${
+                                    item.language.toUpperCase() === 'PL'
+                                      ? 'bg-rose-100 text-rose-950 border-rose-300'
+                                      : item.language.toUpperCase() === 'EN'
+                                      ? 'bg-sky-100 text-sky-950 border-sky-300'
+                                      : item.language.toUpperCase() === 'DE'
+                                      ? 'bg-amber-100 text-amber-950 border-amber-300'
+                                      : 'bg-stone-100 text-stone-900 border-stone-300'
+                                  }`}>
+                                    <span>
+                                      {item.language.toUpperCase() === 'PL'
+                                        ? '🇵🇱'
+                                        : item.language.toUpperCase() === 'EN'
+                                        ? '🇬🇧'
+                                        : item.language.toUpperCase() === 'DE'
+                                        ? '🇩🇪'
+                                        : item.language.toUpperCase() === 'RU'
+                                        ? '🇷🇺'
+                                        : item.language.toUpperCase() === 'FR'
+                                        ? '🇫🇷'
+                                        : '🌐'}
+                                    </span>
+                                    <span>JĘZYK: {item.language.toUpperCase()}</span>
+                                  </span>
+
+                                  <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-md border shadow-2xs ${
+                                    item.format === 'EPUB'
+                                      ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
+                                      : item.format === 'PDF'
+                                      ? 'bg-stone-200 text-stone-900 border-stone-400'
+                                      : item.format === 'CBZ' || item.format === 'CBR'
+                                      ? 'bg-indigo-100 text-indigo-950 border-indigo-300'
+                                      : item.format === 'MOBI' || item.format === 'AZW3'
+                                      ? 'bg-teal-100 text-teal-950 border-teal-300'
+                                      : 'bg-stone-100 text-stone-800 border-stone-300'
+                                  }`}>
+                                    FORMAT: {item.format}
+                                  </span>
+                                </div>
+
+                                {item.size && (
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-stone-50 text-stone-600 border border-stone-200 shrink-0">
+                                    {item.size}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-start justify-between gap-3 pt-1">
+                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                  {item.coverUrl ? (
                                     <img
                                       src={item.coverUrl}
                                       alt={item.title}
-                                      className="w-10 h-14 object-cover rounded-md border border-stone-200 shrink-0 shadow-2xs"
+                                      className={searchViewMode === 'grid'
+                                        ? "w-16 h-24 object-cover rounded-lg border border-stone-200 shrink-0 shadow-xs bg-stone-100"
+                                        : "w-11 h-16 object-cover rounded-md border border-stone-200 shrink-0 shadow-2xs bg-stone-100"
+                                      }
                                       onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                                     />
+                                  ) : (
+                                    <div className={searchViewMode === 'grid'
+                                      ? "w-16 h-24 rounded-lg border border-stone-200 shrink-0 shadow-xs bg-stone-50 flex flex-col items-center justify-center text-xl text-stone-400"
+                                      : "w-11 h-16 rounded-md border border-stone-200 shrink-0 shadow-2xs bg-stone-50 flex items-center justify-center text-base text-stone-400"
+                                    }>
+                                      <span>{item.format === 'PDF' ? '📄' : item.format === 'CBZ' ? '🎨' : '📖'}</span>
+                                      {searchViewMode === 'grid' && <span className="text-[9px] font-mono font-bold text-stone-500 mt-1">{item.format}</span>}
+                                    </div>
                                   )}
                                   <div className="min-w-0 flex-1">
                                     <h3 className="font-semibold text-stone-900 text-sm leading-snug">
                                       {item.title}
                                     </h3>
+                                    <div className="text-xs text-stone-600 font-medium mt-0.5">
+                                      Autor: {item.author}
+                                    </div>
                                   </div>
                                 </div>
-                                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md border flex items-center gap-1 shrink-0 ${
-                                  item.language.toUpperCase() === 'PL'
-                                    ? 'bg-rose-50 text-rose-800 border-rose-200'
-                                    : item.language.toUpperCase() === 'EN'
-                                    ? 'bg-sky-50 text-sky-800 border-sky-200'
-                                    : item.language.toUpperCase() === 'DE'
-                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                    : item.language.toUpperCase() === 'RU'
-                                    ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
-                                    : item.language.toUpperCase() === 'ZH'
-                                    ? 'bg-red-50 text-red-800 border-red-200'
-                                    : 'bg-stone-100 text-stone-700 border-stone-200'
-                                }`}>
-                                  <span>
-                                    {item.language.toUpperCase() === 'PL'
-                                      ? '🇵🇱'
-                                      : item.language.toUpperCase() === 'EN'
-                                      ? '🇬🇧'
-                                      : item.language.toUpperCase() === 'DE'
-                                      ? '🇩🇪'
-                                      : item.language.toUpperCase() === 'RU'
-                                      ? '🇷🇺'
-                                      : item.language.toUpperCase() === 'ZH'
-                                      ? '🇨🇳'
-                                      : item.language.toUpperCase() === 'FR'
-                                      ? '🇫🇷'
-                                      : item.language.toUpperCase() === 'ES'
-                                      ? '🇪🇸'
-                                      : item.language.toUpperCase() === 'IT'
-                                      ? '🇮🇹'
-                                      : '🌐'}
-                                  </span>
-                                  <span>{item.language.toUpperCase()}</span>
-                                </span>
-                              </div>
-
-                              <div className="text-xs text-stone-600 font-medium">
-                                Autor: {item.author}
                               </div>
 
                               {item.description && (
