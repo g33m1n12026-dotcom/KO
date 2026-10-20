@@ -1,6 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Download, RefreshCw, BookCheck, Clock, AlertTriangle, FileCode, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Trash2, Loader2, X, Smartphone, UploadCloud, RotateCcw, LayoutGrid, LayoutList } from 'lucide-react';
-import { Job } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  Download,
+  RefreshCw,
+  BookCheck,
+  Clock,
+  AlertTriangle,
+  FileCode,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  BookOpen,
+  Trash2,
+  Loader2,
+  X,
+  Smartphone,
+  UploadCloud,
+  RotateCcw,
+  LayoutGrid,
+  LayoutList,
+  Library,
+  Search,
+  Sparkles,
+  Layers,
+} from 'lucide-react';
+import { Job, ReadingProgress } from '../types';
+import { KNOWN_SERIES, detectBookSeriesClient, KnownSeriesDef } from '../utils/series';
 
 interface JobsLibraryProps {
   jobs: Job[];
@@ -8,9 +32,10 @@ interface JobsLibraryProps {
   onDeleteJob?: (jobId: string) => void;
   serverUrl: string;
   onReadJob?: (job: Job) => void;
+  onNavigateSearch?: (query: string) => void;
 }
 
-export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDeleteJob, serverUrl, onReadJob }) => {
+export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDeleteJob, serverUrl, onReadJob, onNavigateSearch }) => {
   const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -210,7 +235,72 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
     (j) => j.status === 'failed' && !completedTitles.has(j.title.toLowerCase().replace(/[^a-z0-9]/g, ''))
   );
 
-  const [libraryTab, setLibraryTab] = useState<'books' | 'active' | 'errors'>('books');
+  const [libraryTab, setLibraryTab] = useState<'books' | 'series' | 'active' | 'errors'>('books');
+  const [syncMap, setSyncMap] = useState<Record<string, ReadingProgress>>({});
+
+  const fetchSyncProgress = async () => {
+    try {
+      const res = await fetch('/api/sync/all');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.progressMap) {
+          setSyncMap(data.progressMap);
+        }
+      }
+    } catch (e) {
+      console.warn('Nie udało się pobrać postępów czytania:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchSyncProgress();
+    const interval = setInterval(fetchSyncProgress, 12000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const seriesOverview = useMemo(() => {
+    const map = new Map<string, {
+      seriesDef: KnownSeriesDef;
+      ownedJobs: Map<number, Job>;
+    }>();
+
+    for (const def of KNOWN_SERIES) {
+      map.set(def.name.toLowerCase(), {
+        seriesDef: def,
+        ownedJobs: new Map(),
+      });
+    }
+
+    for (const job of completedJobs) {
+      const sInfo = job.series || detectBookSeriesClient(job.title);
+      if (sInfo) {
+        let entry = map.get(sInfo.name.toLowerCase());
+        if (!entry) {
+          const totalTomes = sInfo.total || Math.max(sInfo.tome, 3);
+          const def: KnownSeriesDef = {
+            name: sInfo.name,
+            total: totalTomes,
+            tomes: Array.from({ length: totalTomes }, (_, i) => ({
+              number: i + 1,
+              title: `Tom ${i + 1}`,
+            })),
+          };
+          entry = { seriesDef: def, ownedJobs: new Map() };
+          map.set(sInfo.name.toLowerCase(), entry);
+        }
+        entry.ownedJobs.set(sInfo.tome, job);
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      // Prioritize series with owned books first
+      if (b.ownedJobs.size !== a.ownedJobs.size) {
+        return b.ownedJobs.size - a.ownedJobs.size;
+      }
+      return a.seriesDef.name.localeCompare(b.seriesDef.name);
+    });
+  }, [completedJobs]);
+
   const [bookViewMode, setBookViewMode] = useState<'grid' | 'list'>(() => {
     try {
       return (localStorage.getItem('koreader_library_view_mode') as 'grid' | 'list') || 'grid';
@@ -333,6 +423,19 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
           >
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
             <span>Gotowe książki ({completedJobs.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setLibraryTab('series')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              libraryTab === 'series'
+                ? 'bg-purple-50 text-purple-950 border border-purple-200 shadow-xs'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 text-purple-600" />
+            <span>Cykle i Serie</span>
           </button>
 
           <button
@@ -566,74 +669,104 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
               Brak gotowych książek w bibliotece. Wybierz plik w pierwszej zakładce lub wyszukaj pozycję w sieci!
             </div>
           ) : (
-            <div className={bookViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-3"}>
-            {completedJobs.map((job) => (
+            <div className={bookViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-2"}>
+            {completedJobs.map((job) => {
+              const ext = (job.outputEpubFilename || '').toLowerCase();
+              const formatLabel = job.detailedFormat 
+                ? job.detailedFormat 
+                : ext.endsWith('.pdf') 
+                ? 'PDF' 
+                : ext.endsWith('.cbz') 
+                ? 'CBZ' 
+                : ext.endsWith('.mobi') 
+                ? 'MOBI' 
+                : ext.endsWith('.txt') 
+                ? 'TXT' 
+                : 'EPUB';
+
+              const isPdf = formatLabel.includes('PDF');
+              const isEpub3 = formatLabel === 'EPUB 3';
+              const isEpub2 = formatLabel === 'EPUB 2';
+              const isCbz = formatLabel.includes('CBZ');
+              const isMobi = formatLabel.includes('MOBI');
+
+              const formatBadgeClass = isEpub3
+                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                : isEpub2
+                ? 'bg-teal-100 text-teal-900 border-teal-300'
+                : isPdf
+                ? 'bg-stone-200 text-stone-800 border-stone-300'
+                : isCbz
+                ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                : isMobi
+                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                : 'bg-emerald-100 text-emerald-800 border-emerald-200';
+
+              const sync = syncMap[job.id] || Object.values(syncMap).find(s => s.title.toLowerCase() === job.title.toLowerCase());
+              const sInfo = job.series || detectBookSeriesClient(job.title);
+
+              return (
               <div
                 key={job.id}
                 className={bookViewMode === 'grid'
                   ? "bg-white border border-stone-200 rounded-xl p-5 hover:border-stone-300 transition shadow-2xs flex flex-col justify-between"
-                  : "bg-white border border-stone-200 rounded-xl p-3.5 hover:border-stone-300 transition shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3"
+                  : "bg-white border border-stone-200 rounded-xl px-4 py-2.5 hover:border-stone-300 transition shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                 }
               >
-                <div className="space-y-1.5 flex-1 min-w-0">
+                <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-semibold text-stone-900 text-sm leading-snug">
-                      {job.title}
-                    </h4>
-                    {(() => {
-                      const ext = (job.outputEpubFilename || '').toLowerCase();
-                      const formatLabel = job.detailedFormat 
-                        ? job.detailedFormat 
-                        : ext.endsWith('.pdf') 
-                        ? 'PDF' 
-                        : ext.endsWith('.cbz') 
-                        ? 'CBZ' 
-                        : ext.endsWith('.mobi') 
-                        ? 'MOBI' 
-                        : ext.endsWith('.txt') 
-                        ? 'TXT' 
-                        : 'EPUB';
-
-                      const isPdf = formatLabel.includes('PDF');
-                      const isEpub3 = formatLabel === 'EPUB 3';
-                      const isEpub2 = formatLabel === 'EPUB 2';
-                      const isCbz = formatLabel.includes('CBZ');
-                      const isMobi = formatLabel.includes('MOBI');
-
-                      return (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-2xs border ${
-                              isEpub3
-                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                                : isEpub2
-                                ? 'bg-teal-100 text-teal-900 border-teal-300'
-                                : isPdf
-                                ? 'bg-stone-200 text-stone-800 border-stone-300'
-                                : isCbz
-                                ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
-                                : isMobi
-                                ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            }`}
-                            title={`Dokładny format pliku: ${formatLabel}`}
-                          >
-                            {job.sourceType === 'storybook' ? '✨ E-BOOK AI' : formatLabel}
-                          </span>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {bookViewMode === 'list' && (
+                        <div className="w-7 h-7 rounded-md bg-stone-100 border border-stone-200 flex items-center justify-center shrink-0 text-sm shadow-2xs">
+                          {job.sourceType === 'storybook' ? '✨' : isPdf ? '📄' : isCbz ? '🎨' : '📖'}
                         </div>
-                      );
-                    })()}
+                      )}
+                      <h4 className="font-semibold text-stone-900 text-xs sm:text-sm leading-snug truncate" title={job.title}>
+                        {job.title}
+                      </h4>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-2xs border ${formatBadgeClass}`}
+                        title={`Dokładny format pliku: ${formatLabel}`}
+                      >
+                        {job.sourceType === 'storybook' ? '✨ E-BOOK AI' : formatLabel}
+                      </span>
+                    </div>
                   </div>
 
-                  <p className="text-xs text-stone-500">
-                    Rozdziałów: <strong>{job.totalChapters}</strong> • {job.sourceType === 'storybook' ? 'Autor: AI Storybook' : `Silnik AI: ${job.engine}`} • Plik: <code className="font-mono text-[10px] text-stone-400">{job.outputEpubFilename}</code>
+                  <p className="text-[11px] text-stone-500 flex items-center gap-1.5 flex-wrap">
+                    <span>Rozdziałów: <strong>{job.totalChapters}</strong></span>
+                    <span>•</span>
+                    <span>{job.sourceType === 'storybook' ? 'Autor: AI Storybook' : `Silnik AI: ${job.engine}`}</span>
+                    <span>•</span>
+                    <span className="font-mono text-[10px] text-stone-400 truncate max-w-[200px]">{job.outputEpubFilename}</span>
                   </p>
+
+                  {/* Sync progress & series pills */}
+                  {(sync || sInfo) && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      {sync && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>📖 {sync.progressPercent}% ({sync.device} • {sync.timeAgo})</span>
+                        </span>
+                      )}
+
+                      {sInfo && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 shadow-2xs">
+                          <span>📚 Cykl:</span> <strong>{sInfo.name}</strong> (Tom {sInfo.tome}{sInfo.total ? ` z ${sInfo.total}` : ''})
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
                 <div className={bookViewMode === 'grid'
                   ? "mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2"
-                  : "flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-stone-100"
+                  : "flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100"
                 }>
                   <button
                     onClick={() => toggleExpand(job.id)}
@@ -787,11 +920,161 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                   </div>
                 )}
               </div>
-            ))}
+            );
+          })}
           </div>
         )}
       </div>
     )}
+
+      {/* Series & Tomes Manager Tab */}
+      {libraryTab === 'series' && (
+        <div className="space-y-6 animate-fadeIn">
+          <div className="bg-gradient-to-r from-purple-50 via-white to-purple-50/30 border border-purple-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="font-bold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-purple-600" />
+                  Automatyczny Menedżer Serii i Kolejnych Tomów
+                </h3>
+                <p className="text-xs text-stone-600 leading-relaxed max-w-2xl">
+                  Grupuj posiadane tomy, sprawdzaj co czytać w następnej kolejności i pobieraj brakujące części cyklu bezpośrednio z bibliotek 1 kliknięciem.
+                </p>
+              </div>
+              <div className="px-3 py-1.5 bg-purple-100/70 border border-purple-200 text-purple-900 rounded-xl text-xs font-semibold self-start sm:self-auto flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                <span>Inteligentne dopasowanie</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            {seriesOverview.map(({ seriesDef, ownedJobs }) => {
+              const ownedCount = ownedJobs.size;
+              const totalCount = seriesDef.total || seriesDef.tomes.length;
+              const percent = Math.round((ownedCount / totalCount) * 100);
+
+              return (
+                <div
+                  key={seriesDef.name}
+                  className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4"
+                >
+                  {/* Series Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-stone-100">
+                    <div>
+                      <h4 className="font-bold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+                        <span>📚</span>
+                        <span>{seriesDef.name}</span>
+                      </h4>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        Posiadasz <strong>{ownedCount}</strong> z <strong>{totalCount}</strong> tomów cyklu ({percent}%)
+                      </p>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full sm:w-48 bg-stone-100 rounded-full h-2.5 overflow-hidden border border-stone-200">
+                      <div
+                        className="bg-purple-600 h-full rounded-full transition-all duration-500"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tomes Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {seriesDef.tomes.map((tome) => {
+                      const owned = ownedJobs.get(tome.number);
+                      const sync = owned ? (syncMap[owned.id] || Object.values(syncMap).find(s => s.title.toLowerCase() === owned.title.toLowerCase())) : null;
+
+                      if (owned) {
+                        return (
+                          <div
+                            key={tome.number}
+                            className="bg-emerald-50/40 border border-emerald-200 rounded-xl p-3 flex flex-col justify-between gap-2.5 hover:border-emerald-300 transition shadow-2xs"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                  Tom {tome.number}
+                                </span>
+                                <span className="text-[10px] font-semibold text-emerald-700 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  W bibliotece
+                                </span>
+                              </div>
+                              <h5 className="font-semibold text-stone-900 text-xs leading-snug line-clamp-2">
+                                {owned.title || tome.title}
+                              </h5>
+                              {sync && (
+                                <p className="text-[10px] text-emerald-800 font-medium">
+                                  📖 Postęp: {sync.progressPercent}% ({sync.device})
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-emerald-100">
+                              <span className="text-[10px] text-stone-500 font-mono">
+                                {owned.totalChapters} rozdz.
+                              </span>
+                              {onReadJob && (
+                                <button
+                                  type="button"
+                                  onClick={() => onReadJob(owned)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                >
+                                  <BookOpen className="w-3 h-3" />
+                                  <span>Czytaj</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Missing tome
+                      return (
+                        <div
+                          key={tome.number}
+                          className="bg-stone-50/60 border border-dashed border-stone-300 rounded-xl p-3 flex flex-col justify-between gap-2.5 hover:border-purple-300 transition"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-700">
+                                Tom {tome.number}
+                              </span>
+                              <span className="text-[10px] text-stone-400">
+                                Brakujący tom
+                              </span>
+                            </div>
+                            <h5 className="font-medium text-stone-700 text-xs leading-snug line-clamp-2">
+                              {tome.title}
+                            </h5>
+                          </div>
+
+                          <div className="pt-2 border-t border-stone-200/60 flex items-center justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const q = `${seriesDef.name} ${tome.title}`;
+                                onNavigateSearch?.(q);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                              title="Wyszukaj i pobierz ten tom 1 kliknięciem"
+                            >
+                              <Search className="w-3 h-3 text-purple-600" />
+                              <span>Pobierz Tom {tome.number}</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal (Avoids window.confirm in iframe) */}
       {confirmDeleteJob && (

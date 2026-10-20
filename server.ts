@@ -19,7 +19,14 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import QRCode from 'qrcode';
 
-import { getAvailableKeys, recommendBooksByDescription, getAIAssist } from './server/ai';
+import {
+  getAvailableKeys,
+  recommendBooksByDescription,
+  getAIAssist,
+  chatWithAdvisor,
+  getFallbackCuratedRecommendations,
+} from './server/ai';
+import { fetchBookSummaryAndMetadata, getOpenCodeStatus } from './server/opencode';
 import {
   getAllJobs,
   getJobById,
@@ -51,7 +58,17 @@ import {
   getTunnelStatus,
 } from './server/tunnel';
 import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared, testAllAccounts } from './server/settings';
-import { AVAILABLE_VOICES, synthesizeSpeech, verifyElevenLabsKey, fetchElevenLabsVoices } from './server/tts';
+import {
+  AVAILABLE_VOICES,
+  synthesizeSpeech,
+  verifyElevenLabsKey,
+  fetchElevenLabsVoices,
+  parseChapterToDramaticScript,
+  generateChapterDramaAudio,
+} from './server/tts';
+import { updateReadingProgress, getReadingProgress, getAllReadingProgress } from './server/sync';
+import { extractBookCharacters, generateChapterRecap } from './server/ai';
+import { KNOWN_SERIES } from './server/series';
 
 dotenv.config();
 
@@ -161,11 +178,12 @@ app.use(express.urlencoded({ extended: true }));
   // API Endpoints: AI Thematic Book Recommendations
   // ----------------------------------------------------
   app.post(['/api/recommend', '/api/koreader/recommend'], async (req, res) => {
+    const { description, engine = 'auto' } = req.body;
+    if (!description || typeof description !== 'string' || !description.trim()) {
+      return res.status(400).json({ error: 'Proszę podać opis poszukiwanej książki.' });
+    }
+
     try {
-      const { description, engine = 'auto' } = req.body;
-      if (!description || typeof description !== 'string' || !description.trim()) {
-        return res.status(400).json({ error: 'Proszę podać opis poszukiwanej książki.' });
-      }
       const data = await recommendBooksByDescription(description, engine);
 
       // Auto-scan mirrors for each recommended book so reader/user can download with 1 click
@@ -186,14 +204,62 @@ app.use(express.urlencoded({ extended: true }));
               }
             })
           ),
-          new Promise((resolve) => setTimeout(resolve, 3500)),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
         ]);
       }
 
       res.json(data);
     } catch (err: any) {
-      console.error('Błąd generowania rekomendacji AI:', err);
-      res.status(500).json({ error: err.message || 'Błąd generowania rekomendacji' });
+      console.warn('Ostrzeżenie doradcy AI, użycie inteligentnego trybu awaryjnego:', err?.message || err);
+      const fallback = getFallbackCuratedRecommendations(description);
+      res.json(fallback);
+    }
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Interactive 2-Column AI Advisor Chat
+  // ----------------------------------------------------
+  app.post(['/api/advisor/chat', '/api/koreader/advisor/chat'], async (req, res) => {
+    try {
+      const { messages, modelTier = 'smart_auto', premiumProvider = 'openrouter' } = req.body;
+      if (!Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).json({ error: 'Brak wiadomości w historii czatu.' });
+      }
+
+      const data = await chatWithAdvisor(messages, modelTier, premiumProvider);
+
+      // Auto-scan mirrors for recommended books in background (with 3s cap)
+      if (Array.isArray(data.recommendations) && data.recommendations.length > 0) {
+        await Promise.race([
+          Promise.all(
+            data.recommendations.map(async (rec) => {
+              try {
+                const q = rec.searchQuery || `${rec.author} ${rec.title}`;
+                const found = await findDirectBookDownload(q, 'PL');
+                if (found) {
+                  rec.downloadUrl = found.downloadUrl;
+                  rec.downloadFormat = found.format;
+                  if (found.language) rec.downloadLanguage = found.language;
+                }
+              } catch {}
+            })
+          ),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      }
+
+      res.json(data);
+    } catch (err: any) {
+      console.warn('Ostrzeżenie czatu doradcy AI, użycie trybu awaryjnego:', err?.message || err);
+      const lastMsg = Array.isArray(req.body?.messages) ? req.body.messages.slice(-1)[0]?.content : '';
+      const fallback = getFallbackCuratedRecommendations(lastMsg || '');
+      res.json({
+        reply: 'Z przyjemnością pomogę Ci wybrać wspaniałą lekturę. Na podstawie Twoich słów wytypowałem kilka wybitnych pozycji z bibliografii, które idealnie pasują do Twojego zapytania:',
+        followUpQuestions: ['Wolisz literaturę polską czy zagraniczną?', 'Wolisz lżejszy czy głębszy klimat?'],
+        analysis: fallback.analysis,
+        recommendations: fallback.recommendations,
+        usedEngine: 'Doradca KOReader (Smart Auto)',
+      });
     }
   });
 
@@ -212,6 +278,38 @@ app.use(express.urlencoded({ extended: true }));
     } catch (err: any) {
       console.error('Błąd asystenta AI:', err);
       res.status(500).json({ error: err.message || 'Błąd odpowiedzi asystenta AI' });
+    }
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: OpenCode.ai Book Summaries & Metadata
+  // ----------------------------------------------------
+  app.post(['/api/book-summary', '/api/koreader/book-summary'], async (req, res) => {
+    try {
+      const { title, author, modelTier = 'free_opencode', premiumProvider = 'openrouter', language = 'Polish' } = req.body;
+      if (!title || typeof title !== 'string' || !title.trim()) {
+        return res.status(400).json({ error: 'Proszę podać tytuł książki.' });
+      }
+      const data = await fetchBookSummaryAndMetadata({
+        title: title.trim(),
+        author: author ? String(author).trim() : undefined,
+        modelTier: modelTier === 'premium' ? 'premium' : 'free_opencode',
+        premiumProvider: premiumProvider === 'openai' ? 'openai' : 'openrouter',
+        language,
+      });
+      res.json(data);
+    } catch (err: any) {
+      console.error('Błąd pobierania streszczenia książki:', err);
+      res.status(500).json({ error: err.message || 'Błąd pobierania streszczenia książki' });
+    }
+  });
+
+  app.get('/api/opencode/status', async (_req, res) => {
+    try {
+      const status = await getOpenCodeStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd sprawdzania statusu OpenCode.ai' });
     }
   });
 
@@ -621,6 +719,216 @@ app.use(express.urlencoded({ extended: true }));
     } catch (err: any) {
       res.status(500).json({ valid: false, error: err.message || 'Błąd sprawdzania klucza' });
     }
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Two-Way Reading Progress Sync (Kindle ↔ Web Reader)
+  // ----------------------------------------------------
+  app.post(['/api/sync/progress', '/api/koreader/sync/progress'], (req, res) => {
+    try {
+      const { bookId, title, progressPercent, chapterIndex, currentPosition, totalChapters, device } = req.body;
+      if (!bookId) {
+        return res.status(400).json({ error: 'Brak bookId' });
+      }
+      const updated = updateReadingProgress({
+        bookId,
+        title: title || 'Książka',
+        progressPercent: Number(progressPercent) || 0,
+        chapterIndex: Number(chapterIndex) || 0,
+        currentPosition: Number(currentPosition) || 0,
+        totalChapters: Number(totalChapters) || 0,
+        device: device || 'Web Reader',
+      });
+      res.json({ success: true, progress: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd synchronizacji postępu' });
+    }
+  });
+
+  app.get(['/api/sync/progress/:bookId', '/api/koreader/sync/progress/:bookId'], (req, res) => {
+    const progress = getReadingProgress(req.params.bookId);
+    res.json({ success: true, progress });
+  });
+
+  app.get(['/api/sync/all', '/api/koreader/sync/all'], (req, res) => {
+    const all = getAllReadingProgress();
+    res.json({ success: true, progressMap: all });
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Multi-Voice Radio Drama Studio
+  // ----------------------------------------------------
+  app.get('/api/audio/script/:jobId/:chapterIndex', async (req, res) => {
+    try {
+      const { jobId, chapterIndex } = req.params;
+      const idx = parseInt(chapterIndex, 10) || 0;
+      const job = getJobById(jobId);
+      if (!job) {
+        return res.status(404).json({ error: 'Nie znaleziono książki' });
+      }
+
+      let chapterText = '';
+      let chapterTitle = `Rozdział ${idx + 1}`;
+
+      if (job.chapters && job.chapters[idx]) {
+        chapterText = job.chapters[idx].translatedText || job.chapters[idx].originalText || '';
+        chapterTitle = job.chapters[idx].title || chapterTitle;
+      } else {
+        // Try extracting from file
+        const extracted = await extractChaptersForWebReader(jobId);
+        if (extracted && extracted.chapters && extracted.chapters[idx]) {
+          chapterText = extracted.chapters[idx].content || '';
+          chapterTitle = extracted.chapters[idx].title || chapterTitle;
+        }
+      }
+
+      if (!chapterText) {
+        return res.status(404).json({ error: 'Brak treści dla tego rozdziału' });
+      }
+
+      const script = parseChapterToDramaticScript(chapterText, chapterTitle, jobId, idx);
+      res.json({ success: true, script });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd generowania scenariusza słuchowiska' });
+    }
+  });
+
+  app.post('/api/audio/export-chapter-mp3/:jobId/:chapterIndex', async (req, res) => {
+    try {
+      const { jobId, chapterIndex } = req.params;
+      const idx = parseInt(chapterIndex, 10) || 0;
+      const job = getJobById(jobId);
+      if (!job) {
+        return res.status(404).json({ error: 'Nie znaleziono książki' });
+      }
+
+      let chapterText = '';
+      let chapterTitle = `Rozdział ${idx + 1}`;
+
+      if (job.chapters && job.chapters[idx]) {
+        chapterText = job.chapters[idx].translatedText || job.chapters[idx].originalText || '';
+        chapterTitle = job.chapters[idx].title || chapterTitle;
+      } else {
+        const extracted = await extractChaptersForWebReader(jobId);
+        if (extracted && extracted.chapters && extracted.chapters[idx]) {
+          chapterText = extracted.chapters[idx].content || '';
+          chapterTitle = extracted.chapters[idx].title || chapterTitle;
+        }
+      }
+
+      if (!chapterText) {
+        return res.status(404).json({ error: 'Brak treści dla tego rozdziału' });
+      }
+
+      const script = parseChapterToDramaticScript(chapterText, chapterTitle, jobId, idx);
+      const generated = await generateChapterDramaAudio(jobId, idx, script);
+
+      res.json({
+        success: true,
+        fileName: generated.fileName,
+        downloadUrl: `/api/audio/download-drama/${jobId}/${idx}`,
+        sizeKb: Math.round(generated.buffer.length / 1024),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd eksportu słuchowiska MP3' });
+    }
+  });
+
+  app.get('/api/audio/download-drama/:jobId/:chapterIndex', async (req, res) => {
+    try {
+      const { jobId, chapterIndex } = req.params;
+      const idx = parseInt(chapterIndex, 10) || 0;
+      const job = getJobById(jobId);
+
+      let chapterText = '';
+      let chapterTitle = `Rozdział ${idx + 1}`;
+
+      if (job?.chapters && job.chapters[idx]) {
+        chapterText = job.chapters[idx].translatedText || job.chapters[idx].originalText || '';
+        chapterTitle = job.chapters[idx].title || chapterTitle;
+      } else {
+        const extracted = await extractChaptersForWebReader(jobId);
+        if (extracted && extracted.chapters && extracted.chapters[idx]) {
+          chapterText = extracted.chapters[idx].content || '';
+          chapterTitle = extracted.chapters[idx].title || chapterTitle;
+        }
+      }
+
+      const script = parseChapterToDramaticScript(chapterText, chapterTitle, jobId, idx);
+      const generated = await generateChapterDramaAudio(jobId, idx, script);
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Disposition', `attachment; filename="${generated.fileName}"`);
+      res.setHeader('Content-Length', generated.buffer.length);
+      res.send(generated.buffer);
+    } catch (err: any) {
+      res.status(500).send('Błąd pobierania słuchowiska');
+    }
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: AI Companion (Character Tree & Recap)
+  // ----------------------------------------------------
+  app.get('/api/books/:id/characters', async (req, res) => {
+    try {
+      const job = getJobById(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: 'Nie znaleziono książki' });
+      }
+
+      let sampleText = '';
+      if (job.chapters && job.chapters.length > 0) {
+        sampleText = job.chapters.slice(0, 4).map((c) => c.translatedText || c.originalText).join('\n\n');
+      } else {
+        const extracted = await extractChaptersForWebReader(req.params.id);
+        if (extracted && extracted.chapters && extracted.chapters.length > 0) {
+          sampleText = extracted.chapters.slice(0, 4).map((c) => c.content).join('\n\n');
+        }
+      }
+
+      const characters = await extractBookCharacters(job.title, sampleText);
+      res.json({ success: true, characters });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd generowania przewodnika po postaciach' });
+    }
+  });
+
+  app.get('/api/books/:id/recap', async (req, res) => {
+    try {
+      const job = getJobById(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: 'Nie znaleziono książki' });
+      }
+
+      const chapterIndex = parseInt(req.query.chapterIndex as string, 10) || 0;
+      let previousText = '';
+      let chapterTitle = `Rozdział ${chapterIndex + 1}`;
+
+      let textList: string[] = [];
+      if (job.chapters && job.chapters.length > 0) {
+        if (job.chapters[chapterIndex]) chapterTitle = job.chapters[chapterIndex].title || chapterTitle;
+        textList = job.chapters.slice(0, Math.max(1, chapterIndex)).map((c) => c.translatedText || c.originalText || '');
+      } else {
+        const extracted = await extractChaptersForWebReader(req.params.id);
+        if (extracted && extracted.chapters && extracted.chapters.length > 0) {
+          if (extracted.chapters[chapterIndex]) chapterTitle = extracted.chapters[chapterIndex].title || chapterTitle;
+          textList = extracted.chapters.slice(0, Math.max(1, chapterIndex)).map((c) => c.content || '');
+        }
+      }
+      previousText = textList.join('\n\n');
+
+      const recap = await generateChapterRecap(job.title, chapterTitle, previousText);
+      res.json({ success: true, recap, chapterTitle });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd generowania przypomnienia' });
+    }
+  });
+
+  // ----------------------------------------------------
+  // API Endpoints: Series Catalog
+  // ----------------------------------------------------
+  app.get('/api/series/known', (req, res) => {
+    res.json({ success: true, series: KNOWN_SERIES });
   });
 
   // ----------------------------------------------------

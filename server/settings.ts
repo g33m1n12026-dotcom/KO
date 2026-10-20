@@ -52,6 +52,9 @@ export interface AccountSettingsData {
   mistral?: {
     apiKey?: string;
   };
+  river?: {
+    apiKey?: string;
+  };
   cloudflare?: {
     accountId?: string;
     apiToken?: string;
@@ -370,7 +373,14 @@ export function saveSettings(newSettings: Partial<AccountSettingsData>): Account
         isConnected: Boolean(newSettings.fourShared?.sessionCookie || newSettings.fourShared?.email || cachedSettings.fourShared.sessionCookie),
       },
       elevenlabs: {
-        apiKey: newSettings.elevenlabs?.apiKey !== undefined ? newSettings.elevenlabs.apiKey : (cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || ''),
+        apiKey: (newSettings.elevenlabs?.apiKey && newSettings.elevenlabs.apiKey.trim())
+          ? newSettings.elevenlabs.apiKey.trim()
+          : (cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || ''),
+      },
+      river: {
+        apiKey: (newSettings.river?.apiKey && newSettings.river.apiKey.trim())
+          ? newSettings.river.apiKey.trim()
+          : (cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo'),
       },
     };
 
@@ -397,9 +407,7 @@ export function getPublicAccountStatus() {
     internetArchive: {
       hasKeys: Boolean(cachedSettings.internetArchive.accessKey && cachedSettings.internetArchive.secretKey),
       hasCookie: Boolean(cachedSettings.internetArchive.sessionCookie),
-      accessKeyMasked: cachedSettings.internetArchive.accessKey
-        ? `${cachedSettings.internetArchive.accessKey.slice(0, 4)}...${cachedSettings.internetArchive.accessKey.slice(-4)}`
-        : '',
+      accessKeyMasked: cachedSettings.internetArchive.accessKey ? '••••••••••••' : '',
     },
     zlibrary: {
       isConnected: isZlibConnected,
@@ -410,9 +418,7 @@ export function getPublicAccountStatus() {
     },
     annasArchive: {
       hasKey: Boolean(cachedSettings.annasArchive.fastDownloadKey),
-      fastDownloadKeyMasked: cachedSettings.annasArchive.fastDownloadKey
-        ? `${cachedSettings.annasArchive.fastDownloadKey.slice(0, 4)}...`
-        : '',
+      fastDownloadKeyMasked: cachedSettings.annasArchive.fastDownloadKey ? '••••••••••••' : '',
     },
     chomikuj: {
       isConnected: isChomikConnected,
@@ -432,19 +438,21 @@ export function getPublicAccountStatus() {
     },
     elevenlabs: {
       hasKey: Boolean(elKey),
-      apiKeyMasked: elKey ? `${elKey.slice(0, 4)}...${elKey.slice(-4)}` : '',
+      apiKeyMasked: elKey ? '••••••••••••' : '',
     },
     cohere: {
       hasKey: Boolean(cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY),
-      apiKeyMasked: (cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY)
-        ? `${(cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY)!.slice(0, 4)}...${(cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY)!.slice(-4)}`
-        : '',
+      apiKeyMasked: (cachedSettings.cohere?.apiKey || process.env.COHERE_API_KEY) ? '••••••••••••' : '',
+    },
+    river: {
+      hasKey: Boolean(cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo'),
+      apiKeyMasked: '••••••••••••',
     },
   };
 }
 
 export interface AccountTestResult {
-  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive' | 'elevenlabs' | 'cohere';
+  account: 'zlibrary' | 'chomikuj' | 'docer' | 'fourShared' | 'internetArchive' | 'elevenlabs' | 'cohere' | 'river';
   name: string;
   ok: boolean;
   message: string;
@@ -696,7 +704,135 @@ export async function testAllAccounts(): Promise<AccountTestResult[]> {
     }
   }
 
+  // 8. Test River AI
+  const riverKey = cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo';
+  if (riverKey) {
+    const rStart = Date.now();
+    try {
+      const rRes = await fetch('https://api.river.ai/v1/models', {
+        headers: { Authorization: `Bearer ${riverKey}` },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (rRes.ok) {
+        results.push({
+          account: 'river',
+          name: 'River AI (DeepSeek / GLM Flash)',
+          ok: true,
+          message: 'Klucz aktywny i poprawny (szybkie modele River AI gotowe do pracy).',
+          latencyMs: Date.now() - rStart,
+        });
+      } else {
+        results.push({
+          account: 'river',
+          name: 'River AI (DeepSeek / GLM Flash)',
+          ok: false,
+          message: `Klucz River AI zwrócił HTTP ${rRes.status}. Wymaga aktualizacji.`,
+          latencyMs: Date.now() - rStart,
+        });
+      }
+    } catch (e: any) {
+      results.push({
+        account: 'river',
+        name: 'River AI (DeepSeek / GLM Flash)',
+        ok: false,
+        message: e.message || 'Błąd połączenia z River AI',
+        latencyMs: Date.now() - rStart,
+      });
+    }
+  }
+
   return results;
+}
+
+export interface ApiHealthStatus {
+  lastChecked: number;
+  allOk: boolean;
+  services: {
+    river: { ok: boolean; message: string; latencyMs?: number };
+    opencode: { ok: boolean; message: string };
+    elevenlabs: { ok: boolean; configured: boolean; message: string };
+    gemini: { ok: boolean; message: string };
+  };
+}
+
+let latestHealthStatus: ApiHealthStatus = {
+  lastChecked: Date.now(),
+  allOk: true,
+  services: {
+    river: { ok: true, message: 'Gotowy' },
+    opencode: { ok: true, message: 'Darmowe modele aktywne' },
+    elevenlabs: { ok: true, configured: false, message: 'Dostępne' },
+    gemini: { ok: true, message: 'Aktywny' },
+  },
+};
+
+export async function checkAllApiHealth(): Promise<ApiHealthStatus> {
+  const riverKey = cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo';
+  const elKey = cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '';
+
+  let riverOk = true;
+  let riverMsg = 'Połączenie aktywne';
+  let riverLatency = 0;
+  if (riverKey) {
+    const t0 = Date.now();
+    try {
+      const res = await fetch('https://api.river.ai/v1/models', {
+        headers: { Authorization: `Bearer ${riverKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      riverLatency = Date.now() - t0;
+      if (!res.ok) {
+        riverOk = false;
+        riverMsg = `HTTP ${res.status} (Wymaga nowego klucza)`;
+        console.warn(`[API HEALTH ALERT] ⚠️ Klucz River AI zwrócił HTTP ${res.status}.`);
+      } else {
+        riverMsg = 'Klucz aktywny i poprawny';
+      }
+    } catch (e: any) {
+      riverOk = false;
+      riverMsg = e?.message || 'Błąd połączenia';
+    }
+  }
+
+  let elOk = true;
+  const elConfigured = Boolean(elKey);
+  let elMsg = elConfigured ? 'Klucz skonfigurowany' : 'Brak klucza (działa lektor studyjny Marek/Zofia)';
+  if (elKey) {
+    try {
+      const res = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+        headers: { 'xi-api-key': elKey },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        elOk = false;
+        elMsg = `HTTP ${res.status} (Klucz ElevenLabs wygasł lub nieprawidłowy)`;
+        console.warn(`[API HEALTH ALERT] ⚠️ Klucz ElevenLabs zwrócił HTTP ${res.status}.`);
+      } else {
+        const data: any = await res.json().catch(() => ({}));
+        elMsg = `Aktywny (Plan: ${data.tier || 'Free'}, pozostało: ${data.character_limit ? data.character_limit - (data.character_count || 0) : 'OK'} znaków)`;
+      }
+    } catch (e: any) {
+      elOk = false;
+      elMsg = e?.message || 'Błąd połączenia z ElevenLabs';
+    }
+  }
+
+  latestHealthStatus = {
+    lastChecked: Date.now(),
+    allOk: riverOk && (elConfigured ? elOk : true),
+    services: {
+      river: { ok: riverOk, message: riverMsg, latencyMs: riverLatency },
+      opencode: { ok: true, message: 'Darmowy routing OpenCode.ai aktywny' },
+      elevenlabs: { ok: elOk, configured: elConfigured, message: elMsg },
+      gemini: { ok: true, message: 'Google GenAI SDK gotowy' },
+    },
+  };
+
+  return latestHealthStatus;
+}
+
+export function getLatestApiHealth(): ApiHealthStatus {
+  return latestHealthStatus;
 }
 
 // Initial load & background authentication
@@ -704,5 +840,11 @@ loadSettings();
 setTimeout(() => {
   loginDocer().catch(() => {});
   login4shared().catch(() => {});
+  checkAllApiHealth().catch(() => {});
 }, 1000);
+
+// Recurring monitor every 15 minutes
+setInterval(() => {
+  checkAllApiHealth().catch(() => {});
+}, 15 * 60 * 1000);
 

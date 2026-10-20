@@ -13,6 +13,7 @@ import { parseDocumentBuffer, heuristicOcrProofread, unpackZipArchive } from './
 import { fetchRemoteBookBuffer } from './search';
 import { convertToCbz } from './comic';
 import { executeStorybookJob } from './storybook';
+import { detectBookSeries } from './series';
 
 const SEED_DATA_DIR = path.join(process.cwd(), 'data');
 const SEED_EPUB_DIR = path.join(SEED_DATA_DIR, 'epubs');
@@ -212,6 +213,11 @@ function loadJobsFromDisk(): void {
               detectFileDetailedFormat(job.outputEpubFilename).then((fmt) => {
                 job.detailedFormat = fmt;
               }).catch(() => {});
+            }
+
+            if (!job.series) {
+              const ser = detectBookSeries(job.title);
+              if (ser) job.series = ser;
             }
 
             jobs.set(job.id, job);

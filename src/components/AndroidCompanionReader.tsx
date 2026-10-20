@@ -42,9 +42,17 @@ import {
   Layers,
   Sparkle,
   RefreshCw,
+  Users,
+  Compass,
+  FileAudio,
+  Music,
+  ScrollText,
+  Bookmark,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import JSZip from 'jszip';
-import { Job } from '../types';
+import { Job, DramaticScriptLine, ChapterDramaticScript, BookCharacter, ReadingProgress } from '../types';
 
 interface AndroidCompanionReaderProps {
   serverUrl: string;
@@ -174,6 +182,37 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   const [isListening, setIsListening] = useState<boolean>(false);
   const [voiceQuery, setVoiceQuery] = useState<string>('');
   const [voiceSearchStatus, setVoiceSearchStatus] = useState<string | null>(null);
+
+  // ----------------------------------------------------
+  // Two-Way Kindle ↔ Web Sync State
+  // ----------------------------------------------------
+  const [kindleSyncNotice, setKindleSyncNotice] = useState<{
+    show: boolean;
+    progress: ReadingProgress;
+  } | null>(null);
+
+  // ----------------------------------------------------
+  // Multi-Voice Radio Drama Studio State
+  // ----------------------------------------------------
+  const [showDramaModal, setShowDramaModal] = useState<boolean>(false);
+  const [dramaLoading, setDramaLoading] = useState<boolean>(false);
+  const [dramaScript, setDramaScript] = useState<ChapterDramaticScript | null>(null);
+  const [currentDramaLineIdx, setCurrentDramaLineIdx] = useState<number>(0);
+  const [isDramaPlaying, setIsDramaPlaying] = useState<boolean>(false);
+  const [dramaSpeed, setDramaSpeed] = useState<number>(1.0);
+  const [dramaExporting, setDramaExporting] = useState<boolean>(false);
+  const [dramaExportNotice, setDramaExportNotice] = useState<string | null>(null);
+  const dramaAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ----------------------------------------------------
+  // Story Guide & Character Tree State (AI Companion)
+  // ----------------------------------------------------
+  const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
+  const [guideTab, setGuideTab] = useState<'characters' | 'recap'>('characters');
+  const [guideLoading, setGuideLoading] = useState<boolean>(false);
+  const [charactersList, setCharactersList] = useState<BookCharacter[]>([]);
+  const [recapText, setRecapText] = useState<string | null>(null);
+  const [characterSearch, setCharacterSearch] = useState<string>('');
 
   // Refs
   const contentRef = useRef<HTMLDivElement>(null);
@@ -655,7 +694,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     }
   }, [currentChapterIdx]);
 
-  // Save reading progress per book in localStorage so returning or refreshing never resets to chapter 0
+  // Save reading progress per book in localStorage and debounced sync with KOReader server
   useEffect(() => {
     if (loadedJobIdRef.current && chapters.length > 0) {
       try {
@@ -664,8 +703,178 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           JSON.stringify({ chapterIdx: currentChapterIdx, paragraphIdx: currentParagraphIdx })
         );
       } catch {}
+
+      const timer = setTimeout(() => {
+        fetch('/api/sync/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bookId: loadedJobIdRef.current,
+            title: bookTitle,
+            progressPercent: Math.round(((currentChapterIdx + 1) / chapters.length) * 100),
+            chapterIndex: currentChapterIdx,
+            currentPosition: currentParagraphIdx,
+            totalChapters: chapters.length,
+            device: 'Web Reader',
+          }),
+        }).catch(() => {});
+      }, 1500);
+
+      return () => clearTimeout(timer);
     }
-  }, [currentChapterIdx, currentParagraphIdx, chapters.length]);
+  }, [currentChapterIdx, currentParagraphIdx, chapters.length, bookTitle]);
+
+  // ----------------------------------------------------
+  // Radio Drama Multi-Voice Studio Logic
+  // ----------------------------------------------------
+  const openDramaStudio = async () => {
+    if (!selectedJob) return;
+    setShowDramaModal(true);
+    setDramaLoading(true);
+    setDramaExportNotice(null);
+    try {
+      const res = await fetch(`/api/audio/script/${selectedJob.id}/${currentChapterIdx}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDramaScript(data.script);
+        setCurrentDramaLineIdx(0);
+      }
+    } catch (e: any) {
+      console.warn('Błąd ładowania scenariusza słuchowiska:', e);
+    } finally {
+      setDramaLoading(false);
+    }
+  };
+
+  const playDramaLine = async (lineIdx: number) => {
+    if (!dramaScript || !dramaScript.lines[lineIdx]) return;
+    setCurrentDramaLineIdx(lineIdx);
+    setIsDramaPlaying(true);
+
+    const line = dramaScript.lines[lineIdx];
+    const voiceToUse = line.voiceId || (line.role === 'female' ? 'pl-PL-ZofiaNeural' : 'pl-PL-MarekNeural');
+
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: `${line.characterName}: "${line.text.slice(0, 35)}..."`,
+          artist: `${bookTitle} • Słuchowisko AI`,
+          album: chapters[currentChapterIdx]?.title || 'Rozdział',
+        });
+        navigator.mediaSession.setActionHandler('play', () => setIsDramaPlaying(true));
+        navigator.mediaSession.setActionHandler('pause', () => {
+          setIsDramaPlaying(false);
+          if (dramaAudioRef.current) dramaAudioRef.current.pause();
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          if (lineIdx + 1 < dramaScript.lines.length) playDramaLine(lineIdx + 1);
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          if (lineIdx - 1 >= 0) playDramaLine(lineIdx - 1);
+        });
+      } catch {}
+    }
+
+    try {
+      const resp = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: line.text,
+          voice: voiceToUse,
+          provider: 'neural',
+          speed: dramaSpeed,
+        }),
+      });
+
+      if (!resp.ok) throw new Error('Błąd generowania audio kwestii');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+
+      if (dramaAudioRef.current) {
+        dramaAudioRef.current.src = url;
+        dramaAudioRef.current.playbackRate = dramaSpeed;
+        dramaAudioRef.current.onended = () => {
+          if (lineIdx + 1 < dramaScript.lines.length) {
+            playDramaLine(lineIdx + 1);
+          } else {
+            setIsDramaPlaying(false);
+          }
+        };
+        await dramaAudioRef.current.play();
+      }
+    } catch (e: any) {
+      console.warn('Błąd odtwarzania kwestii słuchowiska:', e);
+      setIsDramaPlaying(false);
+    }
+  };
+
+  const toggleDramaPlayback = () => {
+    if (isDramaPlaying) {
+      if (dramaAudioRef.current) dramaAudioRef.current.pause();
+      setIsDramaPlaying(false);
+    } else {
+      playDramaLine(currentDramaLineIdx);
+    }
+  };
+
+  const handleExportDramaMp3 = async () => {
+    if (!selectedJob) return;
+    setDramaExporting(true);
+    setDramaExportNotice('Generuję plik MP3 słuchowiska dla całego rozdziału...');
+    try {
+      const res = await fetch(`/api/audio/export-chapter-mp3/${selectedJob.id}/${currentChapterIdx}`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error('Błąd serwera podczas eksportu MP3');
+      const data = await res.json();
+      if (data.downloadUrl) {
+        setDramaExportNotice(`Pobieranie pliku: ${data.fileName} (${data.sizeKb} KB)...`);
+        const a = document.createElement('a');
+        a.href = data.downloadUrl;
+        a.download = data.fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => setDramaExportNotice(null), 4000);
+      }
+    } catch (e: any) {
+      setDramaExportNotice(`Błąd eksportu: ${e.message || 'Niepowodzenie'}`);
+      setTimeout(() => setDramaExportNotice(null), 5000);
+    } finally {
+      setDramaExporting(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // AI Story Guide & Character Tree Logic
+  // ----------------------------------------------------
+  const openStoryGuide = async (tab: 'characters' | 'recap' = 'characters') => {
+    if (!selectedJob) return;
+    setGuideTab(tab);
+    setShowGuideModal(true);
+    setGuideLoading(true);
+
+    try {
+      if (tab === 'characters') {
+        const res = await fetch(`/api/books/${selectedJob.id}/characters`);
+        if (res.ok) {
+          const data = await res.json();
+          setCharactersList(data.characters || []);
+        }
+      } else {
+        const res = await fetch(`/api/books/${selectedJob.id}/recap?chapterIndex=${currentChapterIdx}`);
+        if (res.ok) {
+          const data = await res.json();
+          setRecapText(data.recap || 'Brak streszczenia dla tego rozdziału.');
+        }
+      }
+    } catch (e: any) {
+      console.warn('Błąd ładowania przewodnika:', e);
+    } finally {
+      setGuideLoading(false);
+    }
+  };
 
   // ----------------------------------------------------
   // Load EPUB, CBZ, or PDF from Job or URL
@@ -689,6 +898,22 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         if (typeof parsed.paragraphIdx === 'number') savedParagraphIdx = parsed.paragraphIdx;
       }
     } catch {}
+
+    // Check if Kindle or another device has newer progress
+    fetch(`/api/sync/progress/${encodeURIComponent(job.id)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.progress && data.progress.chapterIndex !== undefined) {
+          const syncProg = data.progress;
+          if (syncProg.device === 'Kindle' && syncProg.chapterIndex !== savedChapterIdx) {
+            setKindleSyncNotice({
+              show: true,
+              progress: syncProg,
+            });
+          }
+        }
+      })
+      .catch(() => {});
 
     // 1. If job has chapters already, set them immediately for fast resilient reading
     if (job.chapters && job.chapters.length > 0) {
@@ -1572,6 +1797,40 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             </div>
           )}
 
+          {/* Kindle Progress Sync Prompt Banner */}
+          {kindleSyncNotice && kindleSyncNotice.show && (
+            <div className="bg-amber-600 text-white px-3 sm:px-4 py-2 flex items-center justify-between gap-2 text-xs shadow-md animate-in fade-in slide-in-from-top-2 border-b border-amber-700 z-30">
+              <div className="flex items-center gap-2 truncate">
+                <span className="text-base shrink-0">📖</span>
+                <span className="truncate">
+                  Wykryto nowszy postęp z <strong>Kindle ({kindleSyncNotice.progress.device})</strong>: Rozdział {(kindleSyncNotice.progress.chapterIndex || 0) + 1} ({kindleSyncNotice.progress.progressPercent}%, {kindleSyncNotice.progress.timeAgo || 'niedawno'}).
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentChapterIdx(kindleSyncNotice.progress.chapterIndex);
+                    if (typeof kindleSyncNotice.progress.currentPosition === 'number') {
+                      setCurrentParagraphIdx(kindleSyncNotice.progress.currentPosition);
+                    }
+                    setKindleSyncNotice(null);
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-white text-amber-950 font-bold text-[11px] shadow-xs hover:bg-amber-50 transition cursor-pointer"
+                >
+                  Przejdź do pozycji z Kindle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKindleSyncNotice(null)}
+                  className="p-1 rounded hover:bg-black/15 text-white transition text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Reader Top Action Bar */}
           <div
             className={`px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2 sm:gap-3 text-xs transition-all duration-300 ${currentTheme.bar} ${
@@ -1657,30 +1916,26 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
               </button>
 
-              {/* Radio Drama Mode (Słuchowisko wielogłosowe) */}
+              {/* Multi-Voice Radio Drama Studio Button */}
               <button
                 type="button"
-                onClick={() => {
-                  const nextVal = !radioDramaMode;
-                  setRadioDramaMode(nextVal);
-                  localStorage.setItem('koreader_radio_drama_mode', String(nextVal));
-                  prefetchCacheRef.current = {};
-                  setTtsNotification(
-                    nextVal
-                      ? '🎭 Tryb Słuchowiska WŁĄCZONY! Dialogi i role kobiece czyta Zofia, a narrację i role męskie Marek.'
-                      : '🎙️ Tryb Słuchowiska wyłączony (czyta pojedynczy lektor).'
-                  );
-                  setTimeout(() => setTtsNotification(null), 4500);
-                }}
-                className={`px-2 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  radioDramaMode
-                    ? 'bg-indigo-700 text-white border-indigo-700 shadow-xs'
-                    : 'border-current/20 hover:bg-black/5 dark:hover:bg-white/5 opacity-80'
-                }`}
-                title="Słuchowisko radiowe: inteligentny podział na role męskie (Marek) i żeńskie/dialogowe (Zofia)"
+                onClick={openDramaStudio}
+                className="px-2.5 py-1 rounded-lg border border-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-950 dark:text-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer hover:bg-indigo-100 shadow-2xs"
+                title="Studio Słuchowiska AI: wielogłosowe słuchowisko z podziałem na role i eksportem MP3"
               >
                 <span>🎭</span>
-                <span className="hidden md:inline">Słuchowisko</span>
+                <span className="hidden sm:inline">Słuchowisko MP3</span>
+              </button>
+
+              {/* Story Guide & Character Tree Button */}
+              <button
+                type="button"
+                onClick={() => openStoryGuide('characters')}
+                className="px-2.5 py-1 rounded-lg border border-purple-400 bg-purple-50 dark:bg-purple-950/60 text-purple-950 dark:text-purple-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer hover:bg-purple-100 shadow-2xs"
+                title="Przewodnik fabularny i drzewo bohaterów bez spoilerów"
+              >
+                <span>🧠</span>
+                <span className="hidden sm:inline">Przewodnik</span>
               </button>
 
               {/* Fullscreen Mode Button */}
@@ -2885,6 +3140,386 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 Wróć do czytania
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL: MULTI-VOICE RADIO DRAMA STUDIO */}
+      {/* ==================================================== */}
+      <audio ref={dramaAudioRef} preload="auto" className="hidden" />
+
+      {showDramaModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-stone-900 rounded-2xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4 max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 flex items-center justify-center text-lg shadow-2xs">
+                  🎭
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-stone-900 dark:text-white">
+                    Słuchowisko AI: {chapters[currentChapterIdx]?.title || `Rozdział ${currentChapterIdx + 1}`}
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    Wielogłosowy teatr radiowy z automatycznym podziałem na role i eksporterem MP3.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (dramaAudioRef.current) dramaAudioRef.current.pause();
+                  setIsDramaPlaying(false);
+                  setShowDramaModal(false);
+                }}
+                className="w-8 h-8 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 flex items-center justify-center text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Character Cast Pills */}
+            {dramaScript && dramaScript.characters && dramaScript.characters.length > 0 && (
+              <div className="shrink-0 p-2.5 bg-stone-50 dark:bg-stone-800/60 rounded-xl border border-stone-200 dark:border-stone-700/60 flex items-center gap-2 overflow-x-auto text-xs">
+                <span className="text-[11px] font-bold text-stone-500 shrink-0">Obsada:</span>
+                {dramaScript.characters.map((char) => (
+                  <span
+                    key={char.name}
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium shrink-0 border shadow-2xs ${
+                      char.role === 'female'
+                        ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 border-rose-200 dark:border-rose-800'
+                        : char.role === 'male'
+                        ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-800'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-300 dark:border-stone-600'
+                    }`}
+                  >
+                    <span>{char.role === 'female' ? '👩' : char.role === 'male' ? '⚔️' : '🎙️'}</span>
+                    <strong>{char.name}</strong> ({char.linesCount} kwestii)
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Drama Controls Toolbar */}
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200/80 dark:border-indigo-800">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleDramaPlayback}
+                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
+                >
+                  {isDramaPlaying ? (
+                    <>
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Pauza</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Odtwarzaj słuchowisko</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (currentDramaLineIdx > 0) playDramaLine(currentDramaLineIdx - 1);
+                  }}
+                  disabled={!dramaScript || currentDramaLineIdx === 0}
+                  className="p-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:bg-white dark:hover:bg-stone-800 text-indigo-900 dark:text-indigo-200 text-xs disabled:opacity-40 transition cursor-pointer"
+                  title="Poprzednia kwestia"
+                >
+                  <SkipBack className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (dramaScript && currentDramaLineIdx + 1 < dramaScript.lines.length) {
+                      playDramaLine(currentDramaLineIdx + 1);
+                    }
+                  }}
+                  disabled={!dramaScript || currentDramaLineIdx >= (dramaScript?.lines.length || 0) - 1}
+                  className="p-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:bg-white dark:hover:bg-stone-800 text-indigo-900 dark:text-indigo-200 text-xs disabled:opacity-40 transition cursor-pointer"
+                  title="Następna kwestia"
+                >
+                  <SkipForward className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Speed selector */}
+                <select
+                  value={dramaSpeed}
+                  onChange={(e) => setDramaSpeed(parseFloat(e.target.value))}
+                  className="px-2 py-1 bg-white dark:bg-stone-800 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold text-stone-800 dark:text-stone-200 cursor-pointer"
+                >
+                  <option value={0.85}>0.85x</option>
+                  <option value={1.0}>1.0x (Normal)</option>
+                  <option value={1.2}>1.2x</option>
+                  <option value={1.4}>1.4x</option>
+                </select>
+              </div>
+
+              {/* Export MP3 button */}
+              <button
+                type="button"
+                onClick={handleExportDramaMp3}
+                disabled={dramaExporting}
+                className="px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-xs disabled:opacity-60 cursor-pointer"
+              >
+                {dramaExporting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Eksportuję MP3...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5 text-indigo-300" />
+                    <span>Pobierz MP3 na telefon / Kindle</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {dramaExportNotice && (
+              <div className="shrink-0 p-2.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
+                <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{dramaExportNotice}</span>
+              </div>
+            )}
+
+            {/* Interactive Script View */}
+            <div className="flex-1 min-h-[220px] max-h-[50vh] overflow-y-auto space-y-2.5 pr-1">
+              {dramaLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2 text-stone-500">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                  <span className="text-xs">Dzielę rozdział na głosy i generuję scenariusz...</span>
+                </div>
+              ) : !dramaScript || dramaScript.lines.length === 0 ? (
+                <div className="py-12 text-center text-stone-500 text-xs">
+                  Brak kwestii w tym rozdziale lub trwa analiza tekstu.
+                </div>
+              ) : (
+                dramaScript.lines.map((line, idx) => {
+                  const isActive = idx === currentDramaLineIdx && isDramaPlaying;
+                  const isSelected = idx === currentDramaLineIdx;
+
+                  return (
+                    <div
+                      key={line.id}
+                      onClick={() => playDramaLine(idx)}
+                      className={`p-3 rounded-xl border text-xs transition cursor-pointer ${
+                        isSelected
+                          ? 'border-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/60 ring-2 ring-indigo-400/40 shadow-xs'
+                          : 'border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-900/60 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-2xs ${
+                            line.role === 'female'
+                              ? 'bg-rose-100 text-rose-950 border border-rose-300'
+                              : line.role === 'male'
+                              ? 'bg-blue-100 text-blue-950 border border-blue-300'
+                              : 'bg-stone-200 text-stone-900 border border-stone-300'
+                          }`}>
+                            {line.role === 'female' ? '👩' : line.role === 'male' ? '⚔️' : '🎙️'} {line.characterName}
+                          </span>
+                          {line.emotion && (
+                            <span className="text-[10px] italic text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                              [{line.emotion}]
+                            </span>
+                          )}
+                        </div>
+
+                        {isActive && (
+                          <span className="flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 font-bold animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping" />
+                            <span>MÓWI TERAZ</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-stone-800 dark:text-stone-200 leading-relaxed font-serif text-[13px]">
+                        {line.text}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL: AI STORY GUIDE & CHARACTER TREE */}
+      {/* ==================================================== */}
+      {showGuideModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-stone-900 rounded-2xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4 max-h-[92vh] flex flex-col">
+            {/* Header with Subtabs */}
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-400 flex items-center justify-center text-lg shadow-2xs">
+                  🧠
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-stone-900 dark:text-white">
+                    Przewodnik Fabularny AI: {bookTitle}
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    Bohaterowie, frakcje i przypomnienia fabuły bez spoilerów.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowGuideModal(false)}
+                className="w-8 h-8 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 flex items-center justify-center text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex items-center gap-2 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl shrink-0">
+              <button
+                type="button"
+                onClick={() => openStoryGuide('characters')}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  guideTab === 'characters'
+                    ? 'bg-white dark:bg-stone-900 text-purple-700 dark:text-purple-300 shadow-xs'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Drzewo Bohaterów ({charactersList.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openStoryGuide('recap')}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  guideTab === 'recap'
+                    ? 'bg-white dark:bg-stone-900 text-purple-700 dark:text-purple-300 shadow-xs'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                <ScrollText className="w-3.5 h-3.5" />
+                <span>Co wydarzyło się dotychczas?</span>
+              </button>
+            </div>
+
+            {/* Tab 1: Characters Tree */}
+            {guideTab === 'characters' && (
+              <div className="space-y-3 flex-1 flex flex-col min-h-[240px] max-h-[55vh] overflow-hidden">
+                <div className="relative shrink-0">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                  <input
+                    type="text"
+                    value={characterSearch}
+                    onChange={(e) => setCharacterSearch(e.target.value)}
+                    placeholder="Wyszukaj bohatera, frakcję lub rolę..."
+                    className="w-full pl-8 pr-3 py-1.5 bg-stone-50 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 rounded-xl text-xs focus:outline-hidden"
+                  />
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                  {guideLoading ? (
+                    <div className="py-12 flex flex-col items-center justify-center gap-2 text-stone-500">
+                      <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                      <span className="text-xs">Analizuję tekst książki i relacje postaci...</span>
+                    </div>
+                  ) : charactersList.length === 0 ? (
+                    <div className="py-12 text-center text-stone-500 text-xs">
+                      Brak wyodrębnionych postaci dla tej pozycji.
+                    </div>
+                  ) : (
+                    charactersList
+                      .filter((c) => {
+                        if (!characterSearch.trim()) return true;
+                        const s = characterSearch.toLowerCase();
+                        return (
+                          c.name.toLowerCase().includes(s) ||
+                          c.role.toLowerCase().includes(s) ||
+                          (c.faction && c.faction.toLowerCase().includes(s)) ||
+                          (c.relations && c.relations.some((r) => r.toLowerCase().includes(s)))
+                        );
+                      })
+                      .map((char) => (
+                        <div
+                          key={char.name}
+                          className="p-3.5 bg-stone-50/70 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/70 rounded-xl space-y-1.5 shadow-2xs"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-bold text-stone-900 dark:text-white text-xs sm:text-sm flex items-center gap-1.5">
+                              <span>👤</span>
+                              <span>{char.name}</span>
+                            </h4>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-2xs border ${
+                              char.importance === 'main'
+                                ? 'bg-amber-100 text-amber-950 border-amber-300'
+                                : char.importance === 'supporting'
+                                ? 'bg-purple-100 text-purple-950 border-purple-300'
+                                : 'bg-stone-200 text-stone-800 border-stone-300'
+                            }`}>
+                              {char.importance === 'main' ? 'Główny bohater' : char.importance === 'supporting' ? 'Drugoplanowy' : 'Epizodyczny'}
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] font-medium text-purple-800 dark:text-purple-300">
+                            {char.role} {char.faction ? `• Stronnictwo: ${char.faction}` : ''}
+                          </div>
+
+                          <p className="text-stone-600 dark:text-stone-300 text-xs leading-relaxed">
+                            {char.description}
+                          </p>
+
+                          {char.relations && char.relations.length > 0 && (
+                            <div className="pt-1 flex flex-wrap items-center gap-1">
+                              <span className="text-[10px] text-stone-400 font-semibold">Relacje:</span>
+                              {char.relations.map((rel, rIdx) => (
+                                <span
+                                  key={rIdx}
+                                  className="text-[10px] px-1.5 py-0.5 bg-white dark:bg-stone-700 border border-stone-200 dark:border-stone-600 text-stone-700 dark:text-stone-300 rounded"
+                                >
+                                  {rel}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Story Recap */}
+            {guideTab === 'recap' && (
+              <div className="space-y-3 flex-1 flex flex-col min-h-[240px] max-h-[55vh] overflow-hidden">
+                <div className="p-3 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-xl text-xs text-purple-900 dark:text-purple-200 leading-relaxed shrink-0">
+                  Przypomnienie wydarzeń poprzedzających rozdział: <strong>"{chapters[currentChapterIdx]?.title || `Rozdział ${currentChapterIdx + 1}`}"</strong>.
+                  Generowane przez asystenta AI bez zdradzania spoilerów z kolejnych stron.
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 bg-stone-50 dark:bg-stone-800/40 rounded-xl border border-stone-200 dark:border-stone-700/60 leading-relaxed font-serif text-xs sm:text-sm text-stone-800 dark:text-stone-200 whitespace-pre-wrap">
+                  {guideLoading ? (
+                    <div className="py-12 flex flex-col items-center justify-center gap-2 text-stone-500 font-sans">
+                      <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                      <span className="text-xs">Tworzę klimatyczne streszczenie poprzednich wydarzeń...</span>
+                    </div>
+                  ) : (
+                    recapText || 'Brak streszczenia dla tego rozdziału.'
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -27,6 +27,7 @@ export default function App() {
   });
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Fetch status and jobs
   const fetchStatus = useCallback(async () => {
@@ -128,7 +129,11 @@ export default function App() {
         )}
 
         {activeTab === 'search' && (
-          <BookSearcher onOrderCreated={handleJobCreated} />
+          <BookSearcher
+            onOrderCreated={handleJobCreated}
+            initialQuery={searchQuery}
+            onQueryConsumed={() => setSearchQuery('')}
+          />
         )}
 
         {activeTab === 'library' && (
@@ -140,6 +145,10 @@ export default function App() {
             onReadJob={(job) => {
               setSelectedJob(job);
               setActiveTab('reader');
+            }}
+            onNavigateSearch={(query) => {
+              setSearchQuery(query);
+              setActiveTab('search');
             }}
           />
         )}

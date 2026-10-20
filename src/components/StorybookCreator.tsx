@@ -32,7 +32,7 @@ export const StorybookCreator: React.FC<StorybookCreatorProps> = ({ onJobCreated
   const [chapterCount, setChapterCount] = useState<number>(4);
   const [targetAudience, setTargetAudience] = useState<'all' | 'adults' | 'young_adults' | 'children'>('all');
   const [includeIllustrations, setIncludeIllustrations] = useState(true);
-  const [engine, setEngine] = useState<'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini'>('auto');
+  const [engine, setEngine] = useState<'auto' | 'river' | 'claude' | 'openai' | 'openrouter' | 'gemini'>('auto');
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -170,8 +170,9 @@ export const StorybookCreator: React.FC<StorybookCreatorProps> = ({ onJobCreated
               onChange={(e) => setEngine(e.target.value as any)}
               className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-stone-300 bg-stone-50 text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-800"
             >
-              <option value="auto">⚡ Auto (Gemini / DeepSeek)</option>
-              <option value="gemini">Google Gemini 3.8 Flash</option>
+              <option value="auto">⚡ Auto (River AI / Gemini)</option>
+              <option value="river">🌊 River AI (DeepSeek-V4.1)</option>
+              <option value="gemini">Google Gemini Flash</option>
               <option value="openrouter">OpenRouter (DeepSeek Chat)</option>
               <option value="openai">OpenAI (GPT-4o Mini)</option>
               <option value="claude">Anthropic Claude 3.5</option>

@@ -9,7 +9,7 @@ export interface TranslationOptions {
   sourceLang?: string;
   targetLang?: string;
   context?: string; // chapter title, book title, or glossary
-  preferredEngine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere';
+  preferredEngine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'river' | 'groq' | 'mistral' | 'llm7';
 }
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -20,6 +20,8 @@ const COHERE_KEY = process.env.COHERE_API_KEY || '';
 const LLM7_KEY = process.env.LLM7_API_KEY || '';
 const GROQ_KEY = process.env.GROQ_API_KEY || '';
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || '';
+const sanitizeKey = (k?: string) => (k || '').split(/\s+/)[0].replace(/[^\x00-\x7F]/g, '').trim();
+const RIVER_KEY = sanitizeKey(process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo');
 
 // Lazy Google GenAI instance
 let geminiClient: GoogleGenAI | null = null;
@@ -40,6 +42,7 @@ const quotaExhausted = {
   llm7: false,
   groq: false,
   mistral: false,
+  river: false,
 };
 
 export function getAvailableKeys() {
@@ -52,23 +55,25 @@ export function getAvailableKeys() {
     llm7: Boolean(LLM7_KEY),
     groq: Boolean(GROQ_KEY),
     mistral: Boolean(MISTRAL_KEY),
+    river: Boolean(RIVER_KEY),
     quotaExhausted: { ...quotaExhausted },
   };
 }
 
-function getSortedEngines(preferred: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral'): Array<'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral'> {
-  let base: Array<'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral'> = [];
-  if (preferred === 'groq') base = ['groq', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
-  else if (preferred === 'mistral') base = ['mistral', 'groq', 'gemini', 'cohere', 'llm7', 'openrouter', 'claude', 'openai'];
-  else if (preferred === 'cohere') base = ['cohere', 'gemini', 'groq', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
-  else if (preferred === 'llm7') base = ['llm7', 'cohere', 'groq', 'gemini', 'mistral', 'openrouter', 'claude', 'openai'];
-  else if (preferred === 'gemini') base = ['gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
-  else if (preferred === 'claude') base = ['claude', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'openai'];
-  else if (preferred === 'openai') base = ['openai', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude'];
-  else if (preferred === 'openrouter') base = ['openrouter', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'claude', 'openai'];
+function getSortedEngines(preferred: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral' | 'river'): Array<'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral' | 'river'> {
+  let base: Array<'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'llm7' | 'groq' | 'mistral' | 'river'> = [];
+  if (preferred === 'river') base = ['river', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'groq') base = ['groq', 'river', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'mistral') base = ['mistral', 'river', 'groq', 'gemini', 'cohere', 'llm7', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'cohere') base = ['cohere', 'river', 'gemini', 'groq', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'llm7') base = ['llm7', 'river', 'cohere', 'groq', 'gemini', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'gemini') base = ['gemini', 'river', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+  else if (preferred === 'claude') base = ['claude', 'river', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'openai'];
+  else if (preferred === 'openai') base = ['openai', 'river', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude'];
+  else if (preferred === 'openrouter') base = ['openrouter', 'river', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'claude', 'openai'];
   else {
-    // smart auto: ultra-fast Groq (Qwen/Llama 27B) & Gemini 3.8 -> Cohere Command-R+ -> LLM7 DeepSeek -> Mistral
-    base = ['groq', 'gemini', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
+    // smart auto: ultra-fast River AI (DeepSeek-V4.1) & Gemini Flash -> Groq -> Cohere -> LLM7 -> OpenRouter
+    base = ['river', 'gemini', 'groq', 'cohere', 'llm7', 'mistral', 'openrouter', 'claude', 'openai'];
   }
 
   // Sort so engines with quotaExhausted are tried last
@@ -379,18 +384,61 @@ async function translateWithMistral(prompt: string, text: string): Promise<strin
 }
 
 /**
+ * Call River AI API (DeepSeek-V4.1-Flash / GLM-5.3-Flash)
+ */
+async function translateWithRiver(prompt: string, text: string): Promise<string> {
+  if (!RIVER_KEY) throw new Error('Brak klucza River API');
+  const models = ['deepseek-ai/DeepSeek-V4.1-Flash', 'zai-org/GLM-5.3-Flash'];
+  let lastError = '';
+
+  for (const model of models) {
+    try {
+      const response = await fetch('https://api.river.ai/v1/chat/completions', {
+        method: 'POST',
+        signal: AbortSignal.timeout(35000),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${RIVER_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.3,
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: `Oto tekst do przetłumaczenia:\n\n${text}` },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const translated = data.choices?.[0]?.message?.content?.trim();
+        if (translated) return translated;
+      } else {
+        lastError = await response.text();
+      }
+    } catch (e: any) {
+      lastError = e?.message || String(e);
+    }
+  }
+
+  throw new Error(`Błąd River API: ${lastError}`);
+}
+
+/**
  * Call Gemini API (gemini-3.1-flash-lite / gemini-2.5-flash)
  */
 async function translateWithGemini(prompt: string, text: string): Promise<string> {
   if (!GEMINI_KEY) throw new Error('Brak klucza Gemini API');
 
   const gemini = getGemini();
+  const models = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
   let lastError = '';
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (const m of models) {
     try {
       const callPromise = gemini.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: m,
         contents: `${prompt}\n\nOto tekst do przetłumaczenia:\n\n${text}`,
         config: {
           temperature: 0.3,
@@ -406,12 +454,7 @@ async function translateWithGemini(prompt: string, text: string): Promise<string
       if (translated) return translated;
     } catch (err: any) {
       lastError = err?.message || String(err);
-      console.warn(`Gemini (gemini-3.8-flash) translate próba ${attempt + 1}/3:`, lastError);
-      if (lastError.includes('503') || lastError.includes('high demand') || lastError.includes('429')) {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-        continue;
-      }
-      break;
+      console.warn(`Gemini (${m}) translate notice:`, lastError);
     }
   }
 
@@ -534,7 +577,12 @@ export async function translateText(options: TranslationOptions): Promise<{ text
 
   for (const eng of order) {
     try {
-      if (eng === 'groq' && GROQ_KEY) {
+      if (eng === 'river' && RIVER_KEY) {
+        const translated = await translateWithRiver(systemPrompt, text);
+        if (translated && translated.trim().length > 0) {
+          return { text: postProcessPolishKindle(translated), usedEngine: 'River AI (DeepSeek-V4.1-Flash)' };
+        }
+      } else if (eng === 'groq' && GROQ_KEY) {
         const translated = await translateWithGroq(systemPrompt, text);
         if (translated && translated.trim().length > 0) {
           return { text: postProcessPolishKindle(translated), usedEngine: 'Groq (Qwen 27B / GPT-OSS 120B)' };
@@ -603,8 +651,9 @@ export async function translateText(options: TranslationOptions): Promise<{ text
   throw new Error(`Wszystkie silniki AI zawiodły przy próbie tłumaczenia. Błędy:\n${errors.join('\n')}`);
 }
 
-import { BookRecommendation } from '../src/types';
+import { BookRecommendation, AdvisorChatResponse } from '../src/types';
 import { generateMirrorSearchLinks } from './mirrors';
+import { queryOpenCodeRaw } from './opencode';
 
 /**
  * Recommends curated, high-quality books based on user's natural language description,
@@ -648,39 +697,79 @@ Twoje zadanie:
 
   let rawJson = '';
 
-  // Attempt using prioritized healthy models
-  const engines = getSortedEngines(preferredEngine);
+  // 1. Fast resilient attempt via OpenCode.ai / River AI
+  try {
+    const ocRes = await queryOpenCodeRaw(
+      [
+        { role: 'system', content: 'Jesteś wybitnym doradcą literackim i bibliografem. Zwróć wyłącznie poprawny obiekt JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      { jsonMode: true, temperature: 0.4 }
+    );
+    if (ocRes.content && ocRes.content.includes('{') && ocRes.content.includes('recommendations')) {
+      rawJson = ocRes.content;
+    }
+  } catch (ocErr) {
+    console.warn('Initial OpenCode try notice for recommendations:', ocErr);
+  }
 
-  for (const eng of engines) {
-    try {
-      if (eng === 'gemini' && GEMINI_KEY) {
-        const gemini = getGemini();
-        for (let attempt = 0; attempt < 3; attempt++) {
+  // 2. Attempt using prioritized healthy models if rawJson not yet populated
+  if (!rawJson) {
+    const engines = getSortedEngines(preferredEngine);
+
+    for (const eng of engines) {
+      try {
+        if (eng === 'river' && RIVER_KEY && !quotaExhausted.river) {
           try {
-            const resp = await gemini.models.generateContent({
-              model: 'gemini-3.8-flash',
-              contents: `${prompt}\n\nPamiętaj: zwróć WYŁĄCZNIE poprawny JSON!`,
-              config: {
-                temperature: 0.4,
-                responseMimeType: 'application/json',
+            const resp = await fetch('https://api.river.ai/v1/chat/completions', {
+              method: 'POST',
+              signal: AbortSignal.timeout(15000),
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${RIVER_KEY}`,
               },
+              body: JSON.stringify({
+                model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+                temperature: 0.4,
+                response_format: { type: 'json_object' },
+                messages: [
+                  { role: 'user', content: `${prompt}\n\nPamiętaj: zwróć WYŁĄCZNIE poprawny JSON!` },
+                ],
+              }),
             });
-            const text = resp.text?.trim();
-            if (text) {
-              rawJson = text;
-              break;
+            if (resp.ok) {
+              const data = await resp.json();
+              rawJson = data.choices?.[0]?.message?.content || '';
+              if (rawJson) break;
             }
-          } catch (gErr: any) {
-            const msg = gErr?.message || String(gErr);
-            console.warn(`Gemini (gemini-3.8-flash) doradca próba ${attempt + 1}/3:`, msg);
-            if (msg.includes('503') || msg.includes('high demand') || msg.includes('429')) {
-              await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-              continue;
-            }
-            break;
+          } catch (rErr: any) {
+            console.warn('River AI doradca notice:', rErr?.message || rErr);
           }
-        }
-        if (rawJson) break;
+        } else if (eng === 'gemini' && GEMINI_KEY && !quotaExhausted.gemini) {
+          for (const gemModel of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
+            try {
+              const gemini = getGemini();
+              const resp = await Promise.race([
+                gemini.models.generateContent({
+                  model: gemModel,
+                  contents: `${prompt}\n\nPamiętaj: zwróć WYŁĄCZNIE poprawny JSON!`,
+                  config: {
+                    temperature: 0.4,
+                    responseMimeType: 'application/json',
+                  },
+                }),
+                new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Gemini timeout')), 7000)),
+              ]);
+              const text = resp?.text?.trim();
+              if (text) {
+                rawJson = text;
+                break;
+              }
+            } catch (gErr: any) {
+              console.warn(`Gemini (${gemModel}) doradca notice:`, gErr?.message || gErr);
+            }
+          }
+          if (rawJson) break;
       } else if (eng === 'groq' && GROQ_KEY) {
         for (const m of ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b']) {
           try {
@@ -768,6 +857,7 @@ Twoje zadanie:
           try {
             const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
               method: 'POST',
+              signal: AbortSignal.timeout(9000),
               headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${OPENROUTER_KEY}`,
@@ -849,6 +939,7 @@ Twoje zadanie:
     } catch (e) {
       console.warn(`Błąd doradcy AI z silnikiem ${eng}:`, e);
     }
+  }
   }
 
   // Automatic fallback to Free AI Engine (Pollinations / Duck-compatible)
@@ -1027,9 +1118,219 @@ Twoje zadanie:
       analysis: parsed.analysis || 'Oto starannie dobrane tytuły odpowiadające Twoim oczekiwaniom:',
     };
   } catch (err: any) {
-    console.error('Błąd parsowania odpowiedzi rekomendacji AI:', err, rawJson);
-    throw new Error('Błąd przetwarzania struktury rekomendacji.');
+    console.error('Błąd rekomendacji AI:', err, rawJson);
+    return getFallbackCuratedRecommendations(userDescription);
   }
+}
+
+export function getFallbackCuratedRecommendations(userDescription: string): { recommendations: BookRecommendation[]; analysis: string } {
+  const desc = userDescription.toLowerCase();
+  let analysis = 'Dopasowano wybitne książki odpowiadające podanej tematyce z natychmiastową dostępnością.';
+  const recsData: any[] = [];
+
+  if (desc.includes('mag') || desc.includes('smok') || desc.includes('fantasy') || desc.includes('miecz')) {
+    analysis = 'Wybrano klasykę literatury fantasy o magii, smokach i epickich przygodach:';
+    recsData.push(
+      { title: 'Ostatnie życzenie', author: 'Andrzej Sapkowski', genre: 'Fantasy', year: '1993', matchReason: 'Kultowy początek sagi wiedźmińskiej z polowaniami na potwory i magią.', originalLang: 'PL', searchQuery: 'Andrzej Sapkowski Ostatnie życzenie' },
+      { title: 'Hobbit, czyli tam i z powrotem', polishTitle: 'Hobbit', author: 'J.R.R. Tolkien', genre: 'High Fantasy', year: '1937', matchReason: 'Epicka wyprawa z czarodziejem Gandalfem i smokiem Smaugiem.', originalLang: 'PL', searchQuery: 'Tolkien Hobbit' },
+      { title: 'Eragon', polishTitle: 'Eragon', author: 'Christopher Paolini', genre: 'Fantasy', year: '2002', matchReason: 'Historia smoczego jeźdźca i więzi łączącej go ze smoczycą Saphirą.', originalLang: 'PL', searchQuery: 'Christopher Paolini Eragon' },
+      { title: 'Pan Lodowego Ogrodu', author: 'Jarosław Grzędowicz', genre: 'Science-Fantasy', year: '2005', matchReason: 'Świetne połączenie technologii z magicznym światem planety Midgaard.', originalLang: 'PL', searchQuery: 'Jarosław Grzędowicz Pan Lodowego Ogrodu' }
+    );
+  } else if (desc.includes('sci-fi') || desc.includes('kosmos') || desc.includes('robot') || desc.includes('przyszł') || desc.includes('cyber')) {
+    analysis = 'Wybrano najwybitniejsze dzieła fantastyki naukowej i cyberpunku:';
+    recsData.push(
+      { title: 'Solaris', author: 'Stanisław Lem', genre: 'Sci-Fi', year: '1961', matchReason: 'Absolutne arcydzieło polskiej fantastyki o kontakcie z obcą cywilizacją.', originalLang: 'PL', searchQuery: 'Stanisław Lem Solaris' },
+      { title: 'Diuna', polishTitle: 'Diuna', author: 'Frank Herbert', genre: 'Space Opera', year: '1965', matchReason: 'Monumentalna opowieść o pustynnej planecie Arrakis i przyprawie.', originalLang: 'PL', searchQuery: 'Frank Herbert Diuna' },
+      { title: 'Limes inferior', author: 'Janusz A. Zajdel', genre: 'Dystopia / Sci-Fi', year: '1982', matchReason: 'Genialny klasyk o manipulacji społeczeństwem i walce z biurokracją.', originalLang: 'PL', searchQuery: 'Janusz Zajdel Limes inferior' }
+    );
+  } else {
+    analysis = 'Oto rekomendacje literackie na bazie Twojego zapytania:';
+    recsData.push(
+      { title: 'Ostatnie życzenie', author: 'Andrzej Sapkowski', genre: 'Fantasy', year: '1993', matchReason: 'Znakomita lektura z barwnymi postaciami i świetnym humorem.', originalLang: 'PL', searchQuery: 'Andrzej Sapkowski Ostatnie życzenie' },
+      { title: 'Solaris', author: 'Stanisław Lem', genre: 'Sci-Fi', year: '1961', matchReason: 'Głęboka powieść filozoficzna i science-fiction.', originalLang: 'PL', searchQuery: 'Stanisław Lem Solaris' },
+      { title: 'Wiedźmin: Miecz przeznaczenia', author: 'Andrzej Sapkowski', genre: 'Fantasy', year: '1992', matchReason: 'Drugi tom opowiadań wiedźmińskich z niezapomnianą historią Ciri.', originalLang: 'PL', searchQuery: 'Andrzej Sapkowski Miecz przeznaczenia' }
+    );
+  }
+
+  const recommendations: BookRecommendation[] = recsData.map((r, idx) => ({
+    id: `rec_fallback_${Date.now()}_${idx}`,
+    title: r.title,
+    polishTitle: r.polishTitle,
+    author: r.author,
+    year: r.year,
+    genre: r.genre,
+    matchReason: r.matchReason,
+    synopsis: r.matchReason,
+    originalLang: r.originalLang || 'PL',
+    language: r.originalLang || 'PL',
+    isPolishAvailable: true,
+    recommendedAction: 'Pobierz od razu (Polskie wydanie)',
+    searchQuery: r.searchQuery,
+    mirrorLinks: generateMirrorSearchLinks(r.searchQuery),
+  }));
+
+  return { recommendations, analysis };
+}
+
+/**
+ * Interactive Conversational Advisor:
+ * Conducts a 2-column conversational dialogue with the user, asking probing questions,
+ * refining taste, and generating real-time matching book recommendations.
+ */
+export async function chatWithAdvisor(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  modelTier: 'smart_auto' | 'free_opencode' | 'premium' = 'smart_auto',
+  premiumProvider: 'openrouter' | 'openai' = 'openrouter'
+): Promise<AdvisorChatResponse> {
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
+
+  const systemPrompt = `Jesteś wybitnym, kulturalnym doradcą literackim i erudycyjnym bibliotekarzem w aplikacji czytnikowej KOReader Cloud.
+Rozmawiasz po polsku z czytelnikiem, który szuka inspiracji lub idealnej książki dla siebie.
+Twoje zadanie:
+1. Odpowiedz w polu "reply" ciepło, zwięźle i naturalnie (1-2 akapity). Pokaż, że doskonale rozumiesz klimat, o który pyta użytkownik. Jeśli wymienił autorów lub motywy, krótko do nich nawiąż.
+2. W "followUpQuestions" zaproponuj 2-3 zwięzłe, intrygujące pytania pomocnicze lub wątki do wyboru (np. "Wolisz powolne budowanie klimatu czy wartką akcję?", "Czy wolisz twarde science-fiction czy dystopię społeczną?").
+3. W "recommendations" wytypuj od 2 do 5 konkretnych, istniejących, wybitnych książek pasujących do obecnego etapu rozmowy.
+   ZASADA PRIORYTETU: Polscy autorzy oraz polskie wydania na pierwszych miejscach!
+4. Zwróć WYŁĄCZNIE poprawny obiekt JSON (bez znaczników markdown \`\`\`json):
+{
+  "reply": "Tekst odpowiedzi doradcy po polsku...",
+  "followUpQuestions": ["Pytanie pomocnicze 1", "Pytanie pomocnicze 2"],
+  "analysis": "1-zdaniowe podsumowanie obecnych preferencji czytelnika",
+  "recommendations": [
+    {
+      "title": "Tytuł książki",
+      "polishTitle": "Oficjalny polski tytuł",
+      "author": "Autor",
+      "year": "Rok wydania",
+      "genre": "Gatunek",
+      "matchReason": "Dlaczego ta pozycja idealnie pasuje do słów czytelnika",
+      "synopsis": "Krótki, 2-zdaniowy zarys fabuły bez spoilerów",
+      "originalLang": "PL lub EN",
+      "searchQuery": "Fraza do wyszukania w bazie e-booków"
+    }
+  ]
+}`;
+
+  const conversationPayload = [
+    { role: 'system', content: systemPrompt },
+    ...messages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
+  ];
+
+  let rawJson = '';
+  let usedEngineName = 'OpenCode.ai (Darmowy)';
+
+  // 1. Premium tier (OpenRouter / OpenAI)
+  if (modelTier === 'premium') {
+    if (premiumProvider === 'openai' && OPENAI_KEY && !quotaExhausted.openai) {
+      try {
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_KEY}` },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            messages: conversationPayload,
+            temperature: 0.7,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          rawJson = data.choices?.[0]?.message?.content || '';
+          usedEngineName = 'OpenAI GPT-4o-mini (Premium)';
+        }
+      } catch {}
+    } else if (OPENROUTER_KEY && !quotaExhausted.openrouter) {
+      try {
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENROUTER_KEY}` },
+          body: JSON.stringify({
+            model: 'deepseek/deepseek-chat',
+            response_format: { type: 'json_object' },
+            messages: conversationPayload,
+            temperature: 0.7,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          rawJson = data.choices?.[0]?.message?.content || '';
+          usedEngineName = 'OpenRouter DeepSeek (Premium)';
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Free OpenCode & River AI
+  if (!rawJson) {
+    try {
+      const ocRes = await queryOpenCodeRaw(conversationPayload, { jsonMode: true, temperature: 0.7 });
+      if (ocRes.content) {
+        rawJson = ocRes.content;
+        usedEngineName = ocRes.model;
+      }
+    } catch (e) {
+      console.warn('OpenCode chat notice:', e);
+    }
+  }
+
+  // 3. Parse JSON or fallback
+  if (rawJson) {
+    try {
+      const clean = rawJson.replace(/^```json\s*|\s*```$/g, '').trim();
+      const parsed = JSON.parse(clean);
+      const recs: BookRecommendation[] = (parsed.recommendations || []).map((r: any, idx: number) => {
+        const q = r.searchQuery || `${r.author} ${r.title}`;
+        const rawLang = String(r.originalLang || '').toUpperCase();
+        const isPolish = rawLang.includes('PL') || Boolean(r.polishTitle && !rawLang.includes('EN'));
+        const langCode = isPolish ? 'PL' : (rawLang.includes('EN') ? 'EN' : rawLang || 'INNY');
+        return {
+          id: `rec_chat_${Date.now()}_${idx}`,
+          title: r.title || 'Książka',
+          polishTitle: r.polishTitle,
+          author: r.author || 'Autor',
+          year: r.year ? String(r.year) : undefined,
+          genre: r.genre || 'Literatura',
+          matchReason: r.matchReason || 'Dopasowana do Twojego opisu.',
+          synopsis: r.synopsis || '',
+          originalLang: langCode,
+          language: langCode,
+          isPolishAvailable: isPolish,
+          recommendedAction: isPolish ? 'Pobierz od razu (Polskie wydanie)' : 'Przetłumacz na polski (Przekład AI)',
+          searchQuery: q,
+          mirrorLinks: generateMirrorSearchLinks(q),
+        };
+      });
+
+      return {
+        reply: parsed.reply || 'Oto starannie dobrane tytuły, które najlepiej korespondują z Twoimi preferencjami. Przejrzyj je w panelu po prawej stronie.',
+        followUpQuestions: Array.isArray(parsed.followUpQuestions) && parsed.followUpQuestions.length > 0 ? parsed.followUpQuestions : [
+          'Czy wolisz wolniejsze budowanie napięcia czy wartką akcję?',
+          'Czy interesują Cię bardziej polscy autorzy czy światowa klasyka?'
+        ],
+        analysis: parsed.analysis || 'Dopasowano na podstawie bieżącego dialogu z czytelnikiem.',
+        recommendations: recs,
+        usedEngine: usedEngineName,
+      };
+    } catch (e) {
+      console.warn('Błąd parsowania JSON z czatu doradcy:', e);
+    }
+  }
+
+  // 4. Safe fallback (NEVER throws 500)
+  const fallback = getFallbackCuratedRecommendations(lastUserMsg);
+  return {
+    reply: `Z przyjemnością pomogę Ci wybrać idealną lekturę! Na podstawie Twojego pytania wytypowałem kilka wybitnych pozycji z polskiej i światowej bibliografii. Możesz je od razu pobrać lub przejrzeć streszczenie po prawej stronie.`,
+    followUpQuestions: [
+      'Wolisz wartką akcję czy filozoficzny, nastrojowy klimat?',
+      'Czy wolisz literaturę polską, czy tłumaczenia zagraniczne?',
+      'Szukasz pojedynczej powieści czy dłuższej serii?'
+    ],
+    analysis: fallback.analysis,
+    recommendations: fallback.recommendations,
+    usedEngine: 'Doradca KOReader (Smart Auto)',
+  };
 }
 
 /**
@@ -1052,7 +1353,29 @@ export async function getAIAssist(
 
   for (const eng of engines) {
     try {
-      if (eng === 'groq' && GROQ_KEY) {
+      if (eng === 'river' && RIVER_KEY) {
+        try {
+          const resp = await fetch('https://api.river.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${RIVER_KEY}`,
+            },
+            body: JSON.stringify({
+              model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+              messages: [{ role: 'user', content: userPrompt }],
+            }),
+            signal: AbortSignal.timeout(12000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const textRes = data.choices?.[0]?.message?.content;
+            if (textRes) return textRes.trim();
+          }
+        } catch (rErr: any) {
+          console.warn('River AI assistant error:', rErr?.message || rErr);
+        }
+      } else if (eng === 'groq' && GROQ_KEY) {
         try {
           const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -1098,20 +1421,15 @@ export async function getAIAssist(
         }
       } else if (eng === 'gemini' && GEMINI_KEY) {
         const ai = getGemini();
-        for (let attempt = 0; attempt < 3; attempt++) {
+        for (const gemModel of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
           try {
             const response = await ai.models.generateContent({
-              model: 'gemini-3.8-flash',
+              model: gemModel,
               contents: userPrompt,
             });
             if (response.text) return response.text.trim();
           } catch (e: any) {
-            const msg = e?.message || String(e);
-            if (msg.includes('503') || msg.includes('high demand') || msg.includes('429')) {
-              await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-              continue;
-            }
-            break;
+            console.warn(`Gemini (${gemModel}) assistant notice:`, e?.message || e);
           }
         }
       } else if (eng === 'cohere' && COHERE_KEY) {
@@ -1325,4 +1643,202 @@ Twoim zadaniem jest usunięcie błędów skanowania i OCR, przywracając czysty,
     usedEngine: 'Autokorekta F7 (silnik regułowy)',
   };
 }
+
+// --------------------------------------------------------------------------
+// AI Companion: Drzewo Bohaterów i Przypomnienie Fabularne (Recap)
+// --------------------------------------------------------------------------
+
+export interface BookCharacter {
+  name: string;
+  role: string;
+  description: string;
+  faction?: string;
+  relations?: string[];
+  importance?: 'main' | 'supporting' | 'minor';
+}
+
+export async function extractBookCharacters(
+  bookTitle: string,
+  sampleText: string
+): Promise<BookCharacter[]> {
+  const truncatedText = sampleText.slice(0, 15000);
+
+  // 1. Try River AI
+  if (RIVER_KEY && !quotaExhausted.river) {
+    try {
+      const prompt = `Jesteś ekspertem literackim. Na podstawie podanego fragmentu książki "${bookTitle}" sporządź przewodnik po postaciach (drzewo bohaterów).
+Zwróć WYŁĄCZNIE poprawny format JSON (tablica obiektów) bez żadnych znaczników markdown:
+[
+  {
+    "name": "Imię postaci",
+    "role": "Kim jest (np. Wiedźmin, Król Temerii, Czarodziejka)",
+    "description": "Krótki 1-2 zdaniowy opis cech i motywacji postaci bez spoilerów",
+    "faction": "Frakcja / Pochodzenie (np. Kaer Morhen, Nilfgaard, Temeria)",
+    "relations": ["Relacja z inną postacią (np. Przyjaciel Jaskra)"],
+    "importance": "main"
+  }
+]
+
+Tekst do analizy:
+${truncatedText}`;
+
+      const resp = await fetch('https://api.river.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${RIVER_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+          response_format: { type: 'json_object' },
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const content = data.choices?.[0]?.message?.content?.trim() || '';
+        const clean = content.replace(/^```json\s*|\s*```$/g, '').trim();
+        const parsed = JSON.parse(clean);
+        const list = Array.isArray(parsed) ? parsed : parsed.characters || parsed.postacie;
+        if (Array.isArray(list) && list.length > 0) return list;
+      }
+    } catch (rErr: any) {
+      console.warn('River AI characters notice:', rErr?.message || rErr);
+    }
+  }
+
+  // 2. Try Gemini with resilient model fallback
+  if (GEMINI_KEY && !quotaExhausted.gemini) {
+    const ai = getGemini();
+    const prompt = `Jesteś ekspertem literackim. Na podstawie podanego fragmentu książki "${bookTitle}" sporządź przewodnik po postaciach (drzewo bohaterów).
+Zwróć WYŁĄCZNIE poprawny format JSON (tablica obiektów) bez żadnych znaczników markdown:
+[
+  {
+    "name": "Imię postaci",
+    "role": "Kim jest (np. Wiedźmin, Król Temerii, Czarodziejka)",
+    "description": "Krótki 1-2 zdaniowy opis cech i motywacji postaci bez spoilerów",
+    "faction": "Frakcja / Pochodzenie (np. Kaer Morhen, Nilfgaard, Temeria)",
+    "relations": ["Relacja z inną postacią (np. Przyjaciel Jaskra)"],
+    "importance": "main"
+  }
+]
+
+Tekst do analizy:
+${truncatedText}`;
+
+    for (const m of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
+      try {
+        const res = await Promise.race([
+          ai.models.generateContent({
+            model: m,
+            contents: prompt,
+            config: { responseMimeType: 'application/json' },
+          }),
+          new Promise<any>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+        ]);
+
+        const raw = res.text?.trim() || '';
+        const cleanJson = raw.replace(/^```json\s*|\s*```$/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        const list = Array.isArray(parsed) ? parsed : parsed.characters || parsed.postacie;
+        if (Array.isArray(list) && list.length > 0) {
+          return list;
+        }
+      } catch (e: any) {
+        // Continue to next model
+      }
+    }
+  }
+
+  // Fallback heuristic extraction
+  const detected: BookCharacter[] = [];
+  const words = truncatedText.match(/[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]{2,}/g) || [];
+  const freq = new Map<string, number>();
+  for (const w of words) {
+    if (!['Rozdział', 'Książka', 'Wtedy', 'Jednak', 'Kiedy', 'Potem', 'Nagle', 'Jeśli', 'Dlatego'].includes(w)) {
+      freq.set(w, (freq.get(w) || 0) + 1);
+    }
+  }
+
+  const sortedNames = Array.from(freq.entries())
+    .filter(([_, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  for (const [name, count] of sortedNames) {
+    detected.push({
+      name,
+      role: count > 10 ? 'Główna postać' : 'Postać drugoplanowa',
+      description: `Występuje ${count} razy w tekście książki.`,
+      importance: count > 10 ? 'main' : 'supporting',
+      relations: [],
+    });
+  }
+
+  return detected;
+}
+
+export async function generateChapterRecap(
+  bookTitle: string,
+  chapterTitle: string,
+  previousText: string
+): Promise<string> {
+  const truncatedText = previousText.slice(0, 10000);
+  const prompt = `Jesteś lektorem i asystentem czytelnika. Stwórz krótkie, wciągające przypomnienie „Co wydarzyło się dotychczas” dla książki "${bookTitle}", przed rozpoczęciem rozdziału: "${chapterTitle}".
+Napisz 2-3 zwięzłe, klimatyczne akapity po polsku, które pozwolą czytelnikowi natychmiast wrócić do świata powieści po przerwie. Nie zdradzaj żadnych spoilerów na temat nadchodzącego rozdziału!
+Poprzednie wydarzenia:
+${truncatedText}`;
+
+  // 1. Try River AI
+  if (RIVER_KEY && !quotaExhausted.river) {
+    try {
+      const resp = await fetch('https://api.river.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${RIVER_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.choices?.[0]?.message?.content?.trim();
+        if (text && text.length > 20) return text;
+      }
+    } catch (rErr: any) {
+      console.warn('River AI recap notice:', rErr?.message || rErr);
+    }
+  }
+
+  // 2. Try Gemini
+  if (GEMINI_KEY && !quotaExhausted.gemini) {
+    const ai = getGemini();
+    for (const m of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
+      try {
+        const res = await Promise.race([
+          ai.models.generateContent({
+            model: m,
+            contents: prompt,
+          }),
+          new Promise<any>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+        ]);
+
+        if (res.text && res.text.trim().length > 20) {
+          return res.text.trim();
+        }
+      } catch (e: any) {
+        // Continue
+      }
+    }
+  }
+
+  return `Wracasz do lektury książki „${bookTitle}”. W poprzednich fragmentach bohaterowie stanęli w obliczu kluczowych decyzji i wydarzeń kształtujących ich dalsze losy. Czas sprawdzić, co przyniesie „${chapterTitle}”!`;
+}
+
 

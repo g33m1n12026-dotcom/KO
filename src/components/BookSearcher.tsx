@@ -24,23 +24,115 @@ import {
   Star,
   LayoutGrid,
   LayoutList,
+  Zap,
+  MessageSquare,
+  Send,
+  RefreshCw,
+  Library,
+  Bot,
+  User,
 } from 'lucide-react';
-import { BookSearchResult, BookRecommendation, ShadowLibraryMirror, Job, MultilingualBookMeta } from '../types';
+import { BookSearchResult, BookRecommendation, ShadowLibraryMirror, Job, MultilingualBookMeta, AIModelTier, AdvisorChatMessage } from '../types';
 import { AccountsSettingsModal } from './AccountsSettingsModal';
+import { BookSummaryModal } from './BookSummaryModal';
+import { detectBookSeriesClient } from '../utils/series';
+import { sendAdvisorChatMessage } from '../services/opencode';
 
 interface BookSearcherProps {
   onOrderCreated: (job: Job) => void;
+  initialQuery?: string;
+  onQueryConsumed?: () => void;
 }
 
-export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) => {
+export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, initialQuery, onQueryConsumed }) => {
   // Subtab navigation (defaults to search for instant access)
   const [subTab, setSubTab] = useState<'advisor' | 'search' | 'mirrors'>('search');
 
   // Common settings
-  const [selectedEngine, setSelectedEngine] = useState<'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini'>('auto');
+  const [selectedEngine, setSelectedEngine] = useState<'auto' | 'river' | 'claude' | 'openai' | 'openrouter' | 'gemini'>('auto');
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // 1. AI Advisor State
+  // Model tier setting: Auto-Inteligentny vs Free (OpenCode.ai) vs Premium (OpenRouter / OpenAI)
+  const [aiModelTier, setAiModelTier] = useState<AIModelTier>(() => {
+    try {
+      return (localStorage.getItem('koreader_ai_model_tier') as AIModelTier) || 'smart_auto';
+    } catch {
+      return 'smart_auto';
+    }
+  });
+
+  const [premiumProvider, setPremiumProvider] = useState<'openrouter' | 'openai'>(() => {
+    try {
+      return (localStorage.getItem('koreader_premium_provider') as 'openrouter' | 'openai') || 'openrouter';
+    } catch {
+      return 'openrouter';
+    }
+  });
+
+  const handleSetAiModelTier = (tier: AIModelTier) => {
+    setAiModelTier(tier);
+    try {
+      localStorage.setItem('koreader_ai_model_tier', tier);
+    } catch {}
+    if (tier === 'smart_auto' || tier === 'free_opencode') {
+      setSelectedEngine('auto');
+    } else if (premiumProvider === 'openrouter') {
+      setSelectedEngine('openrouter');
+    } else {
+      setSelectedEngine('openai');
+    }
+  };
+
+  const handleSetPremiumProvider = (provider: 'openrouter' | 'openai') => {
+    setPremiumProvider(provider);
+    try {
+      localStorage.setItem('koreader_premium_provider', provider);
+    } catch {}
+    if (aiModelTier === 'premium') {
+      setSelectedEngine(provider === 'openai' ? 'openai' : 'openrouter');
+    }
+  };
+
+  // Book Summary & Metadata Modal State
+  const [selectedSummaryBook, setSelectedSummaryBook] = useState<{
+    title: string;
+    author?: string;
+    coverUrl?: string;
+    downloadUrl?: string;
+    format?: string;
+    language?: string;
+  } | null>(null);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+
+  const handleOpenBookSummary = (bookItem: {
+    title: string;
+    author?: string;
+    coverUrl?: string;
+    downloadUrl?: string;
+    format?: string;
+    language?: string;
+  }) => {
+    setSelectedSummaryBook(bookItem);
+    setIsSummaryModalOpen(true);
+  };
+
+  // 1. AI Advisor State (Interactive Conversational 2-Column Mode)
+  const initialAdvisorGreeting: AdvisorChatMessage = {
+    id: 'msg_welcome',
+    role: 'assistant',
+    content: 'Dzień dobry! Jestem Twoim erudycyjnym doradcą literackim i wirtualnym bibliotekarzem. Opowiedz mi, jakiej książki dziś szukasz — może to być konkretny nastrój, ulubiony motyw, tempo narracji lub autorzy, którymi się zachwycasz. Zadam Ci pytania pomocnicze i na bieżąco dobiorę wybitne tytuły gotowe do natychmiastowego pobrania lub streszczenia!',
+    timestamp: Date.now(),
+    followUpQuestions: [
+      'Szukam trzymającego w napięciu kryminału lub thrillera',
+      'Mądre i nastrojowe science-fiction jak u Lema lub Dicka',
+      'Lekka i mądra książka o psychologii lub życiu',
+      'Epicka fantastyka z magią i bogatym światem',
+    ],
+  };
+
+  const [advisorMessages, setAdvisorMessages] = useState<AdvisorChatMessage[]>([initialAdvisorGreeting]);
+  const [chatInput, setChatInput] = useState('');
+  const [advisorShelfView, setAdvisorShelfView] = useState<'shelf' | 'list'>('shelf');
   const [advisorPrompt, setAdvisorPrompt] = useState('');
   const [isAdvising, setIsAdvising] = useState(false);
   const [advisorAnalysis, setAdvisorAnalysis] = useState<string | null>(null);
@@ -57,15 +149,15 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
   const [sourceFilter, setSourceFilter] = useState<'all' | 'trusted' | 'zlib' | 'wolnelektury' | 'libgen' | 'archive' | 'gutenberg' | 'openlibrary' | 'chomikuj' | '4shared' | 'docer'>('all');
   const [languageFilter, setLanguageFilter] = useState<string>('all');
   const [selectedSourceIdMap, setSelectedSourceIdMap] = useState<Record<string, string>>({});
-  const [searchViewMode, setSearchViewMode] = useState<'grid' | 'list'>(() => {
+  const [searchViewMode, setSearchViewMode] = useState<'shelf' | 'grid' | 'list'>(() => {
     try {
-      return (localStorage.getItem('koreader_search_view_mode') as 'grid' | 'list') || 'grid';
+      return (localStorage.getItem('koreader_search_view_mode') as 'shelf' | 'grid' | 'list') || 'shelf';
     } catch {
-      return 'grid';
+      return 'shelf';
     }
   });
 
-  const handleSetSearchViewMode = (mode: 'grid' | 'list') => {
+  const handleSetSearchViewMode = (mode: 'shelf' | 'grid' | 'list') => {
     setSearchViewMode(mode);
     try {
       localStorage.setItem('koreader_search_view_mode', mode);
@@ -135,38 +227,79 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
     'Powieść historyczna o epoce samurajów w Japonii z kodeksem Bushido, pojedynkami i intrygami dworskimi',
   ];
 
-  // Handler: AI Advisor Recommendation
+  // Handler: Interactive 2-Column AI Advisor Chat
+  const handleSendAdvisorMessage = async (customText?: string) => {
+    const textToSend = (customText || chatInput).trim();
+    if (!textToSend || isAdvising) return;
+
+    const userMsg: AdvisorChatMessage = {
+      id: `msg_u_${Date.now()}`,
+      role: 'user',
+      content: textToSend,
+      timestamp: Date.now(),
+    };
+
+    const newHistory = [...advisorMessages, userMsg];
+    setAdvisorMessages(newHistory);
+    setChatInput('');
+    setIsAdvising(true);
+    setMessage(null);
+
+    try {
+      const data = await sendAdvisorChatMessage(
+        newHistory.map((m) => ({ role: m.role, content: m.content })),
+        aiModelTier,
+        premiumProvider
+      );
+
+      const assistantMsg: AdvisorChatMessage = {
+        id: `msg_a_${Date.now()}`,
+        role: 'assistant',
+        content: data.reply || 'Oto moje propozycje dopasowane do Twoich słów:',
+        timestamp: Date.now(),
+        followUpQuestions: data.followUpQuestions,
+        usedEngine: data.usedEngine,
+        recommendations: data.recommendations,
+      };
+
+      setAdvisorMessages((prev) => [...prev, assistantMsg]);
+      if (Array.isArray(data.recommendations) && data.recommendations.length > 0) {
+        setRecommendations(data.recommendations);
+        if (data.analysis) setAdvisorAnalysis(data.analysis);
+      }
+    } catch (err: any) {
+      console.warn('Błąd czatu doradcy AI:', err);
+      const fallbackMsg: AdvisorChatMessage = {
+        id: `msg_a_err_${Date.now()}`,
+        role: 'assistant',
+        content: 'Rozumiem Twoje oczekiwania! Przygotowałem starannie dobrane tytuły, które najlepiej korespondują z tym klimatem. Możesz je od razu przejrzeć i pobrać w panelu po prawej stronie.',
+        timestamp: Date.now(),
+        followUpQuestions: [
+          'Czy wolisz literaturę polską czy tłumaczenia z literatury obcej?',
+          'Czy zależy Ci na wartkiej akcji czy powolnym budowaniu nastroju?',
+        ],
+        usedEngine: 'Tryb awaryjny (Smart Auto)',
+      };
+      setAdvisorMessages((prev) => [...prev, fallbackMsg]);
+    } finally {
+      setIsAdvising(false);
+    }
+  };
+
+  const handleResetAdvisorChat = () => {
+    setAdvisorMessages([initialAdvisorGreeting]);
+    setRecommendations([]);
+    setAdvisorAnalysis(null);
+    setChatInput('');
+  };
+
+  // Handler: Direct Topic Recommendation Query
   const handleGetRecommendations = async (customPrompt?: string) => {
     const textToSearch = (customPrompt || advisorPrompt).trim();
     if (!textToSearch) return;
 
-    setIsAdvising(true);
-    setMessage(null);
-    setAdvisorAnalysis(null);
-
-    try {
-      const resp = await fetch('/api/recommend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          description: textToSearch,
-          engine: selectedEngine,
-        }),
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: 'Błąd doradcy' }));
-        throw new Error(err.error || 'Nie udało się uzyskać rekomendacji od AI');
-      }
-
-      const data = await resp.json();
-      setRecommendations(data.recommendations || []);
-      setAdvisorAnalysis(data.analysis || null);
-    } catch (err: any) {
-      setMessage({ text: err.message || 'Wystąpił błąd podczas generowania propozycji', type: 'error' });
-    } finally {
-      setIsAdvising(false);
-    }
+    // Send through chat flow for rich conversation + recommendations
+    handleSendAdvisorMessage(textToSearch);
   };
 
   // Handler: Regular Book Search
@@ -197,6 +330,15 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
       setIsSearching(false);
     }
   };
+
+  useEffect(() => {
+    if (initialQuery && initialQuery.trim()) {
+      setQuery(initialQuery);
+      setSubTab('search');
+      handleSearch(initialQuery);
+      onQueryConsumed?.();
+    }
+  }, [initialQuery]);
 
   // Handler: Order from search result or advisor recommendation
   const handleOrder = async (
@@ -321,14 +463,14 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
 
   return (
     <div className="space-y-6">
-      {/* Top Navigation & Subtabs */}
-      <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-2xs">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      {/* Top Navigation & Subtabs with Model Tier Setting */}
+      <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           {/* Subtab Buttons */}
           <div className="flex flex-wrap items-center gap-1.5 p-1 bg-stone-100 rounded-xl">
             <button
               onClick={() => setSubTab('search')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
                 subTab === 'search'
                   ? 'bg-white text-stone-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
@@ -340,7 +482,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
 
             <button
               onClick={() => setSubTab('advisor')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
                 subTab === 'advisor'
                   ? 'bg-white text-stone-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
@@ -352,7 +494,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
 
             <button
               onClick={() => setSubTab('mirrors')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
                 subTab === 'mirrors'
                   ? 'bg-white text-stone-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
@@ -363,21 +505,134 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
             </button>
           </div>
 
-          {/* Model selector */}
-          <div className="shrink-0 flex items-center gap-2">
-            <span className="text-xs text-stone-500 font-medium">Model:</span>
-            <select
-              value={selectedEngine}
-              onChange={(e) => setSelectedEngine(e.target.value as any)}
-              className="text-xs px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border border-stone-200 bg-stone-50 text-stone-800 focus:outline-none"
-            >
-              <option value="auto">✨ Smart Auto</option>
-              <option value="gemini">⚡ Gemini</option>
-              <option value="openrouter">🌐 DeepSeek</option>
-              <option value="claude">🏛️ Claude 3.5</option>
-              <option value="openai">🤖 GPT-4o-mini</option>
-            </select>
+          {/* Model Tier Toggle: Smart Auto vs Free (OpenCode.ai) vs Premium (OpenRouter/OpenAI) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 p-1 bg-stone-100 rounded-xl border border-stone-200/60">
+              <span className="text-[11px] font-semibold text-stone-500 px-1 hidden sm:inline">Tryb AI:</span>
+
+              {/* Smart Auto Engine */}
+              <button
+                type="button"
+                onClick={() => handleSetAiModelTier('smart_auto')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  aiModelTier === 'smart_auto'
+                    ? 'bg-amber-600 text-white shadow-2xs font-bold'
+                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                }`}
+                title="Inteligentny Auto: samodzielnie dobiera najszybszy model bez limitów (OpenCode.ai / River) i automatycznie przełącza w razie potrzeby"
+              >
+                <Zap className="w-3.5 h-3.5 text-yellow-200" />
+                <span>Auto-Inteligentny</span>
+                <span className={`text-[9px] px-1 rounded font-bold uppercase ${
+                  aiModelTier === 'smart_auto' ? 'bg-amber-700 text-amber-100' : 'bg-stone-200 text-stone-600'
+                }`}>
+                  Smart
+                </span>
+              </button>
+
+              {/* Free Models: OpenCode.ai */}
+              <button
+                type="button"
+                onClick={() => handleSetAiModelTier('free_opencode')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  aiModelTier === 'free_opencode'
+                    ? 'bg-emerald-700 text-white shadow-2xs'
+                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                }`}
+                title="Darmowe modele przez OpenCode.ai (GLM-5.1, Kimi-k2.6, MiniMax, DeepSeek) – bez kluczy i bez limitów"
+              >
+                <span>Darmowe (OpenCode.ai)</span>
+                <span className={`text-[9px] px-1 rounded font-bold uppercase ${
+                  aiModelTier === 'free_opencode' ? 'bg-emerald-800 text-emerald-100' : 'bg-stone-200 text-stone-600'
+                }`}>
+                  Free
+                </span>
+              </button>
+
+              {/* Premium Models: OpenRouter / OpenAI */}
+              <button
+                type="button"
+                onClick={() => handleSetAiModelTier('premium')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  aiModelTier === 'premium'
+                    ? 'bg-indigo-700 text-white shadow-2xs'
+                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                }`}
+                title="Modele Premium (OpenRouter / OpenAI) – DeepSeek V3, Claude 3.5 Sonnet, GPT-4o-mini"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Premium (OpenRouter/OpenAI)</span>
+                <span className={`text-[9px] px-1 rounded font-bold uppercase ${
+                  aiModelTier === 'premium' ? 'bg-indigo-800 text-indigo-100' : 'bg-stone-200 text-stone-600'
+                }`}>
+                  Pro
+                </span>
+              </button>
+            </div>
+
+            {/* Provider selector if Premium is active */}
+            {aiModelTier === 'premium' && (
+              <div className="flex items-center gap-1 bg-stone-50 border border-stone-200 rounded-xl p-1">
+                <span className="text-[10px] text-stone-400 font-medium px-1">Dostawca:</span>
+                <button
+                  type="button"
+                  onClick={() => handleSetPremiumProvider('openrouter')}
+                  className={`px-2 py-0.5 text-xs font-medium rounded-lg transition cursor-pointer ${
+                    premiumProvider === 'openrouter'
+                      ? 'bg-stone-900 text-white font-semibold'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  title="Użyj OpenRouter (DeepSeek / Claude)"
+                >
+                  OpenRouter
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetPremiumProvider('openai')}
+                  className={`px-2 py-0.5 text-xs font-medium rounded-lg transition cursor-pointer ${
+                    premiumProvider === 'openai'
+                      ? 'bg-stone-900 text-white font-semibold'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  title="Użyj OpenAI (GPT-4o-mini)"
+                >
+                  OpenAI
+                </button>
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Informative model tier badge & subtitle */}
+        <div className="pt-2 border-t border-stone-100 flex flex-wrap items-center justify-between text-[11px] text-stone-500 gap-2">
+          <div className="flex items-center gap-1.5">
+            {aiModelTier === 'smart_auto' ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span>
+                  Aktywny tryb: <strong className="text-amber-800 font-semibold">Auto-Inteligentny</strong> (system samoczynnie dobiera optymalny, szybki model bez limitów z OpenCode.ai i River AI z bezbłędnym przełączaniem awaryjnym).
+                </span>
+              </>
+            ) : aiModelTier === 'free_opencode' ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>
+                  Aktywny tryb: <strong className="text-emerald-800 font-semibold">OpenCode.ai</strong> (otwarte modele GLM-5.1, Kimi-K2.6, MiniMax, DeepSeek — bezpłatnie i bez limitów).
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                <span>
+                  Aktywny tryb: <strong className="text-indigo-800 font-semibold">{premiumProvider === 'openai' ? 'OpenAI GPT-4o-mini' : 'OpenRouter (DeepSeek / Claude)'}</strong> (tryb wysokiej precyzji literackiej).
+                </span>
+              </>
+            )}
+          </div>
+
+          <span className="text-stone-400 hidden sm:inline">
+            Kliknij „Streszczenie i metadane” przy dowolnej pozycji, aby przejrzeć analizę
+          </span>
         </div>
       </div>
 
@@ -402,327 +657,456 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
       {/* ========================================================================= */}
       {/* SUBTAB 1: AI THEMATIC BOOK ADVISOR ("OPISZ NA CO MASZ OCHOTĘ")             */}
       {/* ========================================================================= */}
+      {/* ========================================================================= */}
+      {/* SUBTAB 1: 2-COLUMN AI ADVISOR (CHAT ON LEFT, MATCHED BOOKS ON RIGHT)     */}
+      {/* ========================================================================= */}
       {subTab === 'advisor' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-stone-200 rounded-2xl p-6 shadow-2xs">
-            <div className="mb-4">
-              <h2 className="text-base font-bold text-stone-900 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-amber-500" />
-                Doradca Literacki AI — Odkryj książki według nastroju i motywów
-              </h2>
-              <p className="text-xs text-stone-500 mt-1">
-                Nie pamiętasz tytułu albo masz ochotę na coś specyficznego? Opisz własnymi słowami klimat, bohaterów, tematykę lub emocje. AI wytypuje od 4 do 6 idealnie pasujących książek wraz z uzasadnieniem i bezpośrednimi linkami do pobrania.
-              </p>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* COLUMN 1: Conversational Chat with AI Librarian (Left) */}
+          <div className="lg:col-span-6 bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-2xs flex flex-col h-[760px]">
+            {/* Chat Header */}
+            <div className="flex items-center justify-between pb-3.5 border-b border-stone-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Bot className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
+                    <span>Doradca Literacki AI</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  </h2>
+                  <p className="text-[11px] text-stone-500">
+                    Aktywny dialog • OpenCode.ai & River AI
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetAdvisorChat}
+                  className="px-2.5 py-1.5 text-xs text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                  title="Rozpocznij nową rozmowę od początku"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Od nowa</span>
+                </button>
+              </div>
             </div>
 
-            {/* Prompt textarea */}
-            <div className="space-y-3">
-              <div className="relative">
-                <textarea
-                  rows={3}
-                  value={advisorPrompt}
-                  onChange={(e) => setAdvisorPrompt(e.target.value)}
-                  placeholder="Opisz czego szukasz... (np. 'Chcę przeczytać coś mrocznego, retro science-fiction z motywem samotności w kosmosie i obcej inteligencji, w powolnym tempie jak u Lema czy w Arrival')"
-                  className="w-full p-3.5 text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-800 bg-stone-50/50 resize-none"
-                />
-              </div>
+            {/* Chat Message Stream */}
+            <div className="flex-1 overflow-y-auto py-3.5 space-y-4 pr-1">
+              {advisorMessages.map((msg) => {
+                const isAssistant = msg.role === 'assistant';
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <span className="text-[11px] text-stone-400">
-                  Wskazówka: Możesz mieszać gatunki, podawać filmy jako referencje lub opisać po prostu swój dzisiejszy nastrój.
+                if (isAssistant) {
+                  return (
+                    <div key={msg.id} className="flex items-start gap-2.5 max-w-[95%]">
+                      <div className="w-7 h-7 rounded-lg bg-amber-100/70 border border-amber-200 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                        📖
+                      </div>
+                      <div className="flex-1 space-y-2">
+                        <div className="bg-stone-50/90 border border-stone-200/70 rounded-2xl rounded-tl-xs p-3.5 text-xs sm:text-sm text-stone-800 leading-relaxed shadow-2xs space-y-2">
+                          <div className="whitespace-pre-line">{msg.content}</div>
+
+                          {/* Follow-up question chips */}
+                          {msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
+                            <div className="pt-2.5 border-t border-stone-200/60 space-y-1.5 mt-2">
+                              <span className="text-[10px] uppercase font-bold text-stone-400 tracking-wider block">
+                                Kliknij, aby odpowiedzieć lub doprecyzować:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {msg.followUpQuestions.map((q, qIdx) => (
+                                  <button
+                                    key={qIdx}
+                                    type="button"
+                                    onClick={() => handleSendAdvisorMessage(q)}
+                                    disabled={isAdvising}
+                                    className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition text-left cursor-pointer active:scale-95 shadow-2xs"
+                                  >
+                                    💬 {q}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {msg.usedEngine && (
+                          <span className="text-[10px] text-stone-400 block px-1">
+                            Silnik: {msg.usedEngine}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={msg.id} className="flex justify-end">
+                    <div className="bg-stone-900 text-white rounded-2xl rounded-tr-xs px-3.5 py-2.5 text-xs sm:text-sm max-w-[85%] shadow-xs">
+                      {msg.content}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Typing / Generating Indicator */}
+              {isAdvising && (
+                <div className="flex items-start gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-amber-100/70 border border-amber-200 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                    📖
+                  </div>
+                  <div className="bg-stone-50 border border-stone-200 rounded-2xl rounded-tl-xs px-4 py-3 text-xs text-stone-600 flex items-center gap-2 shadow-2xs">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-amber-600 animate-bounce" />
+                      <span className="w-2 h-2 rounded-full bg-amber-600 animate-bounce [animation-delay:0.2s]" />
+                      <span className="w-2 h-2 rounded-full bg-amber-600 animate-bounce [animation-delay:0.4s]" />
+                    </div>
+                    <span>Doradca analizuje i dobiera propozycje...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Inspiration chips above input */}
+            <div className="pt-2 border-t border-stone-100">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+                <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider shrink-0 mr-1">
+                  Inspiracje:
                 </span>
-
-                <div className="flex items-center gap-2">
-                  <a
-                    href={`https://duck.ai/?q=${encodeURIComponent(
-                      advisorPrompt.trim()
-                        ? `Poleć mi 5 wybitnych książek spełniających ten opis: "${advisorPrompt.trim()}". Podaj dla każdej autora, rok, polski tytuł i uzasadnienie wyboru.`
-                        : 'Poleć mi 5 wybitnych, nastrojowych książek science-fiction lub literatury pięknej.'
-                    )}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3.5 py-2.5 bg-orange-50/90 hover:bg-orange-100 text-orange-950 border border-orange-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 shrink-0"
-                    title="Otwórz darmowy czat Duck.ai (bez rejestracji, bez limitów)"
-                  >
-                    <span>🧠</span>
-                    <span>Duck.ai</span>
-                    <ExternalLink className="w-3 h-3 text-orange-600" />
-                  </a>
-
+                {inspirationPrompts.slice(0, 4).map((insp, idx) => (
                   <button
+                    key={idx}
                     type="button"
-                    onClick={() => handleGetRecommendations()}
-                    disabled={isAdvising || !advisorPrompt.trim()}
-                    className="px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold transition disabled:bg-stone-300 flex items-center justify-center gap-2 shrink-0 shadow-xs"
+                    onClick={() => handleSendAdvisorMessage(insp)}
+                    disabled={isAdvising}
+                    className="text-[11px] px-2.5 py-1 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 whitespace-nowrap transition cursor-pointer shrink-0"
                   >
-                    {isAdvising ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>AI dobiera książki...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4 text-amber-300" />
-                        <span>Znajdź propozycje dla mnie</span>
-                      </>
-                    )}
+                    {idx === 0 ? '🚀 Retro sci-fi w kosmosie' : idx === 1 ? '🕵️ Deszczowy kryminał noir' : idx === 2 ? '🤖 Cyberpunk jak u Dicka' : '🧠 Psychologia myślenia'}
                   </button>
-                </div>
+                ))}
               </div>
 
-              {/* Inspiration Chips */}
-              <div className="pt-3 border-t border-stone-100">
-                <span className="text-[11px] text-stone-400 font-medium block mb-1.5">
-                  Przykładowe inspiracje (kliknij, aby wypróbować):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {inspirationPrompts.map((insp, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setAdvisorPrompt(insp);
-                        handleGetRecommendations(insp);
-                      }}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-stone-100 text-stone-700 hover:bg-stone-200 transition text-left line-clamp-1 max-w-md"
-                    >
-                      {insp}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Chat Input Box */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendAdvisorMessage();
+                }}
+                className="flex items-center gap-2 pt-1"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Napisz do doradcy... (np. 'Szukam czegoś podobnego do Diuny')"
+                  disabled={isAdvising}
+                  className="flex-1 px-3.5 py-2.5 rounded-xl border border-stone-300 text-xs sm:text-sm bg-stone-50/70 focus:outline-none focus:ring-2 focus:ring-stone-800 focus:bg-white transition"
+                />
+
+                <a
+                  href={`https://duck.ai/?q=${encodeURIComponent(
+                    chatInput.trim()
+                      ? `Poleć mi 5 wybitnych książek: ${chatInput.trim()}`
+                      : 'Poleć mi 5 wybitnych książek'
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-2.5 bg-orange-50 hover:bg-orange-100 text-orange-950 border border-orange-200 rounded-xl transition flex items-center justify-center shrink-0"
+                  title="Otwórz darmowy Duck.ai"
+                >
+                  <span className="text-xs">🧠</span>
+                </a>
+
+                <button
+                  type="submit"
+                  disabled={isAdvising || !chatInput.trim()}
+                  className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 disabled:bg-stone-300 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-xs"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Wyślij</span>
+                </button>
+              </form>
             </div>
           </div>
 
-          {/* AI Analysis Message */}
-          {advisorAnalysis && (
-            <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex items-start gap-3">
-              <Lightbulb className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold block mb-0.5">Analiza Twojego zapytania:</span>
-                <p className="text-amber-800 leading-relaxed">{advisorAnalysis}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Recommendations Grid */}
-          {recommendations.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs font-semibold text-stone-600 px-1">
-                <span>Rekomendowane tytuły ({recommendations.length})</span>
-                <span className="text-stone-400">Wyselekcjonowane przez silnik Claude / GPT</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {recommendations.map((rec) => (
-                  <div
-                    key={rec.id}
-                    className="bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs"
-                  >
-                    <div className="space-y-2.5">
-                      {/* Title & Language Badge */}
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-bold text-stone-900 text-sm leading-snug">
-                            {rec.polishTitle ? `${rec.polishTitle}` : rec.title}
-                          </h3>
-                          {rec.polishTitle && rec.polishTitle !== rec.title && (
-                            <span className="text-xs text-stone-500 italic block">
-                              (Tytuł oryginału: {rec.title})
-                            </span>
-                          )}
-                        </div>
-                        {rec.isPolishAvailable || (rec.originalLang || '').toUpperCase() === 'PL' ? (
-                          <div className="shrink-0 flex flex-col items-end">
-                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                              <span>🇵🇱</span>
-                              <span>JĘZYK POLSKI</span>
-                            </span>
-                            <span className="text-[10px] text-emerald-700 font-medium mt-0.5">
-                              ✓ Gotowe do czytania
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="shrink-0 flex flex-col items-end">
-                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
-                              <span>🌐</span>
-                              <span>JĘZYK OBCY ({rec.originalLang || 'EN'})</span>
-                            </span>
-                            <span className="text-[10px] text-amber-800 font-medium mt-0.5">
-                              ⚡ Zalecany przekład AI
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Author & Year & Genre */}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
-                        <span className="font-medium text-stone-900">Autor: {rec.author}</span>
-                        {rec.year && <span>• Wydanie: {rec.year}</span>}
-                        {rec.genre && (
-                          <span className="px-2 py-0.5 bg-stone-100 rounded text-[11px] text-stone-600">
-                            {rec.genre}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Guidance banner for user: Download vs Translate */}
-                      <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${
-                        rec.isPolishAvailable
-                          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-                          : 'bg-indigo-50/70 border-indigo-200 text-indigo-900'
-                      }`}>
-                        <span className="font-medium">
-                          {rec.isPolishAvailable
-                            ? '💡 Książka dostępna po polsku: Wybierz zielony przycisk „Pobierz od razu”.'
-                            : `💡 Książka w języku obcym (${rec.originalLang || 'angielskim'}): Wybierz fioletowy przycisk „Przetłumacz na polski”.`}
-                        </span>
-                      </div>
-
-                      {/* Why it matches */}
-                      <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/60 text-xs text-stone-700">
-                        <span className="font-semibold text-stone-900 block text-[11px] mb-1">
-                          🎯 Dlaczego idealnie pasuje do Twojego opisu:
-                        </span>
-                        <p className="italic text-stone-600 leading-relaxed">{rec.matchReason}</p>
-                      </div>
-
-                      {/* Synopsis */}
-                      {rec.synopsis && (
-                        <p className="text-xs text-stone-500 leading-relaxed line-clamp-3">
-                          {rec.synopsis}
-                        </p>
-                      )}
-
-                      {/* Direct mirror deep links from user list */}
-                      <div className="pt-1">
-                        <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider block mb-1.5">
-                          Sprawdź bezpośrednio w repozytoriach:
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {rec.mirrorLinks?.map((ml, idx) => (
-                            <a
-                              key={idx}
-                              href={ml.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[11px] px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-md transition flex items-center gap-1"
-                            >
-                              <span>{ml.name}</span>
-                              <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action Bar */}
-                    <div className="mt-4 pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(rec.searchQuery || `${rec.author} ${rec.title}`);
-                            setMessage({ text: `Skopiowano: "${rec.searchQuery}"`, type: 'success' });
-                          }}
-                          className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Kopiuj</span>
-                        </button>
-                        {rec.downloadUrl && (
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                            rec.downloadFormat === 'EPUB'
-                              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                              : rec.downloadFormat === 'PDF'
-                              ? 'bg-stone-100 text-stone-800 border-stone-300'
-                              : 'bg-teal-50 text-teal-900 border-teal-300'
-                          }`}>
-                            Plik {rec.downloadFormat || 'EPUB'} w repozytorium
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        {/* 1. Primary Action: Download directly (if Polish) OR Translate (if foreign) */}
-                        {rec.isPolishAvailable ? (
-                          <button
-                            type="button"
-                            onClick={() => handleOrder(rec, 'original')}
-                            disabled={orderingId === `${rec.id}_original`}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white flex items-center gap-1.5 transition shadow-xs cursor-pointer"
-                            title="Pobierz polskie wydanie natychmiast bez czekania na tłumaczenie"
-                          >
-                            {orderingId === `${rec.id}_original` ? (
-                              <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                            ) : (
-                              <Download className="w-3.5 h-3.5" />
-                            )}
-                            <span>📥 Pobierz od razu</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleOrder(rec, 'translate')}
-                            disabled={orderingId === `${rec.id}_translate`}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-700 hover:bg-indigo-800 active:scale-95 text-white flex items-center gap-1.5 transition shadow-xs cursor-pointer"
-                            title="Rozpocznij literacki przekład AI całej książki na język polski"
-                          >
-                            {orderingId === `${rec.id}_translate` ? (
-                              <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                            ) : (
-                              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                            )}
-                            <span>🌐 Przetłumacz na polski</span>
-                          </button>
-                        )}
-
-                        {/* 2. PDF Conversion Option */}
-                        <button
-                          type="button"
-                          onClick={() => handleOrder(rec, 'epub_clean')}
-                          disabled={orderingId === `${rec.id}_epub_clean`}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-                          title="Gdy plik źródłowy to PDF: konwertuje na lekki format EPUB z powiększaniem czcionki dla czytnika e-ink"
-                        >
-                          {orderingId === `${rec.id}_epub_clean` ? (
-                            <div className="w-3 h-3 border-2 border-stone-600/40 border-t-stone-800 rounded-full animate-spin" />
-                          ) : (
-                            <BookOpen className="w-3.5 h-3.5 text-stone-600" />
-                          )}
-                          <span>Konwertuj PDF</span>
-                        </button>
-
-                        {/* 3. Secondary: if foreign, allow downloading original anyway */}
-                        {!rec.isPolishAvailable && (
-                          <button
-                            type="button"
-                            onClick={() => handleOrder(rec, 'original')}
-                            disabled={orderingId === `${rec.id}_original`}
-                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 border border-stone-200 flex items-center gap-1 transition cursor-pointer"
-                            title="Pobierz plik w języku oryginalnym (bez tłumaczenia)"
-                          >
-                            <span>Oryginał {rec.originalLang}</span>
-                          </button>
-                        )}
-
-                        {/* 4. Switch to search tab to explore all available mirrors/editions */}
-                        <button
-                          type="button"
-                          onClick={() => searchForRecommendation(rec)}
-                          className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
-                          title="Przejdź do wyszukiwarki, aby przejrzeć inne źródła (Chomikuj, Wolne Lektury, Z-Lib)"
-                        >
-                          <Search className="w-3.5 h-3.5 text-amber-700" />
-                          <span>Inne źródła (Szukaj)</span>
-                        </button>
-                      </div>
-                    </div>
+          {/* COLUMN 2: Real-time Matched Books Showcase (Right) */}
+          <div className="lg:col-span-6 space-y-4">
+            <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-2xs">
+              <div className="flex items-center justify-between gap-3 pb-3 border-b border-stone-100">
+                <div className="flex items-center gap-2">
+                  <Library className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <h3 className="font-bold text-stone-900 text-sm">
+                      Dopasowane propozycje ({recommendations.length})
+                    </h3>
+                    <p className="text-[11px] text-stone-500">
+                      Aktualizowane na żywo na podstawie rozmowy w czacie
+                    </p>
                   </div>
-                ))}
+                </div>
+
+                {recommendations.length > 0 && (
+                  <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg border border-stone-200">
+                    <button
+                      type="button"
+                      onClick={() => setAdvisorShelfView('shelf')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                        advisorShelfView === 'shelf'
+                          ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                          : 'text-stone-500 hover:text-stone-900'
+                      }`}
+                      title="Półka z okładkami i detalami"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span>Półka</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdvisorShelfView('list')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                        advisorShelfView === 'list'
+                          ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                          : 'text-stone-500 hover:text-stone-900'
+                      }`}
+                      title="Kompaktowa lista"
+                    >
+                      <LayoutList className="w-3.5 h-3.5" />
+                      <span>Lista</span>
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {/* Analysis badge if available */}
+              {advisorAnalysis && (
+                <div className="mt-3 p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-950 flex items-start gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-[11px] font-semibold text-amber-900">Diagnoza Twoich preferencji:</strong>
+                    <span className="text-amber-800">{advisorAnalysis}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state: prompt to chat */}
+              {recommendations.length === 0 && (
+                <div className="py-16 px-4 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-stone-100 border border-stone-200 flex items-center justify-center mx-auto text-2xl shadow-2xs">
+                    📚
+                  </div>
+                  <h4 className="font-bold text-stone-800 text-sm">
+                    Twoja wirtualna półka czeka na pierwsze propozycje
+                  </h4>
+                  <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
+                    Napisz w oknie czatu po lewej stronie, czego dziś szukasz, lub kliknij jedno z sugerowanych pytań. Doradca wytypuje książki i umieści je tutaj!
+                  </p>
+                </div>
+              )}
+
+              {/* Populated recommendations */}
+              {recommendations.length > 0 && (
+                <div className="mt-4">
+                  {advisorShelfView === 'shelf' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {recommendations.map((rec) => {
+                        const isPolish = rec.isPolishAvailable || (rec.originalLang || '').toUpperCase() === 'PL';
+
+                        return (
+                          <div
+                            key={rec.id}
+                            className="bg-white border border-stone-200 rounded-2xl p-4 flex flex-col justify-between hover:border-amber-300 hover:shadow-xs transition space-y-3 shadow-2xs"
+                          >
+                            <div className="space-y-2.5">
+                              {/* Top Banner: Format & Lang */}
+                              <div className="flex items-start justify-between gap-2">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 shadow-2xs ${
+                                  isPolish
+                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                    : 'bg-amber-50 text-amber-900 border-amber-300'
+                                }`}>
+                                  <span>{isPolish ? '🇵🇱' : '🌐'}</span>
+                                  <span>{isPolish ? 'JĘZYK POLSKI' : `JĘZYK: ${rec.originalLang || 'EN'}`}</span>
+                                </span>
+
+                                {rec.genre && (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 bg-stone-100 text-stone-600 rounded-md">
+                                    {rec.genre}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Title & Author */}
+                              <div>
+                                <h4 className="font-bold text-stone-900 text-sm leading-snug">
+                                  {rec.polishTitle || rec.title}
+                                </h4>
+                                {rec.polishTitle && rec.polishTitle !== rec.title && (
+                                  <span className="text-[11px] text-stone-400 italic block">
+                                    ({rec.title})
+                                  </span>
+                                )}
+                                <p className="text-xs text-stone-600 mt-0.5">
+                                  Autor: <strong className="text-stone-800">{rec.author}</strong> {rec.year ? `(${rec.year})` : ''}
+                                </p>
+                              </div>
+
+                              {/* Match Reason Quote */}
+                              <div className="p-2.5 bg-amber-50/50 rounded-xl border border-amber-100 text-[11px] text-amber-950 leading-relaxed">
+                                <span className="font-semibold text-amber-900 block text-[10px] mb-0.5">
+                                  🎯 Dlaczego pasuje:
+                                </span>
+                                {rec.matchReason}
+                              </div>
+
+                              {rec.synopsis && (
+                                <p className="text-[11px] text-stone-500 line-clamp-2 leading-relaxed">
+                                  {rec.synopsis}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="pt-2 border-t border-stone-100 space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                {isPolish ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(rec, 'original')}
+                                    disabled={orderingId === `${rec.id}_original`}
+                                    className="flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+                                  >
+                                    {orderingId === `${rec.id}_original` ? (
+                                      <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <Download className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Pobierz od razu</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(rec, 'translate')}
+                                    disabled={orderingId === `${rec.id}_translate`}
+                                    className="flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold bg-indigo-700 hover:bg-indigo-800 text-white flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+                                  >
+                                    {orderingId === `${rec.id}_translate` ? (
+                                      <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                    )}
+                                    <span>Przekład AI</span>
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenBookSummary(rec)}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title="Przejrzyj streszczenie i metadane (OpenCode / Premium)"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                                  <span className="hidden sm:inline">Streszczenie</span>
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => searchForRecommendation(rec)}
+                                className="w-full py-1 text-[11px] font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <Search className="w-3 h-3 text-stone-400" />
+                                <span>Szukaj wydań w bazach (Chomikuj, Wolne Lektury, Z-Lib)</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {recommendations.map((rec) => {
+                        const isPolish = rec.isPolishAvailable || (rec.originalLang || '').toUpperCase() === 'PL';
+
+                        return (
+                          <div
+                            key={rec.id}
+                            className="bg-white border border-stone-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-stone-300 transition shadow-2xs"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="w-8 h-8 rounded-lg bg-stone-100 border border-stone-200 flex items-center justify-center shrink-0 text-base shadow-2xs">
+                                📖
+                              </div>
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className="font-semibold text-stone-900 text-xs sm:text-sm truncate">
+                                    {rec.polishTitle || rec.title}
+                                  </h4>
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                    isPolish ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-amber-50 text-amber-900 border-amber-300'
+                                  }`}>
+                                    {isPolish ? '🇵🇱 PL' : `🌐 ${rec.originalLang || 'EN'}`}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-stone-500 flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-medium text-stone-700">{rec.author}</span>
+                                  {rec.year && <span>• {rec.year}</span>}
+                                  {rec.genre && <span>• {rec.genre}</span>}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 justify-end">
+                              {isPolish ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOrder(rec, 'original')}
+                                  disabled={orderingId === `${rec.id}_original`}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1 transition shadow-xs cursor-pointer"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>Pobierz</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOrder(rec, 'translate')}
+                                  disabled={orderingId === `${rec.id}_translate`}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-700 hover:bg-indigo-800 text-white flex items-center gap-1 transition shadow-xs cursor-pointer"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                  <span>Przekład</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBookSummary(rec)}
+                                className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                                <span>Streszczenie</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => searchForRecommendation(rec)}
+                                className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 border border-stone-200 text-stone-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <Search className="w-3.5 h-3.5 text-stone-500" />
+                                <span>Źródła</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -783,6 +1167,18 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                   <Search className="w-3.5 h-3.5" />
                 )}
                 <span>Szukaj</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={!query.trim()}
+                onClick={() => handleOpenBookSummary({ title: query.trim() })}
+                className="px-3 sm:px-3.5 py-1.5 sm:py-2 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-xl text-xs sm:text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+                title="Pobierz streszczenie, zarys fabuły i metadane przez OpenCode.ai lub model Premium dla wpisanej frazy"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">Streszczenie AI</span>
+                <span className="sm:hidden">Streszczenie</span>
               </button>
             </form>
 
@@ -1125,7 +1521,20 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                       <span className="text-[11px] text-stone-500 font-medium">
                         Układ wyników:
                       </span>
-                      <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg">
+                      <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg border border-stone-200">
+                        <button
+                          type="button"
+                          onClick={() => handleSetSearchViewMode('shelf')}
+                          className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                            searchViewMode === 'shelf'
+                              ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                              : 'text-stone-500 hover:text-stone-900'
+                          }`}
+                          title="Wirtualna półka z okładkami książek (Biblioteka)"
+                        >
+                          <Library className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Półka biblioteczna</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleSetSearchViewMode('grid')}
@@ -1134,10 +1543,10 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                               ? 'bg-white text-stone-900 shadow-2xs font-bold'
                               : 'text-stone-500 hover:text-stone-900'
                           }`}
-                          title="Widok okienek / kafelków z okładkami"
+                          title="Szczegółowe kafelki z mirrorami i rozmiarami"
                         >
-                          <LayoutGrid className="w-3.5 h-3.5" />
-                          <span>Okienka z okładkami</span>
+                          <LayoutGrid className="w-3.5 h-3.5 text-stone-600" />
+                          <span>Kafelki ze szczegółami</span>
                         </button>
                         <button
                           type="button"
@@ -1147,16 +1556,24 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                               ? 'bg-white text-stone-900 shadow-2xs font-bold'
                               : 'text-stone-500 hover:text-stone-900'
                           }`}
-                          title="Zwięzła lista wyników"
+                          title="Zwięzła, kompaktowa lista"
                         >
-                          <LayoutList className="w-3.5 h-3.5" />
-                          <span>Lista</span>
+                          <LayoutList className="w-3.5 h-3.5 text-stone-600" />
+                          <span>Kompaktowa lista</span>
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className={searchViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "space-y-3"}>
+                  <div
+                    className={
+                      searchViewMode === 'shelf'
+                        ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4'
+                        : searchViewMode === 'grid'
+                        ? 'grid grid-cols-1 md:grid-cols-2 gap-4'
+                        : 'space-y-2.5'
+                    }
+                  >
                     {results
                       .filter((item) => {
                         if (sourceFilter !== 'all') {
@@ -1234,13 +1651,322 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                           ? '📚'
                           : '🌐';
 
+                        const isPl = (item.language || '').toLowerCase().includes('pl');
+                        const isPdf = (item.format || '').toLowerCase().includes('pdf');
+                        const isEpub = (item.format || '').toLowerCase().includes('epub');
+
+                        if (searchViewMode === 'shelf') {
+                          const sInfo = detectBookSeriesClient(item.title);
+                          // Determine palette based on title hash for books without covers
+                          const colorPalettes = [
+                            'from-amber-900 via-amber-800 to-amber-950 text-amber-50',
+                            'from-emerald-900 via-emerald-800 to-emerald-950 text-emerald-50',
+                            'from-indigo-900 via-indigo-800 to-indigo-950 text-indigo-50',
+                            'from-rose-900 via-rose-800 to-rose-950 text-rose-50',
+                            'from-slate-900 via-slate-800 to-slate-950 text-slate-50',
+                            'from-stone-800 via-stone-700 to-stone-900 text-stone-50',
+                          ];
+                          const hash = item.title.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+                          const palette = colorPalettes[hash % colorPalettes.length];
+
+                          return (
+                            <div
+                              key={rawItem.id}
+                              className="group relative bg-white border border-stone-200/90 rounded-2xl p-2.5 sm:p-3 flex flex-col justify-between hover:border-amber-400 hover:shadow-md transition-all duration-200 shadow-2xs"
+                            >
+                              <div className="space-y-2">
+                                {/* 3D Book Cover / Spine simulation */}
+                                <div className="relative aspect-[2/3] w-full rounded-xl overflow-hidden shadow-sm group-hover:shadow-md transition-all border border-stone-200/80 bg-stone-100 flex flex-col">
+                                  {item.coverUrl ? (
+                                    <>
+                                      <img
+                                        src={item.coverUrl}
+                                        alt={item.title}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          (e.target as HTMLElement).style.display = 'none';
+                                        }}
+                                      />
+                                      {/* Book spine highlight gradient overlay */}
+                                      <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-black/40 via-black/10 to-transparent pointer-events-none" />
+                                      <div className="absolute inset-y-0 left-2.5 w-0.5 bg-white/20 pointer-events-none" />
+                                    </>
+                                  ) : (
+                                    <div className={`w-full h-full bg-gradient-to-br ${palette} p-3 flex flex-col justify-between relative select-none`}>
+                                      {/* Spine shadow simulation */}
+                                      <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-black/50 via-black/20 to-transparent pointer-events-none" />
+                                      <div className="absolute inset-y-0 left-2.5 w-0.5 bg-white/10 pointer-events-none" />
+
+                                      {/* Ribbon bookmark decoration */}
+                                      <div className="absolute top-0 right-3 w-3 h-6 bg-amber-400/90 rounded-b-sm shadow-xs" />
+
+                                      <div className="relative z-10 space-y-1 pt-1 pl-1.5">
+                                        <span className="text-[9px] uppercase tracking-wider font-semibold opacity-75 block truncate">
+                                          {item.author || 'Nieznany autor'}
+                                        </span>
+                                        <h4 className="text-xs sm:text-sm font-bold font-serif leading-snug line-clamp-4">
+                                          {item.title}
+                                        </h4>
+                                      </div>
+
+                                      <div className="relative z-10 pl-1.5 pt-2 flex items-center justify-between opacity-80 text-[10px]">
+                                        <span className="font-mono font-bold uppercase">{item.format}</span>
+                                        <span>{isPl ? '🇵🇱' : '🌐'}</span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Floating badges on top of cover */}
+                                  <div className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1 pointer-events-none">
+                                    <span
+                                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded shadow-2xs backdrop-blur-xs flex items-center gap-0.5 ${
+                                        isPl
+                                          ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-500/30'
+                                          : 'bg-stone-900/80 text-amber-200 border border-amber-500/30'
+                                      }`}
+                                    >
+                                      <span>{isPl ? '🇵🇱' : '🌐'}</span>
+                                      <span>{item.language.toUpperCase()}</span>
+                                    </span>
+
+                                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shadow-2xs bg-stone-900/80 text-stone-100 border border-white/20 backdrop-blur-xs">
+                                      {item.format}
+                                    </span>
+                                  </div>
+
+                                  {/* Source badge at bottom of cover */}
+                                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
+                                    <span className="text-[9px] font-medium px-1.5 py-0.5 rounded shadow-2xs bg-black/70 text-white backdrop-blur-xs truncate max-w-[85%] flex items-center gap-1">
+                                      <span>{sourceIcon}</span>
+                                      <span className="truncate">{item.source.split('(')[0].trim()}</span>
+                                    </span>
+                                    {item.size && (
+                                      <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-black/60 text-stone-200 backdrop-blur-xs">
+                                        {item.size}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Title & Author under cover */}
+                                <div className="space-y-0.5 px-0.5">
+                                  <h4 className="font-semibold text-stone-900 text-xs sm:text-sm line-clamp-2 leading-snug" title={item.title}>
+                                    {item.title}
+                                  </h4>
+                                  <p className="text-[11px] text-stone-500 truncate" title={item.author}>
+                                    {item.author || 'Autor nieznany'}
+                                  </p>
+                                  {sInfo && (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-purple-700 bg-purple-50 px-1 py-0.2 rounded border border-purple-200 truncate max-w-full">
+                                      📚 {sInfo.name} T.{sInfo.tome}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Shelf Action Buttons */}
+                              <div className="mt-2.5 pt-2 border-t border-stone-100 space-y-1">
+                                {isPl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(item, 'original')}
+                                    disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
+                                    className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                                      !item.downloadUrl
+                                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
+                                    }`}
+                                  >
+                                    {orderingId === `${item.id}_original` ? (
+                                      <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <Download className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Pobierz</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(item, 'translate')}
+                                    disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
+                                    className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                                      !item.downloadUrl
+                                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                        : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
+                                    }`}
+                                  >
+                                    {orderingId === `${item.id}_translate` ? (
+                                      <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                    )}
+                                    <span>Tłumacz PL</span>
+                                  </button>
+                                )}
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenBookSummary(item)}
+                                    className="flex-1 py-1 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition flex items-center justify-center gap-1 cursor-pointer"
+                                    title="Streszczenie i motywy AI"
+                                  >
+                                    <BookOpen className="w-3 h-3 text-amber-700" />
+                                    <span>Streszczenie</span>
+                                  </button>
+
+                                  {isPdf && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOrder(item, 'epub_clean')}
+                                      disabled={!item.downloadUrl || orderingId === `${item.id}_epub_clean`}
+                                      className="py-1 px-1.5 rounded-md text-[10px] font-semibold bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 transition flex items-center justify-center gap-0.5 cursor-pointer"
+                                      title="Konwertuj PDF na czytnikowy EPUB"
+                                    >
+                                      <span>EPUB</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (searchViewMode === 'list') {
+                          return (
+                            <div
+                              key={rawItem.id}
+                              className="bg-white border border-stone-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-stone-300 hover:shadow-2xs transition"
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                {item.coverUrl ? (
+                                  <img
+                                    src={item.coverUrl}
+                                    alt={item.title}
+                                    className="w-11 h-16 object-cover rounded-md border border-stone-200 shrink-0 shadow-2xs bg-stone-100"
+                                    onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                  />
+                                ) : (
+                                  <div className="w-11 h-16 rounded-md border border-stone-200 shrink-0 shadow-2xs bg-stone-50 flex items-center justify-center text-lg text-stone-400">
+                                    <span>{item.format === 'PDF' ? '📄' : item.format === 'CBZ' ? '🎨' : '📖'}</span>
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="font-semibold text-stone-900 text-xs sm:text-sm truncate" title={item.title}>
+                                      {item.title}
+                                    </h3>
+                                    {(() => {
+                                      const sInfo = detectBookSeriesClient(item.title);
+                                      if (!sInfo) return null;
+                                      return (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-semibold">
+                                          <span>📚</span> {sInfo.name} (T.{sInfo.tome})
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-xs text-stone-600 flex-wrap">
+                                    <span className="font-medium text-stone-700">Autor: {item.author}</span>
+                                    <span>•</span>
+                                    <span className="font-bold text-[10px] px-1.5 py-0.5 rounded border bg-stone-100 text-stone-800">
+                                      {item.language.toUpperCase() === 'PL' ? '🇵🇱 PL' : item.language.toUpperCase()}
+                                    </span>
+                                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded border bg-stone-50 text-stone-700">
+                                      {item.format} {item.size ? `(${item.size})` : ''}
+                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${sourceBadgeClass}`}>
+                                      <span>{sourceIcon}</span>
+                                      <span>{item.source}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                                {isPl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(item, 'original')}
+                                    disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                      !item.downloadUrl
+                                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
+                                    }`}
+                                  >
+                                    {orderingId === `${item.id}_original` ? (
+                                      <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <Download className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{isEpub ? 'Pobierz EPUB' : 'Pobierz'}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(item, 'translate')}
+                                    disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                      !item.downloadUrl
+                                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                        : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
+                                    }`}
+                                  >
+                                    {orderingId === `${item.id}_translate` ? (
+                                      <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                      <Languages className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Tłumacz na PL</span>
+                                  </button>
+                                )}
+
+                                {isPdf && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOrder(item, 'epub_clean')}
+                                    disabled={!item.downloadUrl || orderingId === `${item.id}_epub_clean`}
+                                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-50 text-sky-900 hover:bg-sky-100 border border-sky-200 flex items-center gap-1 transition cursor-pointer"
+                                    title="Konwertuje PDF na lekki czytnikowy EPUB"
+                                  >
+                                    <BookOpen className="w-3.5 h-3.5 text-sky-700" />
+                                    <span className="hidden sm:inline">Lekki EPUB</span>
+                                  </button>
+                                )}
+
+                                {rawItem.availableSources && rawItem.availableSources.length > 1 && (
+                                  <select
+                                    value={activeSourceId}
+                                    onChange={(e) => setSelectedSourceIdMap(prev => ({ ...prev, [rawItem.id]: e.target.value }))}
+                                    className="text-[11px] px-2 py-1 rounded-md border border-stone-200 bg-stone-50 text-stone-700"
+                                    title="Wybierz inne źródło"
+                                  >
+                                    {rawItem.availableSources.map(s => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.source} ({s.format})
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenBookSummary(item)}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                  title="Wyświetl streszczenie fabuły, motywy i metadane AI"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                                  <span>Streszczenie</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div
                             key={rawItem.id}
-                            className={searchViewMode === 'list'
-                              ? "bg-white border border-stone-200 rounded-xl p-3.5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs gap-2.5"
-                              : "bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs"
-                            }
+                            className="bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between hover:border-stone-300 transition shadow-2xs"
                           >
                             <div className="space-y-2.5">
                               {/* Top Banner: Prominent Format & Language */}
@@ -1321,6 +2047,17 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                     <div className="text-xs text-stone-600 font-medium mt-0.5">
                                       Autor: {item.author}
                                     </div>
+                                    {(() => {
+                                      const sInfo = detectBookSeriesClient(item.title);
+                                      if (!sInfo) return null;
+                                      return (
+                                        <div className="mt-1 flex items-center gap-1.5">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-semibold shadow-2xs">
+                                            <span>📚</span> Cykl: <strong>{sInfo.name}</strong> (Tom {sInfo.tome}{sInfo.total ? ` z ${sInfo.total}` : ''})
+                                          </span>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               </div>
@@ -1668,6 +2405,17 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
                                       </button>
                                     )}
 
+                                    {/* AI Book Summary & Metadata */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenBookSummary(item)}
+                                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 cursor-pointer shadow-2xs"
+                                      title="Pokaż streszczenie, motywy i metadane AI (OpenCode.ai / Premium)"
+                                    >
+                                      <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                                      <span>Streszczenie i metadane</span>
+                                    </button>
+
                                     {/* Duck.ai Free Assistant */}
                                     <a
                                       href={`https://duck.ai/?q=${encodeURIComponent(
@@ -1807,6 +2555,41 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated }) =>
           </div>
         </div>
       )}
+
+      {/* Book Summary & Metadata Modal (OpenCode.ai & Premium) */}
+      <BookSummaryModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        book={selectedSummaryBook}
+        activeModelTier={aiModelTier}
+        onModelTierChange={handleSetAiModelTier}
+        premiumProvider={premiumProvider}
+        onPremiumProviderChange={handleSetPremiumProvider}
+        onOrderBook={(mode) => {
+          if (selectedSummaryBook) {
+            handleOrder(
+              {
+                id: `summary_${Date.now()}`,
+                title: selectedSummaryBook.title,
+                author: selectedSummaryBook.author,
+                downloadUrl: selectedSummaryBook.downloadUrl,
+              },
+              mode
+            );
+          }
+        }}
+        onSearchRepositories={(searchTitle) => {
+          setQuery(searchTitle);
+          setSubTab('search');
+          handleSearch(searchTitle);
+        }}
+      />
+
+      {/* Accounts & Storage Settings Modal */}
+      <AccountsSettingsModal
+        isOpen={isAccountsModalOpen}
+        onClose={() => setIsAccountsModalOpen(false)}
+      />
     </div>
   );
 };

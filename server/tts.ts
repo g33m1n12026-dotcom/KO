@@ -521,3 +521,209 @@ export async function fetchElevenLabsVoices(apiKey?: string): Promise<VoiceOptio
   return AVAILABLE_VOICES.filter((v) => v.provider === 'elevenlabs');
 }
 
+// --------------------------------------------------------------------------
+// Multi-Voice Dramatic Radio Drama (Słuchowisko wielogłosowe)
+// --------------------------------------------------------------------------
+
+export interface DramaticScriptLine {
+  id: string;
+  role: 'narrator' | 'male' | 'female';
+  characterName: string;
+  text: string;
+  emotion?: string;
+  voiceId?: string;
+  audioUrl?: string;
+}
+
+export interface ChapterDramaticScript {
+  jobId: string;
+  chapterIndex: number;
+  chapterTitle: string;
+  lines: DramaticScriptLine[];
+  characters: { name: string; role: 'narrator' | 'male' | 'female'; linesCount: number }[];
+}
+
+const FEMALE_NAMES = new Set([
+  'yennefer', 'ciri', 'triss', 'renfri', 'calanthe', 'pavetta', 'milva', 'shani', 'filippa', 'keira', 'francesca',
+  'anna', 'maria', 'katarzyna', 'magdalena', 'ewa', 'zofia', 'elena', 'sarah', 'alice', 'mary', 'elizabeth',
+  'hermiona', 'ginny', 'leia', 'daenerys', 'arya', 'sansa', 'cersei', 'chani', 'jessica', 'irulan',
+]);
+
+const MALE_NAMES = new Set([
+  'geralt', 'jaskier', 'vesemir', 'eskel', 'lambert', 'zoltán', 'foltest', 'dijkstra', 'vilgefortz', 'regis', 'cahir',
+  'jan', 'piotr', 'krzysztof', 'andrzej', 'tomasz', 'paweł', 'michał', 'marcin', 'marek', 'harry', 'ron', 'albus',
+  'luke', 'han', 'jon', 'tyrion', 'ned', 'jaime', 'paul', 'leto', 'duncan', 'gurney', 'vladimir',
+]);
+
+export function parseChapterToDramaticScript(
+  rawText: string,
+  title: string = 'Rozdział',
+  jobId: string = 'temp',
+  chapterIndex: number = 0
+): ChapterDramaticScript {
+  // Strip HTML tags and clean whitespace
+  const clean = rawText
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&quot;/gi, '"')
+    .replace(/\r\n/g, '\n');
+
+  const paragraphs = clean
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+
+  const lines: DramaticScriptLine[] = [];
+  const charStats = new Map<string, { role: 'narrator' | 'male' | 'female'; count: number }>();
+  charStats.set('Narrator', { role: 'narrator', count: 0 });
+
+  let lineCounter = 1;
+
+  for (const para of paragraphs) {
+    // Check if paragraph is or contains dialogue (starting with dash or quote)
+    const isDialogue = /^([—–\-"«']|\s*[—–\-])/.test(para);
+
+    if (isDialogue) {
+      // Determine speaker gender and name
+      let role: 'male' | 'female' = 'male';
+      let characterName = 'Postać męska';
+
+      // Look for speech verbs
+      const femaleMatch = para.match(/(?:powiedziała|rzekła|mruknęła|zapytała|odparła|krzyknęła|westchnęła|dodała|zawołała|warknęła|zaśmiała się|szepnęła|pomyślała|stwierdziła)\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)/i);
+      const maleMatch = para.match(/(?:powiedział|rzekł|mruknął|zapytał|odparł|krzyknął|westchnął|dodał|zawołał|warknął|zaśmiał się|szepnął|pomyślał|stwierdził)\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)/i);
+
+      if (femaleMatch) {
+        role = 'female';
+        characterName = femaleMatch[1];
+      } else if (maleMatch) {
+        role = 'male';
+        characterName = maleMatch[1];
+      } else {
+        // Search known character names in paragraph
+        const lowerPara = para.toLowerCase();
+        let found = false;
+        for (const fName of FEMALE_NAMES) {
+          if (lowerPara.includes(fName)) {
+            role = 'female';
+            characterName = fName.charAt(0).toUpperCase() + fName.slice(1);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          for (const mName of MALE_NAMES) {
+            if (lowerPara.includes(mName)) {
+              role = 'male';
+              characterName = mName.charAt(0).toUpperCase() + mName.slice(1);
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Detect emotion
+      let emotion: string | undefined = undefined;
+      if (/krzykn|wrzasn|zawoła/i.test(para)) emotion = 'gniew / krzyk';
+      else if (/szepn|cicho|ostrożnie/i.test(para)) emotion = 'szept';
+      else if (/zaśmiał|wesoł|żart/i.test(para)) emotion = 'uśmiech / radość';
+      else if (/westchn|smutn|żal/i.test(para)) emotion = 'smutek / westchnienie';
+
+      const lineText = para.replace(/^[—–\-"«']\s*/, '').trim();
+      const voiceId = role === 'female' ? 'pl-PL-ZofiaNeural' : 'pl-PL-MarekNeural';
+
+      lines.push({
+        id: `line_${chapterIndex}_${lineCounter++}`,
+        role,
+        characterName,
+        text: lineText,
+        emotion,
+        voiceId,
+      });
+
+      const current = charStats.get(characterName) || { role, count: 0 };
+      current.count++;
+      charStats.set(characterName, current);
+    } else {
+      // Narration
+      lines.push({
+        id: `line_${chapterIndex}_${lineCounter++}`,
+        role: 'narrator',
+        characterName: 'Narrator',
+        text: para,
+        voiceId: 'pl-PL-MarekNeural',
+      });
+      const cur = charStats.get('Narrator')!;
+      cur.count++;
+    }
+  }
+
+  const characters = Array.from(charStats.entries()).map(([name, data]) => ({
+    name,
+    role: data.role,
+    linesCount: data.count,
+  }));
+
+  return {
+    jobId,
+    chapterIndex,
+    chapterTitle: title,
+    lines,
+    characters,
+  };
+}
+
+export async function generateChapterDramaAudio(
+  jobId: string,
+  chapterIndex: number,
+  script: ChapterDramaticScript,
+  onProgress?: (percent: number) => void
+): Promise<{ filePath: string; buffer: Buffer; fileName: string }> {
+  const safeId = jobId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const outFileName = `sluchowisko_${safeId}_rozdzial_${chapterIndex + 1}.mp3`;
+  const outFilePath = path.join(CACHE_DIR, outFileName);
+
+  // Return cached if exists and > 50KB
+  if (fs.existsSync(outFilePath)) {
+    const stat = fs.statSync(outFilePath);
+    if (stat.size > 50000) {
+      return { filePath: outFilePath, buffer: fs.readFileSync(outFilePath), fileName: outFileName };
+    }
+  }
+
+  const audioBuffers: Buffer[] = [];
+  const total = script.lines.length;
+
+  for (let i = 0; i < total; i++) {
+    const line = script.lines[i];
+    try {
+      const { buffer } = await synthesizeSpeech({
+        text: line.text,
+        voice: line.voiceId || (line.role === 'female' ? 'pl-PL-ZofiaNeural' : 'pl-PL-MarekNeural'),
+        speed: 1.0,
+      });
+      audioBuffers.push(buffer);
+    } catch (err: any) {
+      console.warn(`Pominięto linię ${i} podczas generowania słuchowiska:`, err.message);
+    }
+
+    if (onProgress) {
+      onProgress(Math.round(((i + 1) / total) * 100));
+    }
+  }
+
+  const fullAudio = Buffer.concat(audioBuffers);
+  fs.writeFileSync(outFilePath, fullAudio);
+
+  return {
+    filePath: outFilePath,
+    buffer: fullAudio,
+    fileName: outFileName,
+  };
+}
+
+

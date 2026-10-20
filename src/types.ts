@@ -3,7 +3,7 @@ export interface Job {
   title: string;
   sourceLang: string;
   targetLang: string;
-  engine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere';
+  engine: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'river' | 'groq' | 'mistral';
   conversionMode?: 'translate' | 'epub_clean' | 'comic_cbz' | 'original';
   outputFormat?: 'epub' | 'cbz' | 'pdf' | 'mobi' | 'txt';
   detailedFormat?: string; // e.g. "EPUB 3", "EPUB 2", "PDF", "MOBI", "CBZ (Komiks)"
@@ -21,6 +21,11 @@ export interface Job {
   author?: string;
   expectedLang?: string;
   storybookConfig?: StorybookRequest;
+  series?: {
+    name: string;
+    tome: number;
+    total?: number;
+  };
   logs: string[];
 }
 
@@ -44,7 +49,7 @@ export interface StorybookRequest {
   chapterCount: number;
   targetAudience?: 'all' | 'adults' | 'young_adults' | 'children';
   includeIllustrations: boolean;
-  engine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere';
+  engine?: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini' | 'cohere' | 'river' | 'groq' | 'mistral';
   author?: string;
 }
 
@@ -181,3 +186,115 @@ export interface AIProviderConfig {
   geminiKey?: string;
   selectedProvider: 'auto' | 'claude' | 'openai' | 'openrouter' | 'gemini';
 }
+
+export interface ReadingProgress {
+  bookId: string;
+  title: string;
+  progressPercent: number;
+  chapterIndex: number;
+  currentPosition?: number;
+  totalChapters?: number;
+  timestamp: number;
+  device: 'Kindle' | 'Web Reader' | 'Android' | 'KOReader';
+  timeAgo?: string;
+}
+
+export interface DramaticScriptLine {
+  id: string;
+  role: 'narrator' | 'male' | 'female';
+  characterName: string;
+  text: string;
+  emotion?: string;
+  voiceId?: string;
+}
+
+export interface ChapterDramaticScript {
+  jobId: string;
+  chapterIndex: number;
+  chapterTitle: string;
+  lines: DramaticScriptLine[];
+  characters: { name: string; role: 'narrator' | 'male' | 'female'; linesCount: number }[];
+}
+
+export interface BookCharacter {
+  name: string;
+  role: string;
+  description: string;
+  faction?: string;
+  relations?: string[];
+  importance?: 'main' | 'supporting' | 'minor';
+}
+
+export interface BookSeriesInfo {
+  name: string;
+  tome: number;
+  total?: number;
+}
+
+export type AIModelTier = 'smart_auto' | 'free_opencode' | 'premium';
+
+export interface AdvisorChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  recommendations?: BookRecommendation[];
+  followUpQuestions?: string[];
+  usedEngine?: string;
+}
+
+export interface AdvisorChatRequest {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  engine?: string;
+  modelTier?: AIModelTier;
+  premiumProvider?: 'openrouter' | 'openai';
+}
+
+export interface AdvisorChatResponse {
+  reply: string;
+  followUpQuestions?: string[];
+  recommendations: BookRecommendation[];
+  usedEngine: string;
+  analysis?: string;
+}
+
+export interface BookSummaryRequest {
+  title: string;
+  author?: string;
+  modelTier?: AIModelTier;
+  premiumProvider?: 'openrouter' | 'openai';
+  language?: string;
+}
+
+export interface BookSummaryCharacter {
+  name: string;
+  role: string;
+  description: string;
+}
+
+export interface BookSummaryAndMetadata {
+  title: string;
+  originalTitle?: string;
+  polishTitle?: string;
+  author: string;
+  year?: string;
+  genre: string;
+  subgenres?: string[];
+  originalLanguage?: string;
+  estimatedPages?: number;
+  estimatedReadingTime?: string;
+  targetAudience?: string;
+  synopsis: string;
+  detailedSummary: string;
+  keyThemes: string[];
+  keyCharacters: BookSummaryCharacter[];
+  literaryStyle: string;
+  historicalContext?: string;
+  notableQuote?: string;
+  whyReadThis: string;
+  modelTier: AIModelTier;
+  modelName: string;
+  provider: string;
+  fetchedAt: string;
+}
+

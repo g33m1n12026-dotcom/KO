@@ -932,32 +932,79 @@ function AIBooks:performStorybookCreationFromForm(f)
     end)
 end
 
--- Doradca AI na bazie opisu czytelnika
+-- Doradca AI: Menu wyboru trybu doradcy (Interaktywny dialog lub szybkie zapytanie)
 function AIBooks:showRecommendDialog()
+    local items = {
+        {
+            text = _("💬 1. Interaktywny dialog z Doradcą\\n(Rozmowa krok po kroku z pytaniami pomocniczymi i doborem na żywo)"),
+            callback = function()
+                self:showAdvisorChatDialog(nil, true)
+            end,
+        },
+        {
+            text = _("✍️ 2. Wpisz własny opis / temat lektury\\n(np. 'Szukam czegoś podobnego do Diuny w kosmosie')"),
+            callback = function()
+                self:showAdvisorSingleInputDialog()
+            end,
+        },
+        {
+            text = _("🚀 3. Inspiracja: Retro Sci-Fi & Kosmos"),
+            callback = function()
+                self:showAdvisorChatDialog("Szukam klimatycznego retro science-fiction o dalekich podróżach kosmicznych, obcej inteligencji i nieznanych planetach w stylu Lema lub Clarke'a.", true)
+            end,
+        },
+        {
+            text = _("🕵️ 4. Inspiracja: Deszczowy kryminał noir"),
+            callback = function()
+                self:showAdvisorChatDialog("Szukam trzymającego w napięciu kryminału noir z cynicznym detektywem, mroczną tajemnicą i klimatem deszczowego miasta.", true)
+            end,
+        },
+        {
+            text = _("🤖 5. Inspiracja: Cyberpunk & Sztuczna inteligencja"),
+            callback = function()
+                self:showAdvisorChatDialog("Szukam głębokiego cyberpunku o granicach człowieczeństwa, androidach i megakorporacjach w stylu Philipa K. Dicka.", true)
+            end,
+        },
+        {
+            text = _("🧠 6. Inspiracja: Filozofia & Psychologia myślenia"),
+            callback = function()
+                self:showAdvisorChatDialog("Poleć mi mądrą, fascynującą książkę o mechanizmach ludzkiego myślenia, psychologii podejmowania decyzji lub sensie życia.", true)
+            end,
+        },
+        {
+            text = _("❌ Wróć"),
+            callback = function() end,
+        },
+    }
+
+    local menu = Menu:new{
+        title = _("📖 Doradca Literacki AI (Wybierz tryb):"),
+        item_table = items,
+    }
+    UIManager:show(menu)
+end
+
+function AIBooks:showAdvisorSingleInputDialog()
     local input
     input = InputDialog:new{
-        title = _("Doradca AI: Opisz na co masz ochotę"),
-        input_hint = _("np. cyberpunk z filozofią, mroczny kryminał noir..."),
-        description = _("Opisz nastrój, motywy lub temat:"),
+        title = _("Doradca AI: Opisz czego szukasz"),
+        input_hint = _("np. mroczny kryminał noir, Lem, filozofia..."),
+        description = _("Opisz nastrój, motywy lub ulubionych autorów:"),
         buttons = {
             {
                 {
                     text = _("Anuluj"),
                     id = "close",
-                    callback = function()
-                        UIManager:close(input)
-                    end,
+                    callback = function() UIManager:close(input) end,
                 },
                 {
-                    text = _("Zaproponuj"),
+                    text = _("Rozpocznij dialog"),
                     is_enter_default = true,
                     callback = function()
                         local desc = input:getInputText()
                         UIManager:close(input)
                         if desc and desc:gsub("%s+", "") ~= "" then
-                            self:withNetwork(function()
-                                self:performRecommendation(desc)
-                            end)
+                            self:showAdvisorChatDialog(desc, true)
                         end
                     end,
                 },
@@ -968,19 +1015,34 @@ function AIBooks:showRecommendDialog()
     if input.onShowKeyboard then input:onShowKeyboard() end
 end
 
-function AIBooks:performRecommendation(description)
-    local info = InfoMessage:new{ text = _("AI analizuje motywy i dobiera książki w chmurze...") }
+-- Interaktywny czat z Doradcą w pluginie KOReader (idealny dla ekranu E-Ink)
+function AIBooks:showAdvisorChatDialog(userText, isReset)
+    if isReset or not self.advisor_messages then
+        self.advisor_messages = {}
+    end
+
+    local textToSend = userText
+    if not textToSend or textToSend:gsub("%s+", "") == "" then
+        textToSend = "Cześć! Doradź mi wybitną książkę na wieczór. Zadaj mi pytania pomocnicze, aby jak najlepiej poznać mój gust."
+    end
+
+    table.insert(self.advisor_messages, {
+        role = "user",
+        content = textToSend,
+    })
+
+    local info = InfoMessage:new{ text = _("Doradca analizuje i dobiera propozycje w chmurze...") }
     UIManager:show(info)
 
-    UIManager:nextTick(function()
+    self:withNetwork(function()
         local payload = json.encode({
-            description = description,
-            engine = "auto",
+            messages = self.advisor_messages,
+            modelTier = "smart_auto",
         })
 
         local response_body = {}
         local res, code, headers, status = doHttpRequest{
-            url = self.server_url .. "/api/koreader/recommend",
+            url = self.server_url .. "/api/koreader/advisor/chat",
             method = "POST",
             headers = {
                 ["Content-Type"] = "application/json",
@@ -999,41 +1061,139 @@ function AIBooks:performRecommendation(description)
 
         local raw = table.concat(response_body)
         local ok, data = pcall(json.decode, raw)
-        if not ok or not data or not data.recommendations or #data.recommendations == 0 then
-            UIManager:show(InfoMessage:new{ text = _("Brak propozycji dla tego opisu. Spróbuj innych słów kluczowych.") })
+        if not ok or not data then
+            UIManager:show(InfoMessage:new{ text = _("Nie udało się odczytać odpowiedzi od Doradcy AI.") })
             return
         end
 
-        local menu_items = {}
-        for _, item in ipairs(data.recommendations) do
-            local titleDisplay = item.title
-            if item.polishTitle and item.polishTitle ~= "" then
-                titleDisplay = item.polishTitle .. " (" .. item.title .. ")"
-            end
-            local isPolish = (item.originalLang == "PL" or item.isPolishAvailable or item.language == "PL")
-            local langBadge = isPolish and "🇵🇱 [PL - Język polski]" or ("🌐 [" .. (item.originalLang or "Obcy") .. " - Wymaga przekładu]")
-            local label = langBadge .. " " .. titleDisplay .. "\\nAutor: " .. (item.author or "Brak") .. " • " .. (item.genre or "")
-            local hint = "💡 " .. (item.matchReason or item.synopsis or "")
+        -- Zapisz odpowiedź asystenta w historii sesji
+        if data.reply and data.reply ~= "" then
+            table.insert(self.advisor_messages, {
+                role = "assistant",
+                content = data.reply,
+            })
+        end
 
-            table.insert(menu_items, {
-                text = label .. "\\n" .. hint,
+        self:renderAdvisorChatMenu(data)
+    end)
+end
+
+-- Menu prezentujące odpowiedź, półkę z książkami oraz klikalne pytania pomocnicze
+function AIBooks:renderAdvisorChatMenu(data)
+    local items = {}
+
+    -- 1. Odpowiedź / Diagnoza Doradcy
+    local replyShort = (data.reply or "Oto wybrane propozycje:"):gsub("\\n+", " ")
+    if #replyShort > 85 then replyShort = replyShort:sub(1, 82) .. "..." end
+
+    table.insert(items, {
+        text = _("📖 Doradca: ") .. replyShort .. _("\\n[Dotknij, aby przeczytać pełną wypowiedź]"),
+        callback = function()
+            local fullText = (data.reply or "") .. (data.analysis and ("\\n\\n🎯 Diagnoza: " .. data.analysis) or "")
+            UIManager:show(InfoMessage:new{ text = fullText })
+        end,
+    })
+
+    -- 2. Półka dopasowanych książek
+    local recs = data.recommendations or {}
+    if #recs > 0 then
+        table.insert(items, {
+            text = _("--- 📚 DOPASOWANE KSIĄŻKI (") .. #recs .. _(") ---"),
+            callback = function() end,
+        })
+
+        for idx, item in ipairs(recs) do
+            local titleDisplay = item.polishTitle or item.title
+            local isPolish = (item.originalLang == "PL" or item.isPolishAvailable or item.language == "PL")
+            local langBadge = isPolish and "🇵🇱 [PL]" or ("🌐 [" .. (item.originalLang or "EN") .. "]")
+            local actionLabel = isPolish and " [📥 Pobierz]" or " [✨ Przekład]"
+            local label = langBadge .. " " .. idx .. ". " .. titleDisplay .. actionLabel .. "\\nAutor: " .. (item.author or "Brak") .. (item.year and (" (" .. item.year .. ")") or "")
+            local reason = item.matchReason and ("\\n🎯 " .. item.matchReason:sub(1, 80)) or ""
+
+            table.insert(items, {
+                text = label .. reason,
                 callback = function()
                     self:showAdvisorActionDialog(item, isPolish)
                 end,
             })
         end
+    end
 
-        table.insert(menu_items, {
-            text = _("❌ Zamknij / Wróć"),
+    -- 3. Klikalne pytania pomocnicze (Jeden dotyk na e-inku bez konieczności pisania!)
+    local followUps = data.followUpQuestions or {}
+    if #followUps > 0 then
+        table.insert(items, {
+            text = _("--- 💬 DOPRECYZUJ JEDNYM DOTKNIĘCIEM ---"),
             callback = function() end,
         })
 
-        local menu = Menu:new{
-            title = _("Propozycje AI (Język polski w pierwszej kolejności):"),
-            item_table = menu_items,
-        }
-        UIManager:show(menu)
-    end)
+        for _, q in ipairs(followUps) do
+            table.insert(items, {
+                text = "💬 " .. q,
+                callback = function()
+                    self:showAdvisorChatDialog(q, false)
+                end,
+            })
+        end
+    end
+
+    -- 4. Opcje sterowania czatem
+    table.insert(items, {
+        text = _("--- ⚙️ AKCJE ---"),
+        callback = function() end,
+    })
+
+    table.insert(items, {
+        text = _("✍️ Wpisz własną odpowiedź do Doradcy..."),
+        callback = function()
+            local input
+            input = InputDialog:new{
+                title = _("Odpowiedz Doradcy"),
+                input_hint = _("np. Wolę coś bardziej mrocznego, mniej technicznego..."),
+                description = _("Napisz odpowiedź lub swoje preferencje:"),
+                buttons = {
+                    {
+                        {
+                            text = _("Anuluj"),
+                            id = "close",
+                            callback = function() UIManager:close(input) end,
+                        },
+                        {
+                            text = _("Wyślij"),
+                            is_enter_default = true,
+                            callback = function()
+                                local txt = input:getInputText()
+                                UIManager:close(input)
+                                if txt and txt:gsub("%s+", "") ~= "" then
+                                    self:showAdvisorChatDialog(txt, false)
+                                end
+                            end,
+                        },
+                    },
+                },
+            }
+            UIManager:show(input)
+            if input.onShowKeyboard then input:onShowKeyboard() end
+        end,
+    })
+
+    table.insert(items, {
+        text = _("🔄 Rozpocznij rozmowę od początku"),
+        callback = function()
+            self:showAdvisorChatDialog(nil, true)
+        end,
+    })
+
+    table.insert(items, {
+        text = _("❌ Zamknij / Wróć do menu głównego"),
+        callback = function() end,
+    })
+
+    local menu = Menu:new{
+        title = _("📖 Doradca AI (Aktywny dialog):"),
+        item_table = items,
+    }
+    UIManager:show(menu)
 end
 
 -- Menu akcji dla wybranej rekomendacji od Doradcy AI
@@ -1840,7 +2000,7 @@ function AIBooks:resumeServerTask(task)
 end
 
 -- Całkowicie asynchroniczne, nieblokujące pobieranie pliku na czytnik (NIGDY nie zawiesza KOReadera!)
-function AIBooks:downloadTaskFileDirectly(task, dest_path)
+function AIBooks:downloadTaskFileDirectly(task, dest_path, custom_url)
     self:ensureTargetDir()
     local rawFilename = task.outputEpubFilename or (task.title and (task.title:gsub("[^a-zA-Z0-9._-]", "_") .. ".epub")) or "ksiazka.epub"
     local cleanName = rawFilename:gsub("[^a-zA-Z0-9._-]", "_")
@@ -1853,14 +2013,14 @@ function AIBooks:downloadTaskFileDirectly(task, dest_path)
 
     -- Szybki nieblokujący toast z krótkim timeoutem (nie blokuje e-inku)
     local info = InfoMessage:new{
-        text = _("⚡ Pobieranie w tle rozpoczęte!\\n") .. titleDisplay .. _("\\n\\nMożesz swobodnie korzystać z czytnika — proces pobiera w tle bez zawieszania!"),
+        text = _("⚡ Pobieranie w tle rozpoczęte!\n") .. titleDisplay .. _("\n\nMożesz swobodnie korzystać z czytnika — proces pobiera w tle bez zawieszania!"),
         timeout = 3,
     }
     UIManager:show(info)
 
     self:withNetwork(function()
         local clean_server = (self.server_url or ""):gsub("/+$", "")
-        local download_url = clean_server .. "/api/download/" .. task.id
+        local download_url = custom_url or (clean_server .. "/api/download/" .. task.id)
 
         -- Wyczyść ewentualne stare pliki tymczasowe
         os.remove(part_dest)
@@ -2014,14 +2174,23 @@ function AIBooks:showTaskActionMenu(task, is_local, dest_path)
         })
     elseif task.status == "completed" and task.outputEpubFilename then
         table.insert(actionItems, {
-            text = _("📥 1. Pobierz w tle na czytnik (Bez zawieszania!)\\n[Pobiera w tle do folderu AI_Books bez zamrażania ekranu]"),
+            text = _("📥 1. Pobierz w tle na czytnik (Bez zawieszania!)\n[Pobiera w tle do folderu AI_Books bez zamrażania ekranu]"),
             callback = function()
                 self:downloadTaskFileDirectly(task, dest_path)
             end,
         })
         table.insert(actionItems, {
-            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera\\n[Pobieranie natywne wbudowanym menedżerem]"),
+            text = _("⚡ 2. Otwórz w Katalogu OPDS KOReadera\n[Pobieranie natywne wbudowanym menedżerem]"),
             callback = function() self:openNativeOpds() end,
+        })
+        table.insert(actionItems, {
+            text = _("🎧 3. Pobierz słuchowisko wielogłosowe MP3 (Rozdz. 1)"),
+            callback = function()
+                local mp3Name = (task.title:gsub("[^a-zA-Z0-9._-]", "_")) .. "_sluchowisko_r1.mp3"
+                local mp3Dest = self.target_folder .. "/" .. mp3Name
+                local dramaUrl = self.server_url .. "/api/audio/download-drama/" .. task.id .. "/0"
+                self:downloadTaskFileDirectly(task, mp3Dest, dramaUrl)
+            end,
         })
     else
         table.insert(actionItems, {
@@ -2085,6 +2254,30 @@ function AIBooks:deleteServerTask(task, onDone)
         end,
     }
     UIManager:show(confirm)
+end
+
+-- Dwukierunkowa synchronizacja pozycji czytania (Kindle ↔ Web Reader)
+function AIBooks:reportReadingProgress(title, progressPercent, chapterIndex)
+    if not self.server_url or self.server_url == "" then return end
+    UIManager:nextTick(function()
+        local body = string.format('{"bookId":%q,"title":%q,"progressPercent":%d,"chapterIndex":%d,"device":"Kindle"}',
+            urlEncode(title), title, math.floor(progressPercent or 0), math.floor(chapterIndex or 0))
+        doHttpRequest{
+            url = self.server_url .. "/api/koreader/sync/progress",
+            method = "POST",
+            headers = { ["Content-Type"] = "application/json" },
+            source = ltn12.source.string(body),
+        }
+    end)
+end
+
+function AIBooks:onCloseDocument()
+    if self.ui and self.ui.doc_settings then
+        local summary = self.ui.doc_settings:readSetting("summary")
+        local pct = (summary and summary.progress) and (summary.progress * 100) or 0
+        local title = (self.ui.doc_props and self.ui.doc_props.title) or "Książka"
+        self:reportReadingProgress(title, pct, 0)
+    end
 end
 
 -- Wyświetlanie kodu QR prowadzącego do aplikacji mobilnej w przeglądarce telefonu

@@ -251,7 +251,10 @@ export const UploadConverter: React.FC<UploadConverterProps> = ({ onJobCreated, 
                   className="w-full text-xs sm:text-sm px-3 py-2 rounded-lg border border-stone-200 bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-800"
                 >
                   <option value="auto">
-                    ✨ Smart Auto (Gemini + DeepSeek / OpenRouter z automatycznym fallbackiem)
+                    ✨ Smart Auto (River AI + Gemini z automatycznym fallbackiem)
+                  </option>
+                  <option value="river">
+                    🌊 River AI (DeepSeek-V4.1 / GLM-5.3 — natychmiastowe tłumaczenie)
                   </option>
                   <option value="gemini">
                     ⚡ Google Gemini (Błyskawiczny, świetny kontekst i tłumaczenie)
