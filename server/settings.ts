@@ -767,8 +767,9 @@ let latestHealthStatus: ApiHealthStatus = {
 };
 
 export async function checkAllApiHealth(): Promise<ApiHealthStatus> {
-  const riverKey = cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo';
-  const elKey = cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '';
+  const rawRiver = cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo';
+  const riverKey = (rawRiver.match(/rv_[a-zA-Z0-9_\-]+/)?.[0] || rawRiver.trim()).replace(/[^\x00-\x7F]/g, '');
+  const elKey = (cachedSettings.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '').trim().replace(/[^\x00-\x7F]/g, '');
 
   let riverOk = true;
   let riverMsg = 'Połączenie aktywne';

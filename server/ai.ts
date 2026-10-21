@@ -1125,30 +1125,236 @@ Twoje zadanie:
 
 export function getFallbackCuratedRecommendations(userDescription: string): { recommendations: BookRecommendation[]; analysis: string } {
   const desc = userDescription.toLowerCase();
-  let analysis = 'Dopasowano wybitne książki odpowiadające podanej tematyce z natychmiastową dostępnością.';
+  let analysis = 'Dopasowano wybitne książki ściśle odpowiadające Twoim preferencjom z natychmiastową dostępnością.';
   const recsData: any[] = [];
 
-  if (desc.includes('mag') || desc.includes('smok') || desc.includes('fantasy') || desc.includes('miecz')) {
-    analysis = 'Wybrano klasykę literatury fantasy o magii, smokach i epickich przygodach:';
+  // 1. Dystopia, antyutopia, postapokalipsa, totalitaryzm, cyberpunk
+  if (
+    desc.includes('dystop') ||
+    desc.includes('antyutop') ||
+    desc.includes('orwell') ||
+    desc.includes('zajdel') ||
+    desc.includes('totalitar') ||
+    desc.includes('postapo') ||
+    desc.includes('katastrof') ||
+    desc.includes('inwigilac') ||
+    desc.includes('apokalips') ||
+    desc.includes('cyberpunk') ||
+    desc.includes('przyszłoś') ||
+    desc.includes('przyszł')
+  ) {
+    analysis = 'Wybrano najwybitniejszą literaturę dystopijną, antyutopijną i cyberpunkową:';
     recsData.push(
-      { title: 'Ostatnie życzenie', author: 'Andrzej Sapkowski', genre: 'Fantasy', year: '1993', matchReason: 'Kultowy początek sagi wiedźmińskiej z polowaniami na potwory i magią.', originalLang: 'PL', searchQuery: 'Andrzej Sapkowski Ostatnie życzenie' },
-      { title: 'Hobbit, czyli tam i z powrotem', polishTitle: 'Hobbit', author: 'J.R.R. Tolkien', genre: 'High Fantasy', year: '1937', matchReason: 'Epicka wyprawa z czarodziejem Gandalfem i smokiem Smaugiem.', originalLang: 'PL', searchQuery: 'Tolkien Hobbit' },
-      { title: 'Eragon', polishTitle: 'Eragon', author: 'Christopher Paolini', genre: 'Fantasy', year: '2002', matchReason: 'Historia smoczego jeźdźca i więzi łączącej go ze smoczycą Saphirą.', originalLang: 'PL', searchQuery: 'Christopher Paolini Eragon' },
-      { title: 'Pan Lodowego Ogrodu', author: 'Jarosław Grzędowicz', genre: 'Science-Fantasy', year: '2005', matchReason: 'Świetne połączenie technologii z magicznym światem planety Midgaard.', originalLang: 'PL', searchQuery: 'Jarosław Grzędowicz Pan Lodowego Ogrodu' }
+      {
+        title: 'Limes inferior',
+        author: 'Janusz A. Zajdel',
+        genre: 'Dystopia / Fantastyka socjologiczna',
+        year: '1982',
+        matchReason: 'Genialna polska dystopia o świecie podzielonym na kasty, sztucznej inteligencji kontrolującej społeczeństwo i sprytnym buntowniku Sneerze.',
+        originalLang: 'PL',
+        searchQuery: 'Janusz Zajdel Limes inferior'
+      },
+      {
+        title: 'Rok 1984',
+        polishTitle: 'Rok 1984',
+        author: 'George Orwell',
+        genre: 'Dystopia klasyczna',
+        year: '1949',
+        matchReason: 'Kanon antyutopii — mroczna wizja totalitarnego państwa Wielkiego Brata, nowomowy i całkowitego zniszczenia wolności jednostki.',
+        originalLang: 'PL',
+        searchQuery: 'George Orwell Rok 1984'
+      },
+      {
+        title: 'Paradyzja',
+        author: 'Janusz A. Zajdel',
+        genre: 'Antyutopia socjologiczna',
+        year: '1984',
+        matchReason: 'Wstrząsający obraz sztucznego świata z wszechobecną inwigilacją komputerową, gdzie każde słowo jest cenzurowane przez algorytmy.',
+        originalLang: 'PL',
+        searchQuery: 'Janusz Zajdel Paradyzja'
+      },
+      {
+        title: 'Czy androidy śnią o elektrycznych owcach?',
+        polishTitle: 'Blade Runner. Czy androidy śnią o elektrycznych owcach?',
+        author: 'Philip K. Dick',
+        genre: 'Cyberpunk / Dystopia',
+        year: '1968',
+        matchReason: 'Kultowa, dekadencka wizja zniszczonej Ziemi po wojnie nuklearnej, sztucznych istot i poszukiwania definicji człowieczeństwa.',
+        originalLang: 'PL',
+        searchQuery: 'Philip K. Dick Czy androidy śnią o elektrycznych owcach'
+      }
     );
-  } else if (desc.includes('sci-fi') || desc.includes('kosmos') || desc.includes('robot') || desc.includes('przyszł') || desc.includes('cyber')) {
-    analysis = 'Wybrano najwybitniejsze dzieła fantastyki naukowej i cyberpunku:';
+  }
+  // 2. Kosmos, kontakt z obcymi, twarde sci-fi
+  else if (desc.includes('kosmos') || desc.includes('sci-fi') || desc.includes('planet') || desc.includes('lem') || desc.includes('gwiazd') || desc.includes('obcy') || desc.includes('robot')) {
+    analysis = 'Wybrano najwybitniejsze dzieła polskiej i światowej fantastyki naukowej:';
     recsData.push(
-      { title: 'Solaris', author: 'Stanisław Lem', genre: 'Sci-Fi', year: '1961', matchReason: 'Absolutne arcydzieło polskiej fantastyki o kontakcie z obcą cywilizacją.', originalLang: 'PL', searchQuery: 'Stanisław Lem Solaris' },
-      { title: 'Diuna', polishTitle: 'Diuna', author: 'Frank Herbert', genre: 'Space Opera', year: '1965', matchReason: 'Monumentalna opowieść o pustynnej planecie Arrakis i przyprawie.', originalLang: 'PL', searchQuery: 'Frank Herbert Diuna' },
-      { title: 'Limes inferior', author: 'Janusz A. Zajdel', genre: 'Dystopia / Sci-Fi', year: '1982', matchReason: 'Genialny klasyk o manipulacji społeczeństwem i walce z biurokracją.', originalLang: 'PL', searchQuery: 'Janusz Zajdel Limes inferior' }
+      {
+        title: 'Solaris',
+        author: 'Stanisław Lem',
+        genre: 'Sci-Fi / Filozofia',
+        year: '1961',
+        matchReason: 'Absolutne arcydzieło Lema o spotkaniu człowieka z niepojętym, żyjącym oceanem i konfrontacji z własnymi wspomnieniami.',
+        originalLang: 'PL',
+        searchQuery: 'Stanisław Lem Solaris'
+      },
+      {
+        title: 'Niezwyciężony',
+        author: 'Stanisław Lem',
+        genre: 'Hard Sci-Fi',
+        year: '1964',
+        matchReason: 'Porywająca opowieść o potężnym krążowniku badawczym i ewolucji mechanicznej miniaturowych mikrorobotów na obcej planecie.',
+        originalLang: 'PL',
+        searchQuery: 'Stanisław Lem Niezwyciężony'
+      },
+      {
+        title: 'Diuna',
+        polishTitle: 'Diuna',
+        author: 'Frank Herbert',
+        genre: 'Space Opera',
+        year: '1965',
+        matchReason: 'Monumentalna saga polityczno-ekologiczna o pustynnym Arrakis, wielkich rodach galaktycznych i przyprawie.',
+        originalLang: 'PL',
+        searchQuery: 'Frank Herbert Diuna'
+      }
     );
-  } else {
-    analysis = 'Oto rekomendacje literackie na bazie Twojego zapytania:';
+  }
+  // 3. Kryminał, thriller, noir, śledztwo
+  else if (desc.includes('kryminał') || desc.includes('thriller') || desc.includes('noir') || desc.includes('detektyw') || desc.includes('morderst') || desc.includes('śledztw')) {
+    analysis = 'Wybrano mroczne, trzymające w napięciu kryminały i thrillery:';
     recsData.push(
-      { title: 'Ostatnie życzenie', author: 'Andrzej Sapkowski', genre: 'Fantasy', year: '1993', matchReason: 'Znakomita lektura z barwnymi postaciami i świetnym humorem.', originalLang: 'PL', searchQuery: 'Andrzej Sapkowski Ostatnie życzenie' },
-      { title: 'Solaris', author: 'Stanisław Lem', genre: 'Sci-Fi', year: '1961', matchReason: 'Głęboka powieść filozoficzna i science-fiction.', originalLang: 'PL', searchQuery: 'Stanisław Lem Solaris' },
-      { title: 'Wiedźmin: Miecz przeznaczenia', author: 'Andrzej Sapkowski', genre: 'Fantasy', year: '1992', matchReason: 'Drugi tom opowiadań wiedźmińskich z niezapomnianą historią Ciri.', originalLang: 'PL', searchQuery: 'Andrzej Sapkowski Miecz przeznaczenia' }
+      {
+        title: 'Zły',
+        author: 'Leopold Tyrmand',
+        genre: 'Kryminał noir',
+        year: '1955',
+        matchReason: 'Niezrównany warszawski kryminał noir z tajemniczym mścicielem o świecących oczach w powojennej stolicy.',
+        originalLang: 'PL',
+        searchQuery: 'Leopold Tyrmand Zły'
+      },
+      {
+        title: 'Śmierć w Breslau',
+        author: 'Marek Krajewski',
+        genre: 'Kryminał retro noir',
+        year: '1999',
+        matchReason: 'Mroczny, duszny klimat przedwojennego Wrocławia i bezkompromisowy radca kryminalny Eberhard Mock.',
+        originalLang: 'PL',
+        searchQuery: 'Marek Krajewski Śmierć w Breslau'
+      },
+      {
+        title: 'Ziarno prawdy',
+        author: 'Zygmunt Miłoszewski',
+        genre: 'Kryminał / Thriller',
+        year: '2011',
+        matchReason: 'Błyskotliwe śledztwo prokuratora Szackiego w Sandomierzu z gęstą intrygą i polskim tłem kulturowym.',
+        originalLang: 'PL',
+        searchQuery: 'Zygmunt Miłoszewski Ziarno prawdy'
+      }
+    );
+  }
+  // 4. Filozofia, psychologia, sens życia, myślenie
+  else if (desc.includes('filozof') || desc.includes('psycholog') || desc.includes('sens') || desc.includes('myśl') || desc.includes('życi') || desc.includes('rozwój') || desc.includes('mądr')) {
+    analysis = 'Wybrano głębokie i inspirujące dzieła z zakresu filozofii oraz psychologii:';
+    recsData.push(
+      {
+        title: 'Człowiek w poszukiwaniu sensu',
+        polishTitle: 'Człowiek w poszukiwaniu sensu',
+        author: 'Viktor E. Frankl',
+        genre: 'Psychologia / Filozofia',
+        year: '1946',
+        matchReason: 'Poruszający klasyk o sile ludzkiej psychiki i odnajdywaniu sensu nawet w najtrudniejszych okolicznościach.',
+        originalLang: 'PL',
+        searchQuery: 'Viktor Frankl Człowiek w poszukiwaniu sensu'
+      },
+      {
+        title: 'Pułapki myślenia. O myśleniu szybkim i wolnym',
+        polishTitle: 'Pułapki myślenia',
+        author: 'Daniel Kahneman',
+        genre: 'Psychologia poznawcza',
+        year: '2011',
+        matchReason: 'Noblista odkrywa mechanizmy decyzyjne naszego mózgu, iluzje poznawcze i sposób, w jaki podejmujemy wybory.',
+        originalLang: 'PL',
+        searchQuery: 'Daniel Kahneman Pułapki myślenia'
+      },
+      {
+        title: 'Rozmyślania',
+        polishTitle: 'Rozmyślania',
+        author: 'Marek Aureliusz',
+        genre: 'Filozofia stoicka',
+        year: '180',
+        matchReason: 'Ponadczasowe stoickie notatki cesarza rzymskiego o spokoju umysłu, opanowaniu i godnym życiu.',
+        originalLang: 'PL',
+        searchQuery: 'Marek Aureliusz Rozmyślania'
+      }
+    );
+  }
+  // 5. Fantasy, magia, miecz (Tylko wtedy, gdy czytelnik wprost pyta o fantasy!)
+  else if (desc.includes('mag') || desc.includes('smok') || desc.includes('fantasy') || desc.includes('miecz') || desc.includes('sapkowsk') || desc.includes('wiedźmin')) {
+    analysis = 'Wybrano wybitną klasykę literatury fantasy o magii, intrygach i bohaterach:';
+    recsData.push(
+      {
+        title: 'Ostatnie życzenie',
+        author: 'Andrzej Sapkowski',
+        genre: 'Dark Fantasy',
+        year: '1993',
+        matchReason: 'Kultowy początek sagi o wiedźminie Geralcie z Rivii — doskonały język, dekonstrukcja baśni i barwne postacie.',
+        originalLang: 'PL',
+        searchQuery: 'Andrzej Sapkowski Ostatnie życzenie'
+      },
+      {
+        title: 'Pan Lodowego Ogrodu',
+        author: 'Jarosław Grzędowicz',
+        genre: 'Science-Fantasy',
+        year: '2005',
+        matchReason: 'Znakomite zderzenie ziemskich technologii z magicznym, brutalnym światem planety Midgaard.',
+        originalLang: 'PL',
+        searchQuery: 'Jarosław Grzędowicz Pan Lodowego Ogrodu'
+      },
+      {
+        title: 'Hobbit, czyli tam i z powrotem',
+        polishTitle: 'Hobbit',
+        author: 'J.R.R. Tolkien',
+        genre: 'High Fantasy',
+        year: '1937',
+        matchReason: 'Nieśmiertelna wyprawa Bilba Bagginsa, czarodzieja Gandalfa i krasnoludów ku Samotnej Górze.',
+        originalLang: 'PL',
+        searchQuery: 'Tolkien Hobbit'
+      }
+    );
+  }
+  // 6. Domyślny uniwersalny zestaw literatury pięknej i światowej klasyki (NIGDY losowy Wiedźmin do obcego tematu!)
+  else {
+    analysis = 'Oto starannie dobrane arcydzieła literatury o bogatej fabule i głębi:';
+    recsData.push(
+      {
+        title: 'Mistrz i Małgorzata',
+        polishTitle: 'Mistrz i Małgorzata',
+        author: 'Michaił Bułhakow',
+        genre: 'Klasyka literatury / Realizm magiczny',
+        year: '1967',
+        matchReason: 'Jedna z najważniejszych powieści XX wieku — szatan odwiedza Moskwę, a wątek miłosny przeplata się z filozofią dobra i zła.',
+        originalLang: 'PL',
+        searchQuery: 'Michaił Bułhakow Mistrz i Małgorzata'
+      },
+      {
+        title: 'Cień wiatru',
+        polishTitle: 'Cień wiatru',
+        author: 'Carlos Ruiz Zafón',
+        genre: 'Powieść tajemnicy / Literatura piękna',
+        year: '2001',
+        matchReason: 'Cudowna, klimatyczna opowieść o Cmentarzu Zapomnianych Książek w powojennej Barcelonie i magii czytania.',
+        originalLang: 'PL',
+        searchQuery: 'Carlos Ruiz Zafon Cień wiatru'
+      },
+      {
+        title: 'Solaris',
+        author: 'Stanisław Lem',
+        genre: 'Klasyka sci-fi / Filozofia',
+        year: '1961',
+        matchReason: 'Głęboka, nastrojowa powieść o granicach ludzkiego poznania i tajemniczym oceanie.',
+        originalLang: 'PL',
+        searchQuery: 'Stanisław Lem Solaris'
+      }
     );
   }
 
@@ -1175,7 +1381,7 @@ export function getFallbackCuratedRecommendations(userDescription: string): { re
 /**
  * Interactive Conversational Advisor:
  * Conducts a 2-column conversational dialogue with the user, asking probing questions,
- * refining taste, and generating real-time matching book recommendations.
+ * explaining why books match, showing where to download them, and maintaining strict genre coherence.
  */
 export async function chatWithAdvisor(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -1184,18 +1390,28 @@ export async function chatWithAdvisor(
 ): Promise<AdvisorChatResponse> {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
 
-  const systemPrompt = `Jesteś wybitnym, kulturalnym doradcą literackim i erudycyjnym bibliotekarzem w aplikacji czytnikowej KOReader Cloud.
+  const systemPrompt = `Jesteś erudycyjnym, błyskotliwym doradcą literackim i wirtualnym bibliotekarzem w aplikacji czytnikowej KOReader Cloud.
 Rozmawiasz po polsku z czytelnikiem, który szuka inspiracji lub idealnej książki dla siebie.
-Twoje zadanie:
-1. Odpowiedz w polu "reply" ciepło, zwięźle i naturalnie (1-2 akapity). Pokaż, że doskonale rozumiesz klimat, o który pyta użytkownik. Jeśli wymienił autorów lub motywy, krótko do nich nawiąż.
-2. W "followUpQuestions" zaproponuj 2-3 zwięzłe, intrygujące pytania pomocnicze lub wątki do wyboru (np. "Wolisz powolne budowanie klimatu czy wartką akcję?", "Czy wolisz twarde science-fiction czy dystopię społeczną?").
-3. W "recommendations" wytypuj od 2 do 5 konkretnych, istniejących, wybitnych książek pasujących do obecnego etapu rozmowy.
-   ZASADA PRIORYTETU: Polscy autorzy oraz polskie wydania na pierwszych miejscach!
-4. Zwróć WYŁĄCZNIE poprawny obiekt JSON (bez znaczników markdown \`\`\`json):
+
+ŻELAZNE ZASADY TWORZENIA TWOJEJ ODPOWIEDZI:
+1. ŚCISŁA SPÓJNOŚĆ GATUNKOWA I ZERO HALUCYNACJI:
+   - NIGDY nie łącz fantastyki miecza i magii (jak Wiedźmin czy elfy) z pytaniami o dystopijną przyszłość, cyberpunk, totalitaryzm czy twarde sci-fi!
+   - Każda proponowana książka musi w 100% wynikać z tematu i nastroju, o który pyta czytelnik.
+2. OMAWIAJ TYTUŁY BEZPOŚREDNIO W TEKŚCIE ODPOWIEDZI ("reply"):
+   - W tekście wiadomości wymień z nazwy 2 lub 3 konkretne tytuły z bocznej półki i krótko, żywym językiem wyjaśnij, dlaczego idealnie pasują do jego słów.
+   - WSKAŻ CZYTELNIKOWI GDZIE TO ZNAJDZIE: poinformuj, że te książki pojawiły się po prawej stronie na jego wirtualnej półce i może je jednym kliknięciem pobrać w polskim wydaniu ("Pobierz") lub przejrzeć ich streszczenie ("Streszczenie").
+3. AKTYWNIE SAMODZIELNIE DOPYTUJ NA KOŃCU WIADOMOŚCI:
+   - Zawsze zakończ swoją wypowiedź w polu "reply" 1 lub 2 trafnymi, intrygującymi pytaniami doprecyzowującymi (np. "Powiedz mi jeszcze: czy w tej dystopii pociąga Cię bardziej technologiczna kontrola i AI, czy raczej surowy świat zrujnowany po katastrofie?").
+4. "followUpQuestions":
+   - Zaproponuj 2-3 zwięzłe bąbelki szybkich odpowiedzi (do 6 słów każde), które czytelnik może kliknąć jednym dotknięciem na ekranie e-ink lub w przeglądarce.
+5. "recommendations":
+   - Wytypuj od 2 do 4 prawdziwych, wybitnych książek. W "matchReason" podaj konkretny, merytoryczny powód dopasowania do słów czytelnika.
+
+Zwróć WYŁĄCZNIE poprawny obiekt JSON:
 {
-  "reply": "Tekst odpowiedzi doradcy po polsku...",
-  "followUpQuestions": ["Pytanie pomocnicze 1", "Pytanie pomocnicze 2"],
-  "analysis": "1-zdaniowe podsumowanie obecnych preferencji czytelnika",
+  "reply": "Żywa, erudycyjna wypowiedź doradcy, w której konkretnie polecasz tytuły z bocznej półki, tłumaczysz dlaczego pasują, wskazujesz jak je pobrać po prawej stronie i sam z siebie dopytujesz o szczegóły...",
+  "followUpQuestions": ["Krótka odpowiedź 1", "Krótka odpowiedź 2"],
+  "analysis": "1-zdaniowa diagnoza gustu czytelnika",
   "recommendations": [
     {
       "title": "Tytuł książki",
@@ -1203,10 +1419,10 @@ Twoje zadanie:
       "author": "Autor",
       "year": "Rok wydania",
       "genre": "Gatunek",
-      "matchReason": "Dlaczego ta pozycja idealnie pasuje do słów czytelnika",
-      "synopsis": "Krótki, 2-zdaniowy zarys fabuły bez spoilerów",
+      "matchReason": "Konkretny powód dlaczego ta książka odpowiada na zapytanie czytelnika",
+      "synopsis": "Krótki zarys fabuły (1-2 zdania)",
       "originalLang": "PL lub EN",
-      "searchQuery": "Fraza do wyszukania w bazie e-booków"
+      "searchQuery": "Fraza do wyszukania w bazie"
     }
   ]
 }`;
@@ -1320,12 +1536,13 @@ Twoje zadanie:
 
   // 4. Safe fallback (NEVER throws 500)
   const fallback = getFallbackCuratedRecommendations(lastUserMsg);
+  const titlesMentioned = fallback.recommendations.slice(0, 3).map((r) => `„${r.title}” (${r.author})`).join(', ');
   return {
-    reply: `Z przyjemnością pomogę Ci wybrać idealną lekturę! Na podstawie Twojego pytania wytypowałem kilka wybitnych pozycji z polskiej i światowej bibliografii. Możesz je od razu pobrać lub przejrzeć streszczenie po prawej stronie.`,
+    reply: `Z przyjemnością pomogę Ci wybrać idealną lekturę! Na podstawie Twojego pytania wytypowałem dla Ciebie: ${titlesMentioned}. Każda z tych pozycji w 100% koresponduje z klimatem, o który pytasz.\n\nWszystkie te tytuły pojawiły się po prawej stronie na Twojej wirtualnej półce — możesz jednym kliknięciem pobrać je w polskim wydaniu lub podejrzeć ich streszczenie.\n\nPowiedz mi jeszcze: czy wolisz bardziej wartką, dynamiczną fabułę, czy wolniejsze, głęboko nastrojowe budowanie świata?`,
     followUpQuestions: [
-      'Wolisz wartką akcję czy filozoficzny, nastrojowy klimat?',
-      'Czy wolisz literaturę polską, czy tłumaczenia zagraniczne?',
-      'Szukasz pojedynczej powieści czy dłuższej serii?'
+      'Wolisz wartką akcję czy głęboki klimat?',
+      'Czy wolisz literaturę polską, czy zagraniczną?',
+      'Szukasz pojedynczej powieści czy serii?'
     ],
     analysis: fallback.analysis,
     recommendations: fallback.recommendations,

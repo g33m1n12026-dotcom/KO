@@ -144,6 +144,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   const [elevenLabsVoiceId, setElevenLabsVoiceId] = useState<string>(
     () => localStorage.getItem('koreader_elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM'
   );
+  const [serverHasElevenKey, setServerHasElevenKey] = useState<boolean>(false);
   const [currentParagraphIdx, setCurrentParagraphIdx] = useState<number>(0);
   const [ttsLoading, setTtsLoading] = useState<boolean>(false);
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
@@ -377,15 +378,11 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     touchStartYRef.current = null;
   };
 
-  // Intercept anchor link clicks inside EPUB content safely so they NEVER break reader or reset to page 1
+  // Intercept anchor link clicks inside EPUB content safely so they NEVER break reader or reload to search
   const handleContentContainerClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
 
-    // Never interfere if the user clicked or tapped on a paragraph to listen!
-    if (target.closest('[id^="reader-p-"]') || target.closest('button')) {
-      return;
-    }
-
+    // Check if an anchor tag was clicked anywhere inside the container (including inside paragraphs)
     const anchor = target.closest('a');
     if (anchor) {
       e.preventDefault();
@@ -395,19 +392,52 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         return;
       }
 
-      // Safe chapter resolution (ignores footnotes or empty hash fragments)
-      const clean = rawHref.replace(/^#/, '').split('#').pop()?.toLowerCase() || '';
-      if (clean.length < 3 || clean === 'toc' || clean.includes('nav')) {
-        return; // Don't flip back to TOC or cover from a footnote/internal anchor
+      // Stop any active TTS audio when navigating chapters via link
+      stopTTS();
+
+      // Normalize href to find matching chapter
+      const urlWithoutHash = rawHref.split('#')[0].replace(/^(\.\/|\/)+/, '');
+      const hashPart = rawHref.includes('#') ? rawHref.split('#')[1] : '';
+
+      let foundIdx = -1;
+
+      // 1. Try matching by filename (e.g., chapter1.xhtml, text/part0002.html)
+      if (urlWithoutHash) {
+        const cleanFile = urlWithoutHash.split('/').pop()?.toLowerCase() || '';
+        foundIdx = chapters.findIndex((c) => {
+          const cid = c.id.toLowerCase();
+          return cid === cleanFile || cid.endsWith(cleanFile) || cleanFile.endsWith(cid);
+        });
       }
 
-      const found = chapters.findIndex(
-        (c) =>
-          c.id.toLowerCase() === clean ||
-          (c.id.toLowerCase().endsWith(clean) && clean.length >= 4)
-      );
-      if (found !== -1 && found !== currentChapterIdx) {
-        changeChapter(found, found > currentChapterIdx ? 'next' : 'prev');
+      // 2. Try matching by hash/anchor id inside chapter list
+      if (foundIdx === -1 && hashPart) {
+        const cleanHash = hashPart.toLowerCase();
+        foundIdx = chapters.findIndex((c) => {
+          const cid = c.id.toLowerCase();
+          const ctitle = c.title.toLowerCase();
+          return cid.includes(cleanHash) || ctitle.includes(cleanHash);
+        });
+      }
+
+      // 3. Try matching by link text (e.g., "Rozdział 1", "Wstęp")
+      if (foundIdx === -1 && anchor.textContent) {
+        const linkText = anchor.textContent.trim().toLowerCase();
+        if (linkText.length >= 3) {
+          foundIdx = chapters.findIndex((c) => {
+            const ctitle = c.title.toLowerCase();
+            return ctitle.includes(linkText) || linkText.includes(ctitle);
+          });
+        }
+      }
+
+      if (foundIdx !== -1 && foundIdx !== currentChapterIdx) {
+        changeChapter(foundIdx, foundIdx > currentChapterIdx ? 'next' : 'prev');
+      } else if (hashPart) {
+        const targetEl = document.getElementById(hashPart) || document.querySelector(`[name="${hashPart}"]`);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth' });
+        }
       }
     }
   };
@@ -442,18 +472,24 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   };
 
   useEffect(() => {
-    if (elevenLabsApiKey.trim()) {
-      loadElevenVoicesFromAccount(elevenLabsApiKey);
-    } else {
-      fetch('/api/settings/accounts')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (d?.elevenlabs?.hasKey) {
-            loadElevenVoicesFromAccount();
-          }
-        })
-        .catch(() => {});
-    }
+    fetch('/api/settings/accounts')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const hasServerKey = Boolean(d?.elevenlabs?.hasKey);
+        if (hasServerKey) {
+          setServerHasElevenKey(true);
+        }
+        if (elevenLabsApiKey.trim()) {
+          loadElevenVoicesFromAccount(elevenLabsApiKey);
+        } else if (hasServerKey) {
+          loadElevenVoicesFromAccount();
+        }
+      })
+      .catch(() => {
+        if (elevenLabsApiKey.trim()) {
+          loadElevenVoicesFromAccount(elevenLabsApiKey);
+        }
+      });
   }, []);
 
   // Test ElevenLabs Key validity and retrieve remaining character quota
@@ -545,10 +581,10 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         return;
       }
 
-      // If ElevenLabs requested without user key, explain clearly
-      if (provider === 'elevenlabs' && !elevenLabsApiKey.trim()) {
+      // If ElevenLabs requested without client key and without server key, explain clearly
+      if (provider === 'elevenlabs' && !elevenLabsApiKey.trim() && !serverHasElevenKey) {
         setSampleTestingVoice(null);
-        setTtsNotification('💡 ElevenLabs wymaga klucza API z elevenlabs.io. Wklej klucz powyżej lub wybierz darmowego Lektora Studyjnego (Marek / Zofia).');
+        setTtsNotification('💡 ElevenLabs wymaga klucza API z elevenlabs.io lub skonfigurowanego na serwerze.');
         setTimeout(() => setTtsNotification(null), 5000);
         return;
       }
@@ -1297,6 +1333,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
 
   const stopTTS = () => {
     if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
@@ -1407,8 +1445,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
       let effProvider = activeProvider;
       let effVoice = activeVoice;
 
-      if (activeProvider === 'elevenlabs' && !activeElevenKey.trim()) {
-        // User picked ElevenLabs without entering their key -> inform & seamlessly play with top studio neural voice
+      if (activeProvider === 'elevenlabs' && !activeElevenKey.trim() && !serverHasElevenKey) {
+        // Neither client nor server has an ElevenLabs key configured -> notify & seamlessly play with top studio neural voice
         effProvider = 'neural';
         effVoice = ['21m00Tcm4TlvDq8ikWAM', 'EXAVITQu4vr4xnSDxMaL'].includes(activeVoice)
           ? 'pl-PL-ZofiaNeural'
@@ -2086,11 +2124,14 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <button
                   key={ch.id}
                   type="button"
-                  onClick={() => {
-                    setCurrentChapterIdx(idx);
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    stopTTS();
+                    changeChapter(idx, idx > currentChapterIdx ? 'next' : 'prev');
                     setShowToc(false);
                   }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg transition truncate ${
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg transition truncate cursor-pointer ${
                     currentChapterIdx === idx
                       ? 'bg-amber-600 text-white font-semibold'
                       : 'hover:bg-black/5 dark:hover:bg-white/5'
@@ -2134,7 +2175,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                   {chapters[currentChapterIdx].title}
                 </h1>
 
-                {/* Interactive Paragraph List with Click-to-Listen and Smooth Real-time Highlight */}
+                {/* Interactive Paragraph List: Audio activates ONLY via the dedicated Play button */}
                 {paragraphs.length > 0 ? (
                   <div className="space-y-3.5">
                     {paragraphs.map((p, pIdx) => {
@@ -2143,39 +2184,50 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                         <div
                           key={`p_${pIdx}`}
                           id={`reader-p-${pIdx}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isActiveParagraph) {
-                              toggleTTS();
-                            } else {
-                              playParagraph(pIdx);
-                            }
-                          }}
-                          className={`transition-all duration-200 rounded-xl cursor-pointer group flex items-start gap-2.5 ${
+                          className={`transition-all duration-200 rounded-xl group flex items-start gap-2.5 ${
                             isActiveParagraph
                               ? 'bg-amber-500/15 dark:bg-amber-500/20 border-l-4 border-amber-600 pl-3.5 pr-2.5 py-2 shadow-xs ring-1 ring-amber-600/20'
-                              : 'hover:bg-black/4 dark:hover:bg-white/4 px-2.5 py-1.5'
+                              : 'hover:bg-black/3 dark:hover:bg-white/3 px-2.5 py-1.5'
                           }`}
-                          title="Dotknij, aby lektor czytał od tego akapitu"
                         >
-                          {/* Play / Equalizer Pill */}
+                          {/* Dedicated Play / Equalizer Button next to the verse */}
                           <div className="shrink-0 pt-0.5 select-none">
-                            {isActiveParagraph ? (
-                              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-sans text-[11px] font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-md">
-                                <span className="flex items-end gap-0.5 h-3">
-                                  <span className="w-0.5 bg-amber-500 rounded-full eq-bar-1" />
-                                  <span className="w-0.5 bg-amber-500 rounded-full eq-bar-2" />
-                                  <span className="w-0.5 bg-amber-500 rounded-full eq-bar-3" />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                if (isActiveParagraph) {
+                                  toggleTTS();
+                                } else {
+                                  playParagraph(pIdx);
+                                }
+                              }}
+                              className={`rounded-md transition flex items-center justify-center cursor-pointer ${
+                                isActiveParagraph
+                                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5'
+                                  : 'w-6 h-6 opacity-40 sm:opacity-0 group-hover:opacity-100 hover:opacity-100! text-amber-600 hover:bg-amber-100 dark:hover:bg-stone-800'
+                              }`}
+                              title={isActiveParagraph ? 'Zatrzymaj lektora' : 'Odtwarzaj od tego akapitu (Lektor AI)'}
+                              aria-label={isActiveParagraph ? 'Zatrzymaj lektora' : 'Odtwarzaj od tego akapitu'}
+                            >
+                              {isActiveParagraph ? (
+                                <span className="inline-flex items-center gap-1 font-sans text-[11px] font-bold">
+                                  <span className="flex items-end gap-0.5 h-3">
+                                    <span className="w-0.5 bg-amber-500 rounded-full eq-bar-1" />
+                                    <span className="w-0.5 bg-amber-500 rounded-full eq-bar-2" />
+                                    <span className="w-0.5 bg-amber-500 rounded-full eq-bar-3" />
+                                  </span>
+                                  <Pause className="w-3 h-3 ml-0.5 fill-current" />
                                 </span>
-                              </span>
-                            ) : (
-                              <span className="w-5 h-5 rounded-md opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-amber-600 hover:bg-amber-100 dark:hover:bg-stone-800">
-                                <Play className="w-3 h-3 fill-current ml-0.5" />
-                              </span>
-                            )}
+                              ) : (
+                                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                              )}
+                            </button>
                           </div>
 
-                          <div className="flex-1 min-w-0">
+                          {/* Paragraph text: NOT clickable for TTS, allowing normal reading, selection and links */}
+                          <div className="flex-1 min-w-0 select-text">
                             <span
                               className="prose-content"
                               dangerouslySetInnerHTML={{ __html: p.html }}
@@ -2837,10 +2889,15 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                     </div>
                   )}
 
-                  {!elevenLabsApiKey.trim() && (
+                  {serverHasElevenKey ? (
+                    <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 rounded-lg text-[11px] text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
+                      <span className="font-bold shrink-0">✅ ElevenLabs gotowy:</span>
+                      <span>Klucz API jest skonfigurowany na serwerze (bezpiecznie ukryty). Wszystkie głosy premium działają od razu!</span>
+                    </div>
+                  ) : !elevenLabsApiKey.trim() ? (
                     <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-lg text-[11px] text-amber-900 dark:text-amber-200 space-y-1.5">
                       <p>
-                        💡 Głosy ElevenLabs wymagają własnego klucza API z <strong>elevenlabs.io</strong>.
+                        💡 Głosy ElevenLabs wymagają własnego klucza API z <strong>elevenlabs.io</strong> lub konfiguracji w panelu kont.
                       </p>
                       <button
                         type="button"
@@ -2853,7 +2910,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                         Przełącz na darmowego Lektora Studyjnego (Marek / Zofia) ➔
                       </button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Filter and Search Bar for ElevenLabs Voices */}
@@ -2912,11 +2969,6 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                           <div
                             key={v.id}
                             onClick={() => {
-                              if (!elevenLabsApiKey.trim()) {
-                                setTtsNotification('💡 ElevenLabs wymaga klucza API. Wpisz klucz powyżej lub wybierz Lektora Studyjnego (Marek / Zofia).');
-                                setTimeout(() => setTtsNotification(null), 5000);
-                                return;
-                              }
                               selectVoice(v.id, 'elevenlabs');
                             }}
                             className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${

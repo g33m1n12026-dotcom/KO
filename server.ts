@@ -57,7 +57,7 @@ import {
   stopTunnel,
   getTunnelStatus,
 } from './server/tunnel';
-import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared, testAllAccounts } from './server/settings';
+import { getPublicAccountStatus, saveSettings, loginZlibrary, loginDocer, login4shared, testAllAccounts, getLatestApiHealth, checkAllApiHealth } from './server/settings';
 import {
   AVAILABLE_VOICES,
   synthesizeSpeech,
@@ -253,8 +253,9 @@ app.use(express.urlencoded({ extended: true }));
       console.warn('Ostrzeżenie czatu doradcy AI, użycie trybu awaryjnego:', err?.message || err);
       const lastMsg = Array.isArray(req.body?.messages) ? req.body.messages.slice(-1)[0]?.content : '';
       const fallback = getFallbackCuratedRecommendations(lastMsg || '');
+      const titlesMentioned = fallback.recommendations.slice(0, 3).map((r) => `„${r.title}” (${r.author})`).join(', ');
       res.json({
-        reply: 'Z przyjemnością pomogę Ci wybrać wspaniałą lekturę. Na podstawie Twoich słów wytypowałem kilka wybitnych pozycji z bibliografii, które idealnie pasują do Twojego zapytania:',
+        reply: `Z przyjemnością pomogę Ci wybrać wspaniałą lekturę. Na podstawie Twoich słów wytypowałem: ${titlesMentioned}. Wszystkie te pozycje pojawiły się po prawej stronie na Twojej wirtualnej półce wraz z opcją natychmiastowego pobrania lub streszczenia.\n\nPowiedz mi jeszcze: czy wolisz literaturę polską czy zagraniczną?`,
         followUpQuestions: ['Wolisz literaturę polską czy zagraniczną?', 'Wolisz lżejszy czy głębszy klimat?'],
         analysis: fallback.analysis,
         recommendations: fallback.recommendations,
@@ -377,6 +378,18 @@ app.use(express.urlencoded({ extended: true }));
       res.json({ results });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Błąd testowania kont' });
+    }
+  });
+
+  app.get(['/api/settings/api-health', '/api/settings/health'], async (req, res) => {
+    try {
+      if (req.query.refresh === '1' || req.query.refresh === 'true') {
+        const fresh = await checkAllApiHealth();
+        return res.json(fresh);
+      }
+      res.json(getLatestApiHealth());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd sprawdzania statusu API' });
     }
   });
 
