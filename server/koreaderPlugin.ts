@@ -1,6 +1,12 @@
 import JSZip from 'jszip';
+import fs from 'fs';
+import path from 'path';
 
 export function getMetaLua(): string {
+  const metaPath = path.join(process.cwd(), 'server', 'lua', 'aibooks.koplugin', '_meta.lua');
+  if (fs.existsSync(metaPath)) {
+    return fs.readFileSync(metaPath, 'utf8');
+  }
   return `local _ = require("gettext")
 
 return {
@@ -13,6 +19,19 @@ return {
 }
 
 export function getMainLua(defaultServerUrl: string = process.env.APP_BASE_URL || 'https://ko-kohl.vercel.app'): string {
+  const cleanUrl = (defaultServerUrl || 'https://ko-kohl.vercel.app').replace(/\/+$/, '');
+  const candidatePaths = [
+    path.join(process.cwd(), 'server', 'lua', 'aibooks.koplugin', 'main.lua'),
+    path.join(process.cwd(), 'public', 'koplugin_fixed', 'main.lua'),
+  ];
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      const content = fs.readFileSync(p, 'utf8');
+      return content.replace(/server_url = "https:\/\/ko-kohl\.vercel\.app"/, `server_url = "${cleanUrl}"`);
+    }
+  }
+
   return `--[[
     KOReader Plugin: aibooks.koplugin
     AI Cloud Translator & PDF/Comic Optimizer for Kindle 10

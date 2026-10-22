@@ -932,7 +932,27 @@ export async function resolveDirectDownloadUrl(url: string): Promise<string> {
     }
   }
 
-  // 1. LibGen ads.php resolution across all active mirrors
+  // 1. Wolne Lektury catalogue page resolution (e.g. https://wolnelektury.pl/katalog/lektura/homer-odyseja/)
+  if (target.includes('wolnelektury.pl/katalog/lektura/')) {
+    const slugMatch = target.match(/wolnelektury\.pl\/katalog\/lektura\/([^\/\?#]+)/);
+    if (slugMatch) {
+      const slug = slugMatch[1].replace(/\/+$/, '');
+      try {
+        const wlRes = await fetch(`https://wolnelektury.pl/api/books/${slug}/`, {
+          headers: { 'User-Agent': 'KOReader-AI-Book-Cloud/1.0', Accept: 'application/json' },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (wlRes.ok) {
+          const bData = await wlRes.json();
+          if (bData.epub) return bData.epub;
+          if (bData.pdf) return bData.pdf;
+        }
+      } catch {}
+      return `https://wolnelektury.pl/media/book/epub/${slug}.epub`;
+    }
+  }
+
+  // 2. LibGen ads.php resolution across all active mirrors
   if (target.includes('/ads.php?md5=') || target.includes('ads.php?md5=')) {
     try {
       const fullAdsUrl = target.startsWith('http') ? target : `https://libgen.li/${target.replace(/^\//, '')}`;

@@ -1033,7 +1033,23 @@ export async function packageJobNow(jobId: string): Promise<boolean> {
 
 export function resumeJob(jobId: string): boolean {
   const job = jobs.get(jobId);
-  if (!job || !job.chapters || job.chapters.length === 0) return false;
+  if (!job) return false;
+
+  // 1. Storybook / Książka na życzenie
+  if (job.sourceType === 'storybook' && job.storybookConfig) {
+    job.status = 'extracting';
+    job.error = undefined;
+    job.updatedAt = Date.now();
+    job.logs.push(`[${new Date().toLocaleTimeString()}] Wznowiono generowanie książki na życzenie.`);
+    saveJobsToDisk();
+    import('./storybook').then(({ executeStorybookJob }) => {
+      executeStorybookJob(job, job.storybookConfig!).catch(console.error);
+    }).catch(console.error);
+    return true;
+  }
+
+  // 2. Tłumaczenie rozdziałów
+  if (!job.chapters || job.chapters.length === 0) return false;
 
   job.status = 'translating';
   job.error = undefined;

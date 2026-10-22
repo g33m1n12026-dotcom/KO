@@ -12,6 +12,11 @@ if (typeof (globalThis as any).Path2D === 'undefined') {
   (globalThis as any).Path2D = class Path2D {};
 }
 
+import dns from 'dns';
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
+
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -228,7 +233,7 @@ app.use(express.urlencoded({ extended: true }));
 
       const data = await chatWithAdvisor(messages, modelTier, premiumProvider);
 
-      // Auto-scan mirrors for recommended books in background (with 3s cap)
+      // Quick non-blocking mirror scan for recommended books (max 500ms cap to keep Kindle response fast)
       if (Array.isArray(data.recommendations) && data.recommendations.length > 0) {
         await Promise.race([
           Promise.all(
@@ -244,7 +249,7 @@ app.use(express.urlencoded({ extended: true }));
               } catch {}
             })
           ),
-          new Promise((resolve) => setTimeout(resolve, 3000)),
+          new Promise((resolve) => setTimeout(resolve, 500)),
         ]);
       }
 
@@ -1120,7 +1125,7 @@ app.use(express.urlencoded({ extended: true }));
   // ----------------------------------------------------
   // API Endpoints: KOReader Lua Plugin Generator & ZIP
   // ----------------------------------------------------
-  app.get('/api/koreader/plugin.zip', async (req, res) => {
+  app.get(['/api/koreader/plugin.zip', '/api/download/koreader-plugin', '/api/download/koreader-plugin.zip'], async (req, res) => {
     try {
       const customUrl = typeof req.query.serverUrl === 'string' && req.query.serverUrl.trim()
         ? req.query.serverUrl.trim().replace(/\/+$/, '')
