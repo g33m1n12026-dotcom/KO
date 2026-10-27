@@ -63,40 +63,73 @@ Zwróć WYŁĄCZNIE poprawny, surowy obiekt JSON (bez markdown, bez znaczników 
   "searchVariants": ["fraza 1", "fraza 2"]
 }`;
 
-  // 1. Try Gemini
+  // 1. Try Gemini with tight timeout
   const gemini = getGemini();
   if (gemini) {
-    for (const model of ['gemini-3.8-flash', 'gemini-2.5-flash']) {
-      try {
-        const resp = await gemini.models.generateContent({
-          model,
+    try {
+      const resp = await Promise.race([
+        gemini.models.generateContent({
+          model: 'gemini-3.8-flash',
           contents: prompt,
-        });
-        const rawText = resp.text?.trim() || '';
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.canonicalTitle) result.canonicalTitle = parsed.canonicalTitle;
-          if (parsed.canonicalAuthor) result.canonicalAuthor = parsed.canonicalAuthor;
-          if (parsed.titles && typeof parsed.titles === 'object') {
-            for (const [k, v] of Object.entries(parsed.titles)) {
-              if (typeof v === 'string' && v.trim().length > 1) {
-                result.titles[k.toLowerCase()] = v.trim();
-              }
+        }),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2200)),
+      ]);
+      const rawText = resp.text?.trim() || '';
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.canonicalTitle) result.canonicalTitle = parsed.canonicalTitle;
+        if (parsed.canonicalAuthor) result.canonicalAuthor = parsed.canonicalAuthor;
+        if (parsed.titles && typeof parsed.titles === 'object') {
+          for (const [k, v] of Object.entries(parsed.titles)) {
+            if (typeof v === 'string' && v.trim().length > 1) {
+              result.titles[k.toLowerCase()] = v.trim();
             }
           }
-          if (Array.isArray(parsed.searchVariants)) {
-            result.searchVariants = parsed.searchVariants.filter((s: any) => typeof s === 'string' && s.length > 2);
-          }
-          return result;
         }
-      } catch (err: any) {
-        // try next model
+        if (Array.isArray(parsed.searchVariants)) {
+          result.searchVariants = parsed.searchVariants.filter((s: any) => typeof s === 'string' && s.length > 2);
+        }
+        return result;
       }
-    }
+    } catch {}
   }
 
-  // 2. Fallback to OpenRouter if Gemini failed or key missing
+  // 2. OpenCode.ai fast fallback
+  try {
+    const { queryOpenCodeRaw } = await import('./opencode');
+    const aiResp = await Promise.race([
+      queryOpenCodeRaw(
+        [
+          { role: 'system', content: prompt },
+          { role: 'user', content: query },
+        ],
+        { temperature: 0.1, max_tokens: 300 }
+      ),
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+    ]);
+    if (aiResp && aiResp.content) {
+      const jsonMatch = aiResp.content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.canonicalTitle) result.canonicalTitle = parsed.canonicalTitle;
+        if (parsed.canonicalAuthor) result.canonicalAuthor = parsed.canonicalAuthor;
+        if (parsed.titles && typeof parsed.titles === 'object') {
+          for (const [k, v] of Object.entries(parsed.titles)) {
+            if (typeof v === 'string' && v.trim().length > 1) {
+              result.titles[k.toLowerCase()] = v.trim();
+            }
+          }
+        }
+        if (Array.isArray(parsed.searchVariants)) {
+          result.searchVariants = parsed.searchVariants.filter((s: any) => typeof s === 'string' && s.length > 2);
+        }
+        return result;
+      }
+    }
+  } catch {}
+
+  // 3. Fallback to OpenRouter if Gemini failed or key missing
   if (OPENROUTER_KEY) {
     try {
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -108,10 +141,11 @@ Zwróć WYŁĄCZNIE poprawny, surowy obiekt JSON (bez markdown, bez znaczników 
           'X-Title': 'KOReader Multilingual Resolver',
         },
         body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
+          model: 'deepseek/deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
         }),
+        signal: AbortSignal.timeout(2200),
       });
       if (resp.ok) {
         const data = await resp.json();

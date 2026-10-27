@@ -37,6 +37,11 @@ interface JobsLibraryProps {
 
 export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDeleteJob, serverUrl, onReadJob, onNavigateSearch }) => {
   const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
+
+  useEffect(() => {
+    setLocalJobs(jobs);
+  }, [jobs]);
+
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -838,36 +843,16 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const res = await fetch(`/api/download/${job.id}`);
-                          if (!res.ok) {
-                            const err = await res.json().catch(() => ({}));
-                            alert(err.error || 'Plik e-booka nie został odnaleziony na serwerze.');
-                            return;
-                          }
-                          const blob = await res.blob();
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = job.outputEpubFilename || 'ksiazka.epub';
-                          document.body.appendChild(a);
-                          a.click();
-                          window.URL.revokeObjectURL(url);
-                          document.body.removeChild(a);
-                        } catch (e: any) {
-                          alert('Błąd podczas pobierania: ' + (e.message || 'Brak połączenia'));
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
+                    <a
+                      href={`/api/download/${job.id}`}
+                      download={job.outputEpubFilename || `${job.title}.${job.outputFormat || 'epub'}`}
+                      className="px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer no-underline"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>
                         Pobierz {job.outputFormat ? job.outputFormat.toUpperCase() : 'PLIK'}
                       </span>
-                    </button>
+                    </a>
 
                     <button
                       type="button"

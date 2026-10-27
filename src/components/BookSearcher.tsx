@@ -32,7 +32,7 @@ import {
   Bot,
   User,
 } from 'lucide-react';
-import { BookSearchResult, BookRecommendation, ShadowLibraryMirror, Job, MultilingualBookMeta, AIModelTier, AdvisorChatMessage } from '../types';
+import { BookSearchResult, BookRecommendation, ShadowLibraryMirror, Job, MultilingualBookMeta, AIModelTier, AdvisorChatMessage, SearchDidYouMean } from '../types';
 import { AccountsSettingsModal } from './AccountsSettingsModal';
 import { BookSummaryModal } from './BookSummaryModal';
 import { detectBookSeriesClient } from '../utils/series';
@@ -144,6 +144,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [multilingualMeta, setMultilingualMeta] = useState<MultilingualBookMeta | null>(null);
+  const [didYouMean, setDidYouMean] = useState<SearchDidYouMean | null>(null);
   const [isMultilingualExpanded, setIsMultilingualExpanded] = useState(false);
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<'all' | 'trusted' | 'zlib' | 'wolnelektury' | 'libgen' | 'archive' | 'gutenberg' | 'openlibrary' | 'chomikuj' | '4shared' | 'docer'>('all');
@@ -316,12 +317,15 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
       if (Array.isArray(data)) {
         setResults(data);
         setMultilingualMeta(null);
+        setDidYouMean(null);
       } else if (data && Array.isArray(data.results)) {
         setResults(data.results);
         setMultilingualMeta(data.multilingual || null);
+        setDidYouMean(data.didYouMean || null);
       } else {
         setResults([]);
         setMultilingualMeta(null);
+        setDidYouMean(null);
       }
       setHasSearched(true);
     } catch (err: any) {
@@ -342,11 +346,18 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
 
   // Handler: Order from search result or advisor recommendation
   const handleOrder = async (
-    item: { id: string; title: string; downloadUrl?: string; author?: string; searchQuery?: string },
-    conversionMode: 'original' | 'translate' | 'epub_clean' = 'translate',
+    item: { id: string; title: string; downloadUrl?: string; author?: string; searchQuery?: string; format?: string; source?: string },
+    conversionMode: 'original' | 'translate' | 'epub_clean' | 'comic_cbz' = 'translate',
     targetLang: string = 'Polish'
   ) => {
-    setOrderingId(`${item.id}_${conversionMode}`);
+    const isItemComic =
+      (item.format || '').toUpperCase() === 'CBZ' ||
+      (item.format || '').toUpperCase() === 'CBR' ||
+      (item.source || '').includes('Comics') ||
+      /wisienk|cerise|komiks|comic/i.test(item.title);
+
+    const effectiveMode = isItemComic ? 'comic_cbz' : conversionMode;
+    setOrderingId(`${item.id}_${effectiveMode}`);
     setMessage(null);
 
     try {
@@ -355,7 +366,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
       // If no direct downloadUrl yet, query mirrors on-demand
       if (!downloadUrl) {
         setMessage({
-          text: `Przeszukuję bazę książek (Wolne Lektury, LibGen, Archive, Gutenberg) dla pozycji "${item.title}"...`,
+          text: `Przeszukuję bazę książek i komiksów dla pozycji "${item.title}"...`,
           type: 'success',
         });
         const q = item.searchQuery || `${item.author || ''} ${item.title}`.trim();
@@ -363,18 +374,18 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
         if (searchResp.ok) {
           const searchData: any = await searchResp.json();
           const searchList: BookSearchResult[] = Array.isArray(searchData) ? searchData : searchData.results || [];
-          
+
           const targetAuthor = (item.author || '').toLowerCase().trim();
           const authorTokens = targetAuthor.split(/\s+/).filter((w) => w.length > 2);
           const authorSurname = authorTokens.length > 0 ? authorTokens[authorTokens.length - 1] : '';
 
-          // 1. First priority: matches author surname + has downloadUrl + is EPUB/MOBI
+          // 1. First priority: matches author surname + has downloadUrl + is EPUB/MOBI/CBZ
           let matchWithDl = searchList.find((b) => {
             if (!b.downloadUrl) return false;
             const bAuthor = (b.author || '').toLowerCase();
             const authorMatches = authorSurname ? bAuthor.includes(authorSurname) : true;
             const fmt = (b.format || '').toUpperCase();
-            return authorMatches && (fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3');
+            return authorMatches && (fmt === 'CBZ' || fmt === 'CBR' || fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3');
           });
 
           // 2. Second priority: matches author surname + has downloadUrl (any format)
@@ -386,12 +397,12 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
             });
           }
 
-          // 3. Third priority: exact title match + EPUB/MOBI
+          // 3. Third priority: exact title match + EPUB/MOBI/CBZ
           if (!matchWithDl) {
             matchWithDl = searchList.find((b) => {
               if (!b.downloadUrl) return false;
               const fmt = (b.format || '').toUpperCase();
-              return fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3';
+              return fmt === 'CBZ' || fmt === 'CBR' || fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3';
             });
           }
 
@@ -421,8 +432,8 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
           title: item.title,
           downloadUrl: downloadUrl,
           engine: selectedEngine,
-          targetLang: conversionMode === 'translate' ? targetLang : 'none',
-          conversionMode: conversionMode,
+          targetLang: effectiveMode === 'translate' ? targetLang : 'none',
+          conversionMode: effectiveMode,
         }),
       });
 
@@ -434,9 +445,11 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
       const job: Job = await resp.json();
       setMessage({
         text:
-          conversionMode === 'original'
+          effectiveMode === 'comic_cbz'
+            ? `Pobieranie komiksu rozpoczęte! Pełny album "${item.title}" (CBZ) będzie wkrótce gotowy w bibliotece KOReadera.`
+            : effectiveMode === 'original'
             ? `Pobieranie oryginału rozpoczęte! Plik "${item.title}" będzie natychmiast gotowy w bibliotece.`
-            : conversionMode === 'epub_clean'
+            : effectiveMode === 'epub_clean'
             ? `Pobrano plik! Trwa przygotowywanie czytnikowego, lekkiego formatu EPUB dla "${item.title}".`
             : `Pobrano plik! Rozpoczęto tłumaczenie książki "${item.title}" na język polski. Postęp sprawdzisz w zakładce Kolejka.`,
         type: 'success',
@@ -1240,6 +1253,75 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
             </div>
           </div>
 
+          {/* Google-style "Czy chodziło Ci o..." suggestion banner */}
+          {didYouMean && (
+            <div className="bg-gradient-to-r from-amber-50/90 via-orange-50/50 to-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-300/80 flex items-center justify-center shrink-0 mt-0.5 text-amber-800">
+                    <Sparkles className="w-4 h-4 text-amber-700" />
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-xs text-stone-500 flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium text-stone-600">Czy chodziło Ci o:</span>
+                      {didYouMean.isComic && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">
+                          🎨 Komiks / Seria graficzna (CBZ)
+                        </span>
+                      )}
+                      {didYouMean.originalTitle && (
+                        <span className="text-[11px] text-stone-400 italic">
+                          (oryg. {didYouMean.originalTitle})
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm sm:text-base font-bold text-stone-900 leading-snug">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuery(didYouMean.searchQuery);
+                          handleSearch(didYouMean.searchQuery);
+                        }}
+                        className="text-amber-900 hover:text-amber-950 hover:underline cursor-pointer text-left"
+                      >
+                        {didYouMean.canonicalTitle}
+                      </button>
+                      <span className="text-stone-500 font-normal"> — {didYouMean.canonicalAuthor}</span>
+                    </div>
+                    {didYouMean.synopsis && (
+                      <p className="text-[11px] text-stone-600 line-clamp-2 leading-relaxed">
+                        {didYouMean.synopsis}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery(didYouMean.searchQuery);
+                      handleSearch(didYouMean.searchQuery);
+                    }}
+                    className="px-3 py-1.5 bg-amber-800 hover:bg-amber-900 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer active:scale-95"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Szukaj tego tytułu</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBookSummary({ title: didYouMean.canonicalTitle, author: didYouMean.canonicalAuthor })}
+                    className="px-2.5 py-1.5 bg-white hover:bg-stone-50 text-stone-700 border border-amber-300/80 rounded-xl text-xs font-medium flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                    title="Pokaż streszczenie i opis dzieła"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                    <span className="hidden sm:inline">Streszczenie</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Multilingual Edition Hub Card - Collapsed by default */}
           {multilingualMeta && (multilingualMeta.detectedTitle || Object.keys(multilingualMeta.titles || {}).length > 0) && (
             <div className="bg-gradient-to-br from-amber-50/70 via-stone-50 to-sky-50/60 border border-amber-200/80 rounded-2xl shadow-2xs overflow-hidden transition-all">
@@ -1766,43 +1848,71 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
 
                               {/* Shelf Action Buttons */}
                               <div className="mt-2.5 pt-2 border-t border-stone-100 space-y-1">
-                                {isPl ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOrder(item, 'original')}
-                                    disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
-                                    className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
-                                      !item.downloadUrl
-                                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
-                                    }`}
-                                  >
-                                    {orderingId === `${item.id}_original` ? (
-                                      <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-                                    ) : (
-                                      <Download className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>Pobierz</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOrder(item, 'translate')}
-                                    disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
-                                    className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
-                                      !item.downloadUrl
-                                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                        : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
-                                    }`}
-                                  >
-                                    {orderingId === `${item.id}_translate` ? (
-                                      <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-                                    ) : (
-                                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                                    )}
-                                    <span>Tłumacz PL</span>
-                                  </button>
-                                )}
+                                {(() => {
+                                  const isComic = (item.format || '').toUpperCase() === 'CBZ' || (item.format || '').toUpperCase() === 'CBR' || (item.source || '').includes('Comics') || /wisienk|cerise|komiks/i.test(item.title);
+                                  if (isComic) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOrder(item, 'comic_cbz')}
+                                        disabled={!item.downloadUrl || orderingId === `${item.id}_comic_cbz`}
+                                        className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                                          !item.downloadUrl
+                                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                            : 'bg-indigo-700 hover:bg-indigo-800 text-white shadow-xs cursor-pointer'
+                                        }`}
+                                        title="Pobierz pełny komiks CBZ dla czytnika"
+                                      >
+                                        {orderingId === `${item.id}_comic_cbz` ? (
+                                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                          <span>🎨</span>
+                                        )}
+                                        <span>Pobierz komiks (CBZ)</span>
+                                      </button>
+                                    );
+                                  }
+                                  if (isPl) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOrder(item, 'original')}
+                                        disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
+                                        className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                                          !item.downloadUrl
+                                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                            : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
+                                        }`}
+                                      >
+                                        {orderingId === `${item.id}_original` ? (
+                                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                          <Download className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>Pobierz</span>
+                                      </button>
+                                    );
+                                  }
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOrder(item, 'translate')}
+                                      disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
+                                      className={`w-full py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                                        !item.downloadUrl
+                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                          : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
+                                      }`}
+                                    >
+                                      {orderingId === `${item.id}_translate` ? (
+                                        <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                      ) : (
+                                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                      )}
+                                      <span>Tłumacz PL</span>
+                                    </button>
+                                  );
+                                })()}
 
                                 <div className="flex items-center gap-1">
                                   <button
@@ -1814,6 +1924,17 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                                     <BookOpen className="w-3 h-3 text-amber-700" />
                                     <span>Streszczenie</span>
                                   </button>
+
+                                  {item.downloadUrl && (
+                                    <a
+                                      href={`/api/proxy/download?url=${encodeURIComponent(item.downloadUrl)}&title=${encodeURIComponent(item.title)}`}
+                                      download
+                                      className="py-1 px-1.5 rounded-md text-[10px] bg-stone-100 hover:bg-stone-200 text-stone-700 transition flex items-center justify-center cursor-pointer"
+                                      title="Pobierz plik bezpośrednio na dysk komputera/telefonu"
+                                    >
+                                      <Download className="w-3 h-3 text-stone-600" />
+                                    </a>
+                                  )}
 
                                   {isPdf && (
                                     <button
@@ -2332,45 +2453,85 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                                 <div className="mt-3 pt-2.5 border-t border-stone-100 flex flex-wrap items-center justify-between gap-1.5">
                                   {/* Action Buttons */}
                                   <div className="flex flex-wrap items-center gap-1.5">
-                                    {/* Option 1: Pobierz (jeśli PL lub bezpośredni) */}
-                                    {isPl ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOrder(item, 'original')}
-                                        disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
-                                          !item.downloadUrl
-                                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                            : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
-                                        }`}
-                                        title="Pobierz plik ze źródła"
+                                    {(() => {
+                                      const isComic = (item.format || '').toUpperCase() === 'CBZ' || (item.format || '').toUpperCase() === 'CBR' || (item.source || '').includes('Comics') || /wisienk|cerise|komiks/i.test(item.title);
+                                      if (isComic) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOrder(item, 'comic_cbz')}
+                                            disabled={!item.downloadUrl || orderingId === `${item.id}_comic_cbz`}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                              !item.downloadUrl
+                                                ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                                : 'bg-indigo-700 hover:bg-indigo-800 text-white shadow-xs cursor-pointer'
+                                            }`}
+                                            title="Pobierz pełny komiks w formacie CBZ dla KOReadera i czytnika"
+                                          >
+                                            {orderingId === `${item.id}_comic_cbz` ? (
+                                              <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                            ) : (
+                                              <span>🎨</span>
+                                            )}
+                                            <span>Pobierz komiks ({item.format || 'CBZ'})</span>
+                                          </button>
+                                        );
+                                      }
+                                      if (isPl) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOrder(item, 'original')}
+                                            disabled={!item.downloadUrl || orderingId === `${item.id}_original`}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                              !item.downloadUrl
+                                                ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                                : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs cursor-pointer'
+                                            }`}
+                                            title="Pobierz plik ze źródła"
+                                          >
+                                            {orderingId === `${item.id}_original` ? (
+                                              <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                            ) : (
+                                              <Download className="w-3.5 h-3.5" />
+                                            )}
+                                            <span>{isEpub ? 'Pobierz EPUB' : 'Pobierz plik'}</span>
+                                          </button>
+                                        );
+                                      }
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOrder(item, 'translate')}
+                                          disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
+                                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
+                                            !item.downloadUrl
+                                              ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                              : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
+                                          }`}
+                                          title="Literacki przekład AI na język polski"
+                                        >
+                                          {orderingId === `${item.id}_translate` ? (
+                                            <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                          ) : (
+                                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                          )}
+                                          <span>Przetłumacz na PL</span>
+                                        </button>
+                                      );
+                                    })()}
+
+                                    {/* Direct Download via Server Proxy to avoid browser CORS/Referer blocks */}
+                                    {item.downloadUrl && (
+                                      <a
+                                        href={`/api/proxy/download?url=${encodeURIComponent(item.downloadUrl)}&title=${encodeURIComponent(item.title)}`}
+                                        download
+                                        className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+                                        title="Zapisz plik bezpośrednio na komputerze / telefonie (bezpieczny transfer przez serwer)"
                                       >
-                                        {orderingId === `${item.id}_original` ? (
-                                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-                                        ) : (
-                                          <Download className="w-3.5 h-3.5" />
-                                        )}
-                                        <span>{isEpub ? 'Pobierz EPUB' : 'Pobierz plik'}</span>
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOrder(item, 'translate')}
-                                        disabled={!item.downloadUrl || orderingId === `${item.id}_translate`}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 ${
-                                          !item.downloadUrl
-                                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                            : 'bg-stone-900 hover:bg-stone-800 text-white shadow-xs cursor-pointer'
-                                        }`}
-                                        title="Literacki przekład AI na język polski"
-                                      >
-                                        {orderingId === `${item.id}_translate` ? (
-                                          <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-                                        ) : (
-                                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                                        )}
-                                        <span>Przetłumacz na PL</span>
-                                      </button>
+                                        <Download className="w-3.5 h-3.5 text-stone-600" />
+                                        <span>Na dysk</span>
+                                      </a>
                                     )}
 
                                     {/* Option 2: Lekki EPUB z PDF */}
@@ -2392,7 +2553,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                                     )}
 
                                     {/* Option 3: Pobierz oryginał jeśli język obcy */}
-                                    {!isPl && (
+                                    {!isPl && !((item.format || '').toUpperCase() === 'CBZ' || (item.format || '').toUpperCase() === 'CBR') && (
                                       <button
                                         type="button"
                                         onClick={() => handleOrder(item, 'original')}

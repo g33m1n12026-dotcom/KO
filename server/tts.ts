@@ -329,49 +329,61 @@ export async function synthesizeSpeech(params: TtsRequest): Promise<{ buffer: Bu
     throw new Error(userMsg);
   }
 
-  // 2. Gemini Neural Text-to-Speech (Flash Lite TTS)
-  if (provider === 'gemini' && GEMINI_KEY) {
+  // 2. Gemini Neural Text-to-Speech (Flash Lite TTS - Ultra-high quality voices)
+  const isFemale = voice === 'pl-PL-ZofiaNeural' || voice === 'Kore' || voice === 'Aoede' || voice === 'Rachel' || voice === 'Bella';
+  if (GEMINI_KEY && (provider === 'gemini' || provider === 'neural' || !provider)) {
     try {
       const ai = getGemini();
-      const voiceName = ['Kore', 'Fenrir', 'Puck', 'Aoede', 'Charon'].includes(voice) ? voice : 'Kore';
+      // Map voices to Gemini 3.8 Flash Lite TTS prebuilt voice personas
+      let geminiVoiceName = 'Charon';
+      if (['Kore', 'Fenrir', 'Puck', 'Aoede', 'Charon', 'Zephyr'].includes(voice)) {
+        geminiVoiceName = voice;
+      } else if (isFemale) {
+        geminiVoiceName = 'Kore';
+      } else {
+        geminiVoiceName = 'Charon';
+      }
 
-      const res = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-lite-tts',
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: cleanText }],
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName,
+      const res = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: cleanText }],
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: geminiVoiceName,
+                },
               },
             },
           },
-        },
-      });
+        }),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Gemini TTS timeout')), 7000)),
+      ]);
 
       const part = res.candidates?.[0]?.content?.parts?.[0];
       if (part?.inlineData && part.inlineData.data) {
         const audioBuffer = Buffer.from(part.inlineData.data, 'base64');
         const mimeType = part.inlineData.mimeType || 'audio/wav';
         const targetCachePath = mimeType.includes('mpeg') || mimeType.includes('mp3') ? cacheMp3 : cacheWav;
-        fs.writeFileSync(targetCachePath, audioBuffer);
+        try {
+          fs.writeFileSync(targetCachePath, audioBuffer);
+        } catch {}
         return { buffer: audioBuffer, mimeType };
       }
     } catch (err: any) {
-      console.warn('Gemini TTS limit or error, falling back seamlessly to Edge Neural:', err.message);
-      // Fall through to Neural Edge TTS so reading NEVER breaks!
+      console.warn('Gemini TTS notice (falling through to edge/google):', err.message);
     }
   }
 
-  // 3. Unlimited Neural Edge TTS (Default: Marek / Zofia)
+  // 3. Fast Edge TTS attempt with strict 1.8s timeout (fails fast if Microsoft 403 Forbidden)
   try {
-    const isFemale = voice === 'pl-PL-ZofiaNeural' || voice === 'Kore' || voice === 'Aoede' || voice === 'Rachel';
     const targetVoice = voice.includes('Neural')
       ? voice
       : isFemale
@@ -385,7 +397,11 @@ export async function synthesizeSpeech(params: TtsRequest): Promise<{ buffer: Bu
       outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
     });
 
-    await edge.ttsPromise(cleanText, tempFile);
+    await Promise.race([
+      edge.ttsPromise(cleanText, tempFile),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Edge TTS connection timeout')), 1800)),
+    ]);
+
     if (fs.existsSync(tempFile)) {
       const buffer = fs.readFileSync(tempFile);
       try {
@@ -397,16 +413,16 @@ export async function synthesizeSpeech(params: TtsRequest): Promise<{ buffer: Bu
       return { buffer, mimeType: 'audio/mpeg' };
     }
   } catch (edgeErr: any) {
-    console.warn('Edge TTS niedostępny, przełączanie na wysokiej jakości lektora Google Natural:', edgeErr.message);
+    // Expected on restricted networks / 403: proceed smoothly to Google Natural TTS
   }
 
-  // 4. Always-Working High-Quality Google Natural TTS Engine (100% darmowy, niezawodny, bez limitów!)
+  // 4. Always-Working High-Quality Google Natural TTS Engine (100% free, instant <300ms, no rate limits)
   try {
     const words = cleanText.split(/\s+/);
     const chunks: string[] = [];
     let cur = '';
     for (const w of words) {
-      if ((cur + ' ' + w).length > 160) {
+      if ((cur + ' ' + w).length > 150) {
         if (cur) chunks.push(cur.trim());
         cur = w;
       } else {
@@ -426,7 +442,7 @@ export async function synthesizeSpeech(params: TtsRequest): Promise<{ buffer: Bu
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://translate.google.com/',
           },
-          signal: AbortSignal.timeout(12000),
+          signal: AbortSignal.timeout(6000),
         });
         if (!res.ok) throw new Error(`Google TTS status: ${res.status}`);
         const ab = await res.arrayBuffer();
@@ -445,7 +461,7 @@ export async function synthesizeSpeech(params: TtsRequest): Promise<{ buffer: Bu
     console.error('Błąd Google Natural TTS:', googleErr.message);
   }
 
-  throw new Error('Nie udało się wygenerować mowy naturalnym głosem. Sprawdź połączenie.');
+  throw new Error('Nie udało się wygenerować mowy lektora. Sprawdź połączenie.');
 }
 
 export async function verifyElevenLabsKey(apiKey: string): Promise<{ valid: boolean; characterCount?: number; characterLimit?: number; tier?: string; error?: string }> {

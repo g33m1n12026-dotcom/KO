@@ -129,6 +129,10 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
   const [lineHeight, setLineHeight] = useState<number>(1.7);
   const [fontFamily, setFontFamily] = useState<ReaderFont>('serif');
 
+  // Comic Viewer Mode State
+  const [comicFitMode, setComicFitMode] = useState<'height' | 'width'>('height');
+  const [comicZoom, setComicZoom] = useState<number>(100);
+
   // Text-To-Speech (Audiobook mode & Neural Voices)
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [ttsSpeed, setTtsSpeed] = useState<number>(1.0);
@@ -377,6 +381,55 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
     touchStartXRef.current = null;
     touchStartYRef.current = null;
   };
+
+  const isComicView = useMemo(() => {
+    if (selectedJob?.outputFormat === 'cbz' || selectedJob?.conversionMode === 'comic_cbz') return true;
+    if (selectedJob?.outputEpubFilename?.toLowerCase().endsWith('.cbz')) return true;
+    if (selectedJob?.title && /wisienk|cerise|komiks|manga/i.test(selectedJob.title)) return true;
+    if (bookTitle && /wisienk|cerise|komiks|manga/i.test(bookTitle)) return true;
+    const cur = chapters[currentChapterIdx];
+    if (cur) {
+      if (
+        cur.content.includes('comic-plate') ||
+        cur.content.includes('data:image/') ||
+        cur.id.startsWith('page_') ||
+        cur.id.startsWith('plate-') ||
+        (cur as any).isComicPage
+      ) {
+        return true;
+      }
+    }
+    if (
+      chapters.length > 0 &&
+      chapters.some((c) => c.content.includes('comic-plate') || c.content.includes('data:image/') || (c as any).isComicPage)
+    ) {
+      return true;
+    }
+    return false;
+  }, [selectedJob, chapters, currentChapterIdx, bookTitle]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || (e.key === ' ' && isComicView)) {
+        if (currentChapterIdx < chapters.length - 1) {
+          e.preventDefault();
+          changeChapter(currentChapterIdx + 1, 'next');
+        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        if (currentChapterIdx > 0) {
+          e.preventDefault();
+          changeChapter(currentChapterIdx - 1, 'prev');
+        }
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentChapterIdx, chapters.length, isComicView]);
 
   // Intercept anchor link clicks inside EPUB content safely so they NEVER break reader or reload to search
   const handleContentContainerClick = (e: React.MouseEvent) => {
@@ -949,7 +1002,31 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
           }
         }
       })
-      .catch(() => {});
+    // Dedicated Comic (CBZ) Loader: always fetch full high-res plates from chapters API
+    const isComicBook =
+      job.outputFormat === 'cbz' ||
+      job.conversionMode === 'comic_cbz' ||
+      job.outputEpubFilename?.toLowerCase().endsWith('.cbz') ||
+      /wisienk|cerise|komiks/i.test(job.title);
+
+    if (isComicBook) {
+      try {
+        const chResp = await fetch(`/api/jobs/${job.id}/chapters`);
+        if (chResp.ok) {
+          const chData = await chResp.json();
+          if (chData.chapters && chData.chapters.length > 0) {
+            setChapters(chData.chapters);
+            const safeCh = Math.min(savedChapterIdx, Math.max(0, chData.chapters.length - 1));
+            setCurrentChapterIdx(safeCh);
+            setCurrentParagraphIdx(0);
+            setLoadingBook(false);
+            return;
+          }
+        }
+      } catch (comicErr) {
+        console.warn('Błąd pobierania stron komiksu z API:', comicErr);
+      }
+    }
 
     // 1. If job has chapters already, set them immediately for fast resilient reading
     if (job.chapters && job.chapters.length > 0) {
@@ -1154,17 +1231,19 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
         orderedHtmlPaths = allHtml;
       }
 
-      // 3. Comic / CBZ Mode: if no HTML files at all, display pages from images
-      if (orderedHtmlPaths.length === 0 && imageFiles.length > 0) {
+      // 3. Comic / CBZ Mode: if no HTML files or more images than text pages, display pages from images
+      if (imageFiles.length > 0 && (orderedHtmlPaths.length === 0 || imageFiles.length > orderedHtmlPaths.length * 2)) {
         imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         for (let i = 0; i < imageFiles.length; i++) {
           const imgUrl = imageBlobMap[imageFiles[i]];
+          const pageNum = i + 1;
+          const pageTitle = pageNum === 1 ? 'Okładka albumu' : `Plansza ${pageNum - 1} z ${imageFiles.length - 1}`;
           parsedChapters.push({
-            id: `page_${i + 1}`,
-            title: `Strona ${i + 1} z ${imageFiles.length}`,
+            id: `page_${pageNum}`,
+            title: pageTitle,
             content: `
-              <div style="text-align: center; margin: 1em auto;">
-                <img src="${imgUrl}" alt="Strona ${i + 1}" style="max-width: 100%; max-height: 80vh; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: inline-block;" />
+              <div class="comic-plate-view" data-page="${pageNum}" style="text-align: center; margin: 0 auto; max-width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                <img src="${imgUrl}" alt="${pageTitle}" class="comic-plate-img" style="max-width: 100%; max-height: 85vh; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.35); display: inline-block; margin: 0 auto;" />
               </div>
             `,
           });
@@ -1915,6 +1994,40 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             </div>
 
             <div className="flex items-center gap-1 sm:gap-1.5">
+              {/* Comic View Controls */}
+              {isComicView && (
+                <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-600/30 rounded-lg p-0.5 text-xs font-semibold select-none">
+                  <span className="hidden lg:inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase font-bold text-amber-800 dark:text-amber-400">
+                    🎨 Komiks HD
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setComicFitMode(comicFitMode === 'height' ? 'width' : 'height')}
+                    className="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-600 text-white shadow-2xs hover:bg-amber-700 transition cursor-pointer"
+                    title={comicFitMode === 'height' ? 'Zmień na dopasowanie do szerokości (zbliżenie na dymki)' : 'Zmień na całą planszę (dopasuj do wysokości ekranu)'}
+                  >
+                    {comicFitMode === 'height' ? '↕ Cała plansza' : '↔ Szerokość'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setComicZoom((z) => Math.max(50, z - 15))}
+                    className="px-1.5 py-0.5 rounded hover:bg-amber-500/20 text-xs font-bold cursor-pointer"
+                    title="Pomniejsz"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono text-[10px] px-0.5">{comicZoom}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setComicZoom((z) => Math.min(250, z + 15))}
+                    className="px-1.5 py-0.5 rounded hover:bg-amber-500/20 text-xs font-bold cursor-pointer"
+                    title="Powiększ"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+
               {/* Natural Neural TTS Button with animated Equalizer */}
               <button
                 type="button"
@@ -2162,18 +2275,175 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                 <p className="text-sm font-sans">Ładowanie i formatowanie rozdziału...</p>
               </div>
             ) : chapters[currentChapterIdx] ? (
-              <div
-                className={`max-w-2xl mx-auto space-y-4 ${
-                  pageAnimation === 'slide-left'
-                    ? 'anim-page-slide-left'
-                    : pageAnimation === 'slide-right'
-                    ? 'anim-page-slide-right'
-                    : ''
-                }`}
-              >
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight pb-3 border-b border-current/10 mb-6">
-                  {chapters[currentChapterIdx].title}
-                </h1>
+              isComicView ? (
+                <div
+                  className={`w-full max-w-5xl mx-auto flex flex-col items-center select-none ${
+                    pageAnimation === 'slide-left'
+                      ? 'anim-page-slide-left'
+                      : pageAnimation === 'slide-right'
+                      ? 'anim-page-slide-right'
+                      : ''
+                  }`}
+                >
+                  {/* Top Bar for Comic Plate: Page Title + Counter */}
+                  <div className="w-full flex items-center justify-between pb-2 mb-2 border-b border-current/10 text-xs font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-amber-600 text-white font-bold text-[10px] tracking-wide uppercase">
+                        Komiks
+                      </span>
+                      <span className="font-semibold text-amber-800 dark:text-amber-400">
+                        {chapters[currentChapterIdx].title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 opacity-80 text-[11px]">
+                      <span>
+                        Plansza {currentChapterIdx + 1} z {chapters.length}
+                      </span>
+                      <span>({Math.round(((currentChapterIdx + 1) / chapters.length) * 100)}%)</span>
+                    </div>
+                  </div>
+
+                  {/* Comic Plate Canvas with Left / Right interactive click zones */}
+                  <div className="relative w-full flex items-center justify-center min-h-[60vh] py-1">
+                    {/* Left Tap Zone -> Previous Page */}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (currentChapterIdx > 0) changeChapter(currentChapterIdx - 1, 'prev');
+                      }}
+                      className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer flex items-center justify-start pl-3 transition opacity-0 hover:opacity-100"
+                      title="Poprzednia plansza (kliknij po lewej lub ←)"
+                    >
+                      <div className="p-3 rounded-full bg-stone-900/80 text-white shadow-xl backdrop-blur-xs transition hover:scale-110">
+                        <ChevronLeft className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Comic Image with Responsive Fit Mode & Scale */}
+                    {(() => {
+                      const curContent = chapters[currentChapterIdx]?.content || '';
+                      const srcMatch = curContent.match(/<img[^>]+src="([^">]+)"/i);
+                      const imgSrc = srcMatch ? srcMatch[1] : null;
+
+                      if (imgSrc) {
+                        return (
+                          <div
+                            className="w-full flex items-center justify-center transition-transform duration-150 ease-out select-none"
+                            style={{
+                              transform: `scale(${comicZoom / 100})`,
+                              transformOrigin: 'top center',
+                            }}
+                          >
+                            <img
+                              src={imgSrc}
+                              alt={chapters[currentChapterIdx]?.title || `Plansza ${currentChapterIdx + 1}`}
+                              className="comic-plate-img rounded-xl shadow-2xl transition-all duration-150 select-none block mx-auto border border-black/15 dark:border-white/15"
+                              style={{
+                                maxHeight: comicFitMode === 'height' ? 'calc(100vh - 175px)' : 'none',
+                                maxWidth: '100%',
+                                width: comicFitMode === 'width' ? '100%' : 'auto',
+                                height: 'auto',
+                                objectFit: 'contain',
+                                display: 'block',
+                              }}
+                              loading="eager"
+                            />
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          className="w-full flex justify-center transition-transform duration-150 ease-out"
+                          style={{
+                            transform: `scale(${comicZoom / 100})`,
+                            transformOrigin: 'top center',
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: curContent,
+                          }}
+                        />
+                      );
+                    })()}
+
+                    {/* Right Tap Zone -> Next Page */}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (currentChapterIdx < chapters.length - 1) changeChapter(currentChapterIdx + 1, 'next');
+                      }}
+                      className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer flex items-center justify-end pr-3 transition opacity-0 hover:opacity-100"
+                      title="Następna plansza (kliknij po prawej lub →)"
+                    >
+                      <div className="p-3 rounded-full bg-stone-900/80 text-white shadow-xl backdrop-blur-xs transition hover:scale-110">
+                        <ChevronRight className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Horizontal Thumbnail / Page Selector Strip */}
+                  <div className="w-full mt-4 pt-3 border-t border-current/10 flex items-center gap-1.5 overflow-x-auto py-2">
+                    {chapters.map((ch, idx) => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        onClick={() => changeChapter(idx, idx > currentChapterIdx ? 'next' : 'prev')}
+                        className={`shrink-0 px-3 py-1 rounded-lg text-xs font-mono transition cursor-pointer ${
+                          currentChapterIdx === idx
+                            ? 'bg-amber-600 text-white font-bold shadow-xs'
+                            : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
+                        }`}
+                        title={ch.title}
+                      >
+                        {idx === 0 ? 'Okładka' : `P.${idx}`}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* In-comic bottom navigation bar */}
+                  <div className="pt-4 pb-12 w-full flex items-center justify-between gap-3 border-t border-current/10 mt-4">
+                    <button
+                      type="button"
+                      disabled={currentChapterIdx <= 0}
+                      onClick={() => changeChapter(currentChapterIdx - 1, 'prev')}
+                      className="px-4 py-2 rounded-xl border border-current/20 disabled:opacity-25 hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5 font-medium text-xs transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span>Poprzednia plansza</span>
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setComicFitMode(comicFitMode === 'height' ? 'width' : 'height')}
+                        className="px-3 py-1.5 rounded-lg border border-current/20 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/5 transition cursor-pointer"
+                      >
+                        {comicFitMode === 'height' ? '↕ Cała plansza' : '↔ Szerokość'}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={currentChapterIdx >= chapters.length - 1}
+                      onClick={() => changeChapter(currentChapterIdx + 1, 'next')}
+                      className="px-4 py-2 rounded-xl border border-current/20 disabled:opacity-25 hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5 font-medium text-xs transition cursor-pointer"
+                    >
+                      <span>Następna plansza</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={`max-w-2xl mx-auto space-y-4 ${
+                    pageAnimation === 'slide-left'
+                      ? 'anim-page-slide-left'
+                      : pageAnimation === 'slide-right'
+                      ? 'anim-page-slide-right'
+                      : ''
+                  }`}
+                >
+                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight pb-3 border-b border-current/10 mb-6">
+                    {chapters[currentChapterIdx].title}
+                  </h1>
 
                 {/* Interactive Paragraph List: Audio activates ONLY via the dedicated Play button */}
                 {paragraphs.length > 0 ? (
@@ -2269,7 +2539,8 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
                   </button>
                 </div>
               </div>
-            ) : (
+            )
+          ) : (
               <div className="text-center py-20 opacity-50 font-sans">
                 Brak wczytanej książki. Wybierz pozycję z biblioteki lub wgraj plik EPUB.
               </div>
@@ -2430,7 +2701,7 @@ export const AndroidCompanionReader: React.FC<AndroidCompanionReaderProps> = ({
             </button>
 
             <div className="text-[11px] font-mono opacity-70">
-              Rozdział {currentChapterIdx + 1} z {chapters.length || 1} (
+              {isComicView ? 'Plansza' : 'Rozdział'} {currentChapterIdx + 1} z {chapters.length || 1} (
               {Math.round(((currentChapterIdx + 1) / (chapters.length || 1)) * 100)}%)
             </div>
 

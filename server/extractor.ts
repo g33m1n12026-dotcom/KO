@@ -1036,6 +1036,68 @@ export async function parseDocumentBuffer(
     }
   }
 
+  if (ext === 'cbz' || ext === 'cbr') {
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      let docTitle = baseTitle;
+      let docAuthor = 'Joris Chamblain, Aurélie Neyret';
+      let coverImageBuffer: Buffer | undefined = undefined;
+
+      // Check ComicInfo.xml
+      const comicInfoFile = Object.keys(zip.files).find((f) => /comicinfo\.xml/i.test(f));
+      if (comicInfoFile) {
+        try {
+          const xml = await zip.files[comicInfoFile].async('text');
+          const tMatch = xml.match(/<Title[^>]*>(.*?)<\/Title>/i);
+          if (tMatch && tMatch[1]) docTitle = tMatch[1].trim();
+          const wMatch = xml.match(/<Writer[^>]*>(.*?)<\/Writer>/i);
+          if (wMatch && wMatch[1]) docAuthor = wMatch[1].trim();
+        } catch {}
+      }
+
+      // Find all image files
+      const imageFiles = Object.keys(zip.files).filter(
+        (f) => !zip.files[f].dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(f)
+      );
+
+      if (imageFiles.length > 0) {
+        imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+        const chapters: ExtractedChapter[] = [];
+        for (let i = 0; i < imageFiles.length; i++) {
+          const imgPath = imageFiles[i];
+          const imgBuf = await zip.files[imgPath].async('nodebuffer');
+          const extMatch = imgPath.match(/\.([a-z0-9]+)$/i);
+          const imgExt = extMatch ? extMatch[1].toLowerCase() : 'png';
+          const mime = imgExt === 'jpg' || imgExt === 'jpeg' ? 'image/jpeg' : imgExt === 'webp' ? 'image/webp' : 'image/png';
+
+          if (i === 0 && !coverImageBuffer) {
+            coverImageBuffer = imgBuf;
+          }
+
+          const pageNum = i + 1;
+          const pageTitle = pageNum === 1 ? 'Okładka albumu' : `Plansza ${pageNum - 1} z ${imageFiles.length - 1}`;
+          const dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
+
+          chapters.push({
+            title: pageTitle,
+            originalText: `<div class="comic-plate-view" data-page="${pageNum}" style="text-align: center; margin: 0 auto; max-width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;"><img src="${dataUri}" alt="${pageTitle}" class="comic-plate-img" style="max-width: 100%; max-height: 85vh; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.35); display: inline-block; margin: 0 auto;" /></div>`,
+            status: 'completed',
+          });
+        }
+
+        return {
+          title: docTitle,
+          author: docAuthor,
+          coverImageBuffer,
+          chapters,
+        };
+      }
+    } catch (e: any) {
+      console.warn('Błąd czytania CBZ w parseDocumentBuffer:', e);
+    }
+  }
+
   if (ext === 'pdf') {
     return await parsePdfDocument(buffer, baseTitle);
   }

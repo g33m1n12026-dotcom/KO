@@ -41,7 +41,7 @@ end
 http.TIMEOUT = 60
 
 -- Niezawodny dyspozytor zapytań HTTP przez narzędzie curl (wbudowane w system Kindle KOReader)
-local function doCurlRequest(req)
+local function doCurlRequest(req, raw_body)
     local method = (req.method or "GET"):upper()
     local url = req.url
     local tmp_dir = DataStorage:getSettingsDir() or "/tmp"
@@ -51,20 +51,12 @@ local function doCurlRequest(req)
     local head_file = tmp_dir .. "/hdr_" .. rnd .. ".tmp"
 
     local has_body = false
-    if req.source and (method == "POST" or method == "PUT") then
-        local chunks = {}
-        while true do
-            local chunk = req.source()
-            if not chunk or chunk == "" then break end
-            table.insert(chunks, chunk)
-        end
-        if #chunks > 0 then
-            local bf = io.open(body_file, "wb")
-            if bf then
-                bf:write(table.concat(chunks))
-                bf:close()
-                has_body = true
-            end
+    if raw_body and #raw_body > 0 and (method == "POST" or method == "PUT" or method == "PATCH") then
+        local bf = io.open(body_file, "wb")
+        if bf then
+            bf:write(raw_body)
+            bf:close()
+            has_body = true
         end
     end
 
@@ -139,6 +131,26 @@ local function doHttpRequest(req, max_redirects)
     req.verify = "none"
     req.timeout = 60
 
+    -- Zachowaj kopię ciała zapytania, aby ponowienie zapytania (fallback do curl) nie wysłało pustego body
+    local raw_body = req.body
+    if not raw_body and req.source then
+        local chunks = {}
+        while true do
+            local chunk = req.source()
+            if not chunk or chunk == "" then break end
+            table.insert(chunks, chunk)
+        end
+        raw_body = table.concat(chunks)
+    end
+
+    if raw_body and #raw_body > 0 then
+        req.body = raw_body
+        req.source = ltn12.source.string(raw_body)
+        if not req.headers["Content-Length"] then
+            req.headers["Content-Length"] = tostring(#raw_body)
+        end
+    end
+
     local socketutil = pcall(require, "socketutil") and require("socketutil") or nil
     if socketutil and socketutil.set_timeout then
         socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT or 60, socketutil.LARGE_TOTAL_TIMEOUT or 120)
@@ -166,10 +178,10 @@ local function doHttpRequest(req, max_redirects)
         socketutil:reset_timeout()
     end
 
-    -- Jesli LuaSec/LuaSocket zwrocil wantread, timeout lub blad gniazda, natychmiast uzyj natywnego curl jako fallback!
+    -- Jesli LuaSec/LuaSocket zwrocil wantread, timeout lub blad gniazda, natychmiast uzyj natywnego curl z zachowanym raw_body!
     local is_wantread_or_err = not ok or not code or code == 0 or code == "wantread" or code == "timeout" or tostring(code):match("^%a")
     if is_wantread_or_err then
-        local ok_curl, c_res, c_code, c_headers, c_status = pcall(doCurlRequest, req)
+        local ok_curl, c_res, c_code, c_headers, c_status = pcall(doCurlRequest, req, raw_body)
         if ok_curl and c_code and c_code ~= 0 and c_code ~= "curl_error_127" then
             return c_res, c_code, c_headers, c_status
         end
@@ -1192,6 +1204,7 @@ function AIBooks:showAdvisorChatDialog(userText, isReset)
         local res, code, headers, status = doHttpRequest{
             url = self.server_url .. "/api/koreader/advisor/chat",
             method = "POST",
+            body = payload,
             headers = {
                 ["Content-Type"] = "application/json",
                 ["Content-Length"] = tostring(#payload),

@@ -48,9 +48,11 @@ import {
   convertExistingJobToFormat,
   extractChaptersForWebReader,
   importJobs,
+  EPUB_DIR,
 } from './server/jobs';
+import { generateCeriseComicVolume } from './server/comic';
 import { generateEpubBuffer, sanitizeToAsciiFilename } from './server/epub';
-import { searchOnlineBooks, findDirectBookDownload } from './server/search';
+import { searchOnlineBooks, findDirectBookDownload, fetchRemoteBookBuffer } from './server/search';
 import { SHADOW_LIBRARY_MIRRORS } from './server/mirrors';
 import {
   generatePluginZip,
@@ -226,9 +228,15 @@ app.use(express.urlencoded({ extended: true }));
   // ----------------------------------------------------
   app.post(['/api/advisor/chat', '/api/koreader/advisor/chat'], async (req, res) => {
     try {
-      const { messages, modelTier = 'smart_auto', premiumProvider = 'openrouter' } = req.body;
+      let { messages, prompt, message, description, text, modelTier = 'smart_auto', premiumProvider = 'openrouter' } = req.body || {};
       if (!Array.isArray(messages) || messages.length === 0) {
-        return res.status(400).json({ error: 'Brak wiadomości w historii czatu.' });
+        const singleText = prompt || message || description || text || (typeof req.body === 'string' ? req.body : '');
+        if (singleText && typeof singleText === 'string' && singleText.trim()) {
+          messages = [{ role: 'user', content: singleText.trim() }];
+        }
+      }
+      if (!Array.isArray(messages) || messages.length === 0) {
+        messages = [{ role: 'user', content: 'Cześć! Doradź mi wybitną książkę na wieczór. Poleć mi najciekawsze pozycje z biblioteki.' }];
       }
 
       const data = await chatWithAdvisor(messages, modelTier, premiumProvider);
@@ -334,6 +342,7 @@ app.use(express.urlencoded({ extended: true }));
       res.json({
         results: Array.from(results),
         multilingual: results.multilingual || null,
+        didYouMean: results.didYouMean || null,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Błąd wyszukiwania' });
@@ -435,7 +444,7 @@ app.use(express.urlencoded({ extended: true }));
   // ----------------------------------------------------
   // API Endpoints: Książka na życzenie (AI Storybook Generator)
   // ----------------------------------------------------
-  app.post(['/api/storybook/create', '/api/koreader/storybook/create'], async (req, res) => {
+  app.post(['/api/storybook/create', '/api/koreader/storybook/create', '/api/storybook', '/api/koreader/storybook'], async (req, res) => {
     try {
       const {
         type = 'story',
@@ -952,6 +961,41 @@ app.use(express.urlencoded({ extended: true }));
   // ----------------------------------------------------
   // API Endpoints: Book/Comic Download (EPUB or CBZ)
   // ----------------------------------------------------
+  app.get('/api/comic/cerise/:volume', async (req, res) => {
+    try {
+      const volNum = parseInt(req.params.volume, 10) || 1;
+      const { generateCeriseComicVolume } = await import('./server/comic');
+      const comic = await generateCeriseComicVolume(volNum);
+      res.setHeader('Content-Type', 'application/vnd.comicbook+zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(comic.filename)}"`);
+      res.setHeader('Content-Length', comic.buffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(comic.buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd generowania komiksu' });
+    }
+  });
+
+  app.get(['/api/download/direct', '/api/proxy/download'], async (req, res) => {
+    try {
+      const url = req.query.url as string;
+      const title = (req.query.title as string) || 'Plik';
+      if (!url) return res.status(400).json({ error: 'Brak parametru url' });
+
+      const { buffer, filename } = await fetchRemoteBookBuffer(url, title);
+      const isCbz = filename.toLowerCase().endsWith('.cbz') || filename.toLowerCase().endsWith('.cbr');
+      const isPdf = filename.toLowerCase().endsWith('.pdf');
+      const mime = isCbz ? 'application/vnd.comicbook+zip' : isPdf ? 'application/pdf' : 'application/epub+zip';
+
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.send(buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Błąd pobierania pliku' });
+    }
+  });
+
   app.get(['/api/download/:id', '/api/koreader/download/:id'], async (req, res) => {
     const rawId = req.params.id;
     const job = getJobById(rawId);
@@ -972,30 +1016,59 @@ app.use(express.urlencoded({ extended: true }));
       }
     }
 
-    // Auto-rebuild on-the-fly if file is missing on disk but chapters exist in memory/disk
+    // 1. Auto-generate CBZ comic albums in-memory / on-the-fly if missing on disk
+    if (
+      (!fullPath || !fs.existsSync(fullPath)) &&
+      (isCbz || /wisienk|cerise|komiks/i.test(job?.title || '') || /wisienk|cerise/i.test(rawId) || rawId === 'seed_wisienka_1')
+    ) {
+      try {
+        let vol = 1;
+        const volMatch = (job?.title || filename || rawId).match(/tom\s*(\d+)|volume\s*(\d+)|_(\d+)_cbz|wisienka_(\d+)/i);
+        if (volMatch) {
+          vol = parseInt(volMatch[1] || volMatch[2] || volMatch[3] || volMatch[4], 10) || 1;
+        }
+        const comic = await generateCeriseComicVolume(vol);
+        const targetPath = path.join(EPUB_DIR, comic.filename);
+        try { fs.writeFileSync(targetPath, comic.buffer); } catch {}
+        res.setHeader('Content-Type', 'application/vnd.comicbook+zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(comic.filename)}"`);
+        res.setHeader('Content-Length', comic.buffer.length);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(comic.buffer);
+      } catch (cbzErr) {
+        console.error('Błąd generowania komiksu w locie:', cbzErr);
+      }
+    }
+
+    // 2. Auto-rebuild on-the-fly if EPUB file is missing on disk but chapters exist in memory/disk
     if ((!fullPath || !fs.existsSync(fullPath)) && job && job.chapters && job.chapters.length > 0) {
       try {
         const epubBuffer = await generateEpubBuffer({
           title: job.title,
-          author: 'KOReader AI Cloud',
+          author: job.author || 'KOReader AI Cloud',
           language: 'pl',
           chapters: job.chapters,
         });
         const safeTitle = sanitizeToAsciiFilename(job.title);
         const newFilename = `${safeTitle}_pl_${job.id.substring(4, 9)}.epub`;
-        const newPath = path.join(process.cwd(), 'data', 'epubs', newFilename);
-        fs.writeFileSync(newPath, epubBuffer);
+        const newPath = path.join(EPUB_DIR, newFilename);
+        try { fs.writeFileSync(newPath, epubBuffer); } catch {}
         job.outputEpubFilename = newFilename;
         job.outputFormat = 'epub';
         saveJobsToDisk();
-        fullPath = newPath;
-        filename = newFilename;
-        isCbz = false;
+        res.setHeader('Content-Type', 'application/epub+zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(newFilename)}"`);
+        res.setHeader('Content-Length', epubBuffer.length);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(epubBuffer);
       } catch (err: any) {
         console.error('Błąd regeneracji pliku EPUB w locie:', err);
       }
     }
 
+    // 3. Fallback: try remote sync server if configured
     if (!fullPath || !fs.existsSync(fullPath)) {
       const remoteUrl = process.env.REMOTE_SYNC_URL;
       if (remoteUrl) {
@@ -1008,8 +1081,8 @@ app.use(express.urlencoded({ extended: true }));
             const buf = Buffer.from(ab);
             if (buf.length > 500) {
               const fallbackName = job?.outputEpubFilename || `${rawId}.epub`;
-              const savePath = path.join(process.cwd(), 'data', 'epubs', fallbackName);
-              fs.writeFileSync(savePath, buf);
+              const savePath = path.join(EPUB_DIR, fallbackName);
+              try { fs.writeFileSync(savePath, buf); } catch {}
               fullPath = savePath;
               filename = fallbackName;
             }

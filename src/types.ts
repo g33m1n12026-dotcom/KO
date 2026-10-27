@@ -126,7 +126,9 @@ export interface ShadowLibraryMirror {
     | 'polish_free'
     | 'polish_stores'
     | 'global_free'
-    | 'file_search';
+    | 'file_search'
+    | 'comics'
+    | 'polish_comics';
   domain: string;
   searchUrlTemplate: string;
   description: string;
@@ -139,6 +141,17 @@ export interface MultilingualBookMeta {
   canonicalAuthor?: string;
   titles: Record<string, string>;
   searchVariants: string[];
+}
+
+export interface SearchDidYouMean {
+  canonicalTitle: string;
+  canonicalAuthor: string;
+  originalTitle?: string;
+  fullPhrase: string;
+  searchQuery: string;
+  isComic?: boolean;
+  category?: string;
+  synopsis?: string;
 }
 
 export interface AccountSettings {

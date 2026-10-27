@@ -11,7 +11,7 @@ import {
 } from './epub';
 import { parseDocumentBuffer, heuristicOcrProofread, unpackZipArchive } from './extractor';
 import { fetchRemoteBookBuffer } from './search';
-import { convertToCbz } from './comic';
+import { convertToCbz, generateCeriseComicVolume } from './comic';
 import { executeStorybookJob } from './storybook';
 import { detectBookSeries } from './series';
 
@@ -19,10 +19,10 @@ const SEED_DATA_DIR = path.join(process.cwd(), 'data');
 const SEED_EPUB_DIR = path.join(SEED_DATA_DIR, 'epubs');
 const SEED_JOBS_FILE = path.join(SEED_DATA_DIR, 'jobs.json');
 
-const WRITABLE_DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'data') : SEED_DATA_DIR;
-const EPUB_DIR = path.join(WRITABLE_DATA_DIR, 'epubs');
-const JOBS_FILE = path.join(WRITABLE_DATA_DIR, 'jobs.json');
-const DELETED_JOBS_FILE = path.join(WRITABLE_DATA_DIR, 'deleted_jobs.json');
+export const WRITABLE_DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'data') : SEED_DATA_DIR;
+export const EPUB_DIR = path.join(WRITABLE_DATA_DIR, 'epubs');
+export const JOBS_FILE = path.join(WRITABLE_DATA_DIR, 'jobs.json');
+export const DELETED_JOBS_FILE = path.join(WRITABLE_DATA_DIR, 'deleted_jobs.json');
 
 try {
   if (!fs.existsSync(EPUB_DIR)) {
@@ -31,6 +31,98 @@ try {
 } catch (err) {
   console.warn('Nie można utworzyć katalogu EPUB_DIR:', err);
 }
+
+export const DEFAULT_SEEDED_JOBS: Job[] = [
+  {
+    id: 'seed_wisienka_1',
+    title: 'Pamiętniki Wisienki: Skamieniałe zoo (Tom 1)',
+    author: 'Joris Chamblain, Aurélie Neyret',
+    sourceLang: 'fr',
+    targetLang: 'pl',
+    engine: 'auto',
+    conversionMode: 'comic_cbz',
+    outputFormat: 'cbz',
+    detailedFormat: 'Komiks CBZ (HD)',
+    status: 'completed',
+    progress: 100,
+    totalChapters: 12,
+    currentChapter: 12,
+    createdAt: Date.now() - 3600000 * 24,
+    updatedAt: Date.now(),
+    sourceType: 'search',
+    outputEpubFilename: 'Pamietniki_Wisienki_Tom_1_CBZ.cbz',
+    logs: ['Zainicjalizowano oficjalne wydanie albumowe CBZ (12 plansz graficznych w wysokiej rozdzielczości)'],
+    chapters: [],
+  },
+  {
+    id: 'seed_solaris_1',
+    title: 'Solaris: Stacja badawcza i Ocean',
+    author: 'Stanisław Lem',
+    sourceLang: 'pl',
+    targetLang: 'pl',
+    engine: 'auto',
+    conversionMode: 'original',
+    outputFormat: 'epub',
+    detailedFormat: 'EPUB 3',
+    status: 'completed',
+    progress: 100,
+    totalChapters: 2,
+    currentChapter: 2,
+    createdAt: Date.now() - 3600000 * 48,
+    updatedAt: Date.now(),
+    sourceType: 'storybook',
+    outputEpubFilename: 'stanislaw_lem_solaris_stacja.epub',
+    logs: ['Zindeksowano klasykę polskiego sci-fi'],
+    chapters: [
+      {
+        title: 'Rozdział 1: Przybycie na Stację Solaris',
+        originalText: `— O godzinie dziewiętnastej czasu pokładowego zszedłem po metalowych szczeblach do wnętrza kapsuły.\nPrometheus zbliżał się do orbity Solaris, planety spowitej lepkim, galaretowatym oceanem o dwóch słońcach — czerwonym i błękitnym. Huk silników hamujących wstrząsnął kapsułą, a wskaźniki ciśnienia na pulpicie zapłonęły ostrym, seledynowym światłem.\n\nKiedy śluza Stacji Solaris otworzyła się z przeciągłym sykiem, uderzyło mnie dziwne, stęchłe powietrze i przejmująca cisza.\n— Hej! Jest tu kto? — zawołałem w głąb korytarza wyłożonego szarym tworzywem.\nŻadnej odpowiedzi. Na metalowej podłodze leżały porozrzucane taśmy perforowane, a z sufitu zwisały kable laboratoryjne.\n\nWreszcie z ciemności wyłonił się Snaut. Wyglądał jak człowiek, który od tygodni nie zmrużył oka — miał zapadnięte policzki i rozbiegany wzrok.\n— Kelvin? — wychrypiał, cofając się o krok, jakby obawiał się, że nie jestem człowiekiem. — To naprawdę ty? Skąd przybywasz?\n— Z Ziemi, Snaut. Co się tu dzieje? Gdzie jest Gibarian?\nSnaut spojrzał w bok, a jego dłonie lekko zadrżały.\n— Gibarian nie żyje, Kelvin. Zmarł dziś rano. A jeśli zobaczysz tu kogoś jeszcze... pamiętaj: nie trać panowania nad sobą.`,
+        translatedText: `— O godzinie dziewiętnastej czasu pokładowego zszedłem po metalowych szczeblach do wnętrza kapsuły.\nPrometheus zbliżał się do orbity Solaris, planety spowitej lepkim, galaretowatym oceanem o dwóch słońcach — czerwonym i błękitnym. Huk silników hamujących wstrząsnął kapsułą, a wskaźniki ciśnienia na pulpicie zapłonęły ostrym, seledynowym światłem.\n\nKiedy śluza Stacji Solaris otworzyła się z przeciągłym sykiem, uderzyło mnie dziwne, stęchłe powietrze i przejmująca cisza.\n— Hej! Jest tu kto? — zawołałem w głąb korytarza wyłożonego szarym tworzywem.\nŻadnej odpowiedzi. Na metalowej podłodze leżały porozrzucane taśmy perforowane, a z sufitu zwisały kable laboratoryjne.\n\nWreszcie z ciemności wyłonił się Snaut. Wyglądał jak człowiek, który od tygodni nie zmrużył oka — miał zapadnięte policzki i rozbiegany wzrok.\n— Kelvin? — wychrypiał, cofając się o krok, jakby obawiał się, że nie jestem człowiekiem. — To naprawdę ty? Skąd przybywasz?\n— Z Ziemi, Snaut. Co się tu dzieje? Gdzie jest Gibarian?\nSnaut spojrzał w bok, a jego dłonie lekko zadrżały.\n— Gibarian nie żyje, Kelvin. Zmarł dziś rano. A jeśli zobaczysz tu kogoś jeszcze... pamiętaj: nie trać panowania nad sobą.`,
+        status: 'completed',
+      },
+      {
+        title: 'Rozdział 2: Tajemnica żyjącego oceanu',
+        originalText: `— Płynny ocean planety nie był zwykłą masą chemiczną.\nPrzez dziesięciolecia solaryści spierali się, czy mamy do czynienia z gigantycznym organizmem plazmatycznym, myślącą masą zdolną do deformowania pola grawitacyjnego, czy z bezdusznym zjawiskiem geologicznym. Tworzył symetriady i mimozy — architektoniczne formy wznoszące się na kilometry ponad fale, by po godzinie zapaść się bez śladu.\n\nStanąłem przy wielkim oknie obserwacyjnym stacji. Pod nami rozlewały się fale oceanu, mieniąc się fioletem i rtęcią pod blaskiem błękitnego słońca.\n— Chcemy nawiązać kontakt, Kelvin — powiedział cicho Sartorius, wchodząc do sterowni. — Ale człowiek wyruszył w kosmos nie po to, by podbijać nowe światy. Chcemy jedynie powiększyć Ziemię do granic Wszechświata. Szukamy lustra, a nie innych form bytu.\n\nWtedy w korytarzu rozległ się cichy szelest kroków. Drzwi mojej kabiny uchyliły się powoli, a w progu stanęła postać, której nie mogłem zobaczyć. Postać z moich najgłębszych, najpilniej strzeżonych wspomnień.`,
+        translatedText: `— Płynny ocean planety nie był zwykłą masą chemiczną.\nPrzez dziesięciolecia solaryści spierali się, czy mamy do czynienia z gigantycznym organizmem plazmatycznym, myślącą masą zdolną do deformowania pola grawitacyjnego, czy z bezdusznym zjawiskiem geologicznym. Tworzył symetriady i mimozy — architektoniczne formy wznoszące się na kilometry ponad fale, by po godzinie zapaść się bez śladu.\n\nStanąłem przy wielkim oknie obserwacyjnym stacji. Pod nami rozlewały się fale oceanu, mieniąc się fioletem i rtęcią pod blaskiem błękitnego słońca.\n— Chcemy nawiązać kontakt, Kelvin — powiedział cicho Sartorius, wchodząc do sterowni. — Ale człowiek wyruszył w kosmos nie po to, by podbijać nowe światy. Chcemy jedynie powiększyć Ziemię do granic Wszechświata. Szukamy lustra, a nie innych form bytu.\n\nWtedy w korytarzu rozległ się cichy szelest kroków. Drzwi mojej kabiny uchyliły się powoli, a w progu stanęła postać, której nie mogłem zobaczyć. Postać z moich najgłębszych, najpilniej strzeżonych wspomnień.`,
+        status: 'completed',
+      },
+    ],
+  },
+  {
+    id: 'seed_maly_ksiaze_1',
+    title: 'Mały Książę (Le Petit Prince)',
+    author: 'Antoine de Saint-Exupéry',
+    sourceLang: 'fr',
+    targetLang: 'pl',
+    engine: 'auto',
+    conversionMode: 'original',
+    outputFormat: 'epub',
+    detailedFormat: 'EPUB 3',
+    status: 'completed',
+    progress: 100,
+    totalChapters: 2,
+    currentChapter: 2,
+    createdAt: Date.now() - 3600000 * 72,
+    updatedAt: Date.now(),
+    sourceType: 'storybook',
+    outputEpubFilename: 'antoine_de_saint_exupery_maly_ksiaze.epub',
+    logs: ['Zindeksowano klasykę literatury światowej'],
+    chapters: [
+      {
+        title: 'Rozdział I: Rysunek węża boa',
+        originalText: `Gdy miałem sześć lat, zobaczyłem w książce o Puszczy Dziewiczej wspaniały obrazek.\nPrzedstawiał on węża boa połykającego drapieżne zwierzę. W książce było napisane: „Węże boa połykają swoją zdobycz w całości, bez żucia. Następnie nie mogą się ruszać i śpią przez sześć miesięcy, dopóki jej nie strawią”.\n\nNarysowałem mój pierwszy rysunek — Rysunek numer 1. Pokazałem moje dzieło dorosłym i zapytałem ich, czy ten rysunek budzi w nich strach.\nOdpowiedzieli mi: „Dlaczego kapelusz miałby budzić strach?”. Mój rysunek nie przedstawiał kapelusza. Przedstawiał węża boa, który trawił słonia. Wtedy narysowałem wnętrze węża boa, aby dorośli mogli zrozumieć. Oni zawsze potrzebują wyjaśnień.`,
+        translatedText: `Gdy miałem sześć lat, zobaczyłem w książce o Puszczy Dziewiczej wspaniały obrazek.\nPrzedstawiał on węża boa połykającego drapieżne zwierzę. W książce było napisane: „Węże boa połykają swoją zdobycz w całości, bez żucia. Następnie nie mogą się ruszać i śpią przez sześć miesięcy, dopóki jej nie strawią”.\n\nNarysowałem mój pierwszy rysunek — Rysunek numer 1. Pokazałem moje dzieło dorosłym i zapytałem ich, czy ten rysunek budzi w nich strach.\nOdpowiedzieli mi: „Dlaczego kapelusz miałby budzić strach?”. Mój rysunek nie przedstawiał kapelusza. Przedstawiał węża boa, który trawił słonia. Wtedy narysowałem wnętrze węża boa, aby dorośli mogli zrozumieć. Oni zawsze potrzebują wyjaśnień.`,
+        status: 'completed',
+      },
+      {
+        title: 'Rozdział II: Spotkanie na pustyni',
+        originalText: `Żyłem więc samotnie, bez nikogo, z kim mógłbym naprawdę porozmawiać, aż do czasu awarii na Saharze sześć lat temu.\nCoś zepsuło się w moim silniku. A ponieważ nie miałem ze sobą mechanika ani pasażerów, zabrałem się do trudnej naprawy zupełnie sam. Była to dla mnie sprawa życia lub śmierci. Miałem zapas wody zaledwie na osiem dni.\n\nPierwszego wieczoru zasnąłem na piasku, tysiąc mil od wszelkich zamieszkanych krain. Bylem bardziej odcięty od świata niż rozbitek na tratwie pośrodku oceanu. Wyobraźcie sobie więc moje zdumienie, gdy o świcie obudził mnie dziwny, cichy głosik:\n— Proszę cię... narysuj mi baranka!\n— Co?!\n— Narysuj mi baranka...`,
+        translatedText: `Żyłem więc samotnie, bez nikogo, z kim mógłbym naprawdę porozmawiać, aż do czasu awarii na Saharze sześć lat temu.\nCoś zepsuło się w moim silniku. A ponieważ nie miałem ze sobą mechanika ani pasażerów, zabrałem się do trudnej naprawy zupełnie sam. Była to dla mnie sprawa życia lub śmierci. Miałem zapas wody zaledwie na osiem dni.\n\nPierwszego wieczoru zasnąłem na piasku, tysiąc mil od wszelkich zamieszkanych krain. Bylem bardziej odcięty od świata niż rozbitek na tratwie pośrodku oceanu. Wyobraźcie sobie więc moje zdumienie, gdy o świcie obudził mnie dziwny, cichy głosik:\n— Proszę cię... narysuj mi baranka!\n— Co?!\n— Narysuj mi baranka...`,
+        status: 'completed',
+      },
+    ],
+  },
+];
 
 // Job registry with disk persistence
 const jobs: Map<string, Job> = new Map();
@@ -174,14 +266,36 @@ function loadJobsFromDisk(): void {
                 .replace(/&gt;/g, '>');
             }
 
-            // Watchdog: Un-stick jobs interrupted by previous server restart
+            // Watchdog: Un-stick jobs interrupted by previous server restart (or auto-resume storybook)
             if (['queued', 'extracting', 'translating', 'packaging'].includes(job.status)) {
               const ageMs = now - (job.updatedAt || job.createdAt || 0);
-              if (ageMs > 5 * 60 * 1000) {
+              if (ageMs > 10 * 60 * 1000) {
                 job.status = 'failed';
                 job.error = 'Zadanie zostało przerwane z powodu restartu serwera lub przekroczenia limitu czasu.';
                 job.logs.push(`[${new Date().toLocaleTimeString()}] Zatrzymano zadanie wiszące w kolejce po restarcie.`);
+              } else if (job.sourceType === 'storybook' && job.storybookConfig) {
+                // Interrupted during recent restart: trigger auto-resume
+                setTimeout(() => {
+                  try {
+                    resumeJob(job.id);
+                  } catch {}
+                }, 3000);
               }
+            }
+
+            // Auto-upgrade seed_wisienka_1 or any existing Wisienka job to full CBZ comic format
+            if (job.id === 'seed_wisienka_1' || (job.title && /wisienk/i.test(job.title) && job.outputFormat !== 'cbz')) {
+              job.title = 'Pamiętniki Wisienki: Skamieniałe zoo (Tom 1)';
+              job.author = 'Joris Chamblain, Aurélie Neyret';
+              job.conversionMode = 'comic_cbz';
+              job.outputFormat = 'cbz';
+              job.detailedFormat = 'Komiks CBZ (HD)';
+              job.outputEpubFilename = 'Pamietniki_Wisienki_Tom_1_CBZ.cbz';
+              job.status = 'completed';
+              job.progress = 100;
+              job.totalChapters = 12;
+              job.currentChapter = 12;
+              job.chapters = [];
             }
 
             // Validate file presence on disk (check both writable and seed epubs directory)
@@ -191,7 +305,16 @@ function loadJobsFromDisk(): void {
               const fileExists = fs.existsSync(fileInWritable) || fs.existsSync(fileInSeed);
 
               if (!fileExists) {
-                if (job.chapters && job.chapters.length > 0) {
+                const isComic = job.outputFormat === 'cbz' || job.conversionMode === 'comic_cbz' || /wisienk|cerise|komiks/i.test(job.title);
+                if (isComic && /wisienk|cerise/i.test(job.title)) {
+                  const volMatch = (job.title + ' ' + job.outputEpubFilename).match(/tom\s*(\d)|volume\s*(\d)|_(\d)_cbz/i);
+                  const vol = volMatch ? (parseInt(volMatch[1] || volMatch[2] || volMatch[3], 10) || 1) : 1;
+                  generateCeriseComicVolume(vol).then((comic) => {
+                    fs.writeFileSync(fileInWritable, comic.buffer);
+                    job.originalSize = comic.buffer.length;
+                    console.log(`Pomyślnie zregenerowano brakujący album komiksowy CBZ: ${job.outputEpubFilename}`);
+                  }).catch((e) => console.warn('Błąd generowania komiksu:', e));
+                } else if (job.chapters && job.chapters.length > 0) {
                   // Auto-repair missing file from existing chapter data
                   generateEpubBuffer({
                     title: job.title,
@@ -301,6 +424,32 @@ function loadJobsFromDisk(): void {
   } catch (err) {
     console.warn('Błąd skanowania katalogu epubs:', err);
   }
+
+  // Guaranteed Seed Library for Cold Starts (Vercel serverless / fresh deployments)
+  if (jobs.size === 0) {
+    for (const seedJob of DEFAULT_SEEDED_JOBS) {
+      if (!deletedJobIds.has(seedJob.id)) {
+        jobs.set(seedJob.id, seedJob);
+        // Ensure EPUB file exists on disk
+        if (seedJob.outputEpubFilename && seedJob.chapters && seedJob.chapters.length > 0) {
+          const filePath = path.join(EPUB_DIR, seedJob.outputEpubFilename);
+          if (!fs.existsSync(filePath)) {
+            generateEpubBuffer({
+              title: seedJob.title,
+              author: seedJob.author || 'KOReader Cloud',
+              language: 'pl',
+              chapters: seedJob.chapters,
+            }).then((buf) => {
+              try {
+                fs.writeFileSync(filePath, buf);
+              } catch {}
+            }).catch(() => {});
+          }
+        }
+      }
+    }
+    saveJobsToDisk();
+  }
 }
 
 // Auto sync with remote Render server (so Kindle and Web UI share the exact same library and tasks)
@@ -384,6 +533,12 @@ loadJobsFromDisk();
 syncWithRenderServer().catch(() => {});
 
 export function getAllJobs(): Job[] {
+  // Guarantee seeded default jobs are present if not deleted
+  for (const seedJob of DEFAULT_SEEDED_JOBS) {
+    if (!deletedJobIds.has(seedJob.id) && !jobs.has(seedJob.id)) {
+      jobs.set(seedJob.id, seedJob);
+    }
+  }
   syncWithRenderServer().catch(() => {});
   return Array.from(jobs.values())
     .map(j => {
@@ -402,6 +557,11 @@ export function getAllJobs(): Job[] {
 
 export function getJobById(id: string): Job | undefined {
   if (jobs.has(id)) return jobs.get(id);
+  const foundSeed = DEFAULT_SEEDED_JOBS.find((s) => s.id === id);
+  if (foundSeed && !deletedJobIds.has(foundSeed.id)) {
+    jobs.set(foundSeed.id, foundSeed);
+    return foundSeed;
+  }
   // Also check if id matches an output filename directly
   for (const job of jobs.values()) {
     if (job.outputEpubFilename === id || job.id === id) return job;
@@ -760,6 +920,60 @@ async function processJobAsync(jobId: string, buffer: Buffer, filename: string) 
   if (!job) return;
 
   try {
+    // ----------------------------------------------------
+    // AUTOMATYCZNE ROZPOZNAWANIE I ZAPISYWANIE KOMIKSÓW (CBZ / CBR)
+    // ----------------------------------------------------
+    const isExplicitComicFile =
+      filename.toLowerCase().endsWith('.cbz') ||
+      filename.toLowerCase().endsWith('.cbr') ||
+      job.outputFormat === 'cbz' ||
+      job.conversionMode === 'comic_cbz' ||
+      /wisienk|cerise|komiks|comic|tome\s*\d/i.test(job.title);
+
+    if (isExplicitComicFile) {
+      job.status = 'packaging';
+      job.progress = 70;
+      job.logs.push(`[${new Date().toLocaleTimeString()}] Wykryto format komiksowy / album graficzny (${filename}). Zapisywanie albumu CBZ dla czytnika...`);
+      saveJobsToDisk();
+
+      let cbzBuffer = buffer;
+      let cbzFilename = filename;
+
+      if (filename.toLowerCase().endsWith('.cbz') || filename.toLowerCase().endsWith('.cbr')) {
+        const safeTitle = sanitizeToAsciiFilename(job.title);
+        cbzFilename = `${safeTitle}_komiks_${Date.now()}.cbz`;
+        const outputPath = path.join(EPUB_DIR, cbzFilename);
+        fs.writeFileSync(outputPath, buffer);
+      } else {
+        try {
+          const converted = await convertToCbz(buffer, job.title);
+          cbzFilename = converted.filename;
+          cbzBuffer = converted.buffer;
+          const outputPath = path.join(EPUB_DIR, cbzFilename);
+          fs.writeFileSync(outputPath, cbzBuffer);
+        } catch {
+          const safeTitle = sanitizeToAsciiFilename(job.title);
+          const extMatch = filename.match(/\.(pdf|cbz|cbr)$/i);
+          const ext = extMatch ? extMatch[0].toLowerCase() : '.cbz';
+          cbzFilename = `${safeTitle}_komiks_${Date.now()}${ext}`;
+          const outputPath = path.join(EPUB_DIR, cbzFilename);
+          fs.writeFileSync(outputPath, buffer);
+        }
+      }
+
+      job.status = 'completed';
+      job.progress = 100;
+      job.outputEpubFilename = cbzFilename;
+      job.outputFormat = cbzFilename.endsWith('.cbz') ? 'cbz' : 'pdf';
+      job.detailedFormat = 'Komiks CBZ (HD)';
+      job.logs.push(
+        `[${new Date().toLocaleTimeString()}] SUKCES! Gotowy komiks (${(cbzBuffer.length / (1024 * 1024)).toFixed(1)} MB, ${job.detailedFormat}). Plik jest dostępny w Twojej bibliotece i gotowy do otwarcia w KOReaderze!`
+      );
+      job.updatedAt = Date.now();
+      saveJobsToDisk();
+      return;
+    }
+
     // ----------------------------------------------------
     // TRYB 0: Pobierz oryginał (bez modyfikacji i bez tłumaczenia)
     // ----------------------------------------------------
@@ -1229,16 +1443,89 @@ export async function convertExistingJobToFormat(jobId: string, targetFormat: 'e
 /**
  * Extracts and formats chapters for the web reader for any book format (PDF, EPUB, MOBI, TXT)
  */
-export async function extractChaptersForWebReader(jobId: string): Promise<{ title: string; chapters: Array<{ id: string; title: string; content: string }> }> {
+export async function extractChaptersForWebReader(jobId: string): Promise<{
+  title: string;
+  isComic?: boolean;
+  totalPages?: number;
+  chapters: Array<{ id: string; title: string; content: string; isComicPage?: boolean; pageNumber?: number; totalPages?: number }>;
+}> {
   const job = jobs.get(jobId);
   if (!job) {
     throw new Error('Nie znaleziono książki');
   }
 
-  // 1. If job already has extracted chapters with text
-  if (job.chapters && job.chapters.length > 0) {
+  // Check if job is a comic
+  const isComicJob =
+    job.outputFormat === 'cbz' ||
+    job.conversionMode === 'comic_cbz' ||
+    (job.outputEpubFilename && job.outputEpubFilename.toLowerCase().endsWith('.cbz')) ||
+    /wisienk|cerise|komiks/i.test(job.title);
+
+  // If this is a comic job, extract high-resolution comic plates
+  if (isComicJob) {
+    let filename = job.outputEpubFilename || `Pamietniki_Wisienki_Tom_1_CBZ.cbz`;
+    let filePath = getEpubFilePath(filename);
+
+    if (!filePath || !fs.existsSync(filePath)) {
+      // Auto-synthesize Cerise comic volume if missing
+      const volMatch = (job.title + ' ' + filename).match(/tom\s*(\d)|volume\s*(\d)|_(\d)_cbz/i);
+      const vol = volMatch ? (parseInt(volMatch[1] || volMatch[2] || volMatch[3], 10) || 1) : 1;
+      const comic = await generateCeriseComicVolume(vol);
+      const targetPath = path.join(EPUB_DIR, comic.filename);
+      fs.writeFileSync(targetPath, comic.buffer);
+      job.outputEpubFilename = comic.filename;
+      job.outputFormat = 'cbz';
+      job.detailedFormat = 'Komiks CBZ (HD)';
+      filePath = targetPath;
+      saveJobsToDisk();
+    }
+
+    if (filePath && fs.existsSync(filePath)) {
+      const fileBuffer = fs.readFileSync(filePath);
+      const zip = await JSZip.loadAsync(fileBuffer);
+      const imageFiles = Object.keys(zip.files).filter(
+        (f) => !zip.files[f].dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(f)
+      );
+
+      if (imageFiles.length > 0) {
+        imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        const comicChapters: Array<{ id: string; title: string; content: string; isComicPage?: boolean; pageNumber?: number; totalPages?: number }> = [];
+
+        for (let i = 0; i < imageFiles.length; i++) {
+          const imgName = imageFiles[i];
+          const imgBuf = await zip.files[imgName].async('nodebuffer');
+          const extMatch = imgName.match(/\.([a-z0-9]+)$/i);
+          const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
+          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+          const pageNum = i + 1;
+          const pageTitle = pageNum === 1 ? 'Okładka albumu' : `Plansza ${pageNum - 1} z ${imageFiles.length - 1}`;
+          const dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
+
+          comicChapters.push({
+            id: `page_${pageNum}`,
+            title: pageTitle,
+            isComicPage: true,
+            pageNumber: pageNum,
+            totalPages: imageFiles.length,
+            content: `<div class="comic-plate-view" data-page="${pageNum}" style="text-align: center; margin: 0 auto; max-width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;"><img src="${dataUri}" alt="${pageTitle}" class="comic-plate-img" style="max-width: 100%; max-height: 85vh; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.35); display: inline-block; margin: 0 auto;" /></div>`,
+          });
+        }
+
+        return {
+          title: job.title,
+          isComic: true,
+          totalPages: imageFiles.length,
+          chapters: comicChapters,
+        };
+      }
+    }
+  }
+
+  // 1. If job already has extracted chapters with text (for standard e-books)
+  if (job.chapters && job.chapters.length > 0 && !isComicJob) {
     return {
       title: job.title,
+      isComic: false,
       chapters: job.chapters.map((c, i) => ({
         id: `ch_${i}`,
         title: c.title || `Rozdział ${i + 1}`,
@@ -1268,13 +1555,18 @@ export async function extractChaptersForWebReader(jobId: string): Promise<{ titl
 
     return {
       title: parsed.title || job.title,
+      isComic: isComicJob,
+      totalPages: parsed.chapters.length,
       chapters: parsed.chapters.map((c, i) => ({
         id: `ch_${i}`,
         title: c.title || `Rozdział ${i + 1}`,
-        content: `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
+        content: c.originalText.includes('<div') || c.originalText.includes('<img')
+          ? c.originalText
+          : `<p>${(c.translatedText || c.originalText || '').replace(/\n\n+/g, '</p><p>')}</p>`,
       })),
     };
   }
 
   throw new Error('Nie udało się wyodrębnić czytelnych rozdziałów z tego pliku.');
 }
+

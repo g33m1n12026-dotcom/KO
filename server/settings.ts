@@ -705,7 +705,8 @@ export async function testAllAccounts(): Promise<AccountTestResult[]> {
   }
 
   // 8. Test River AI
-  const riverKey = cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo';
+  const rawRiver = cachedSettings.river?.apiKey || process.env.RIVER_API_KEY || 'rv_axjuJJFU3vVu4Zgf8IbENdMz-RPTM-YATP03bsMADpo';
+  const riverKey = (rawRiver.match(/rv_[a-zA-Z0-9_\-]+/)?.[0] || rawRiver.trim()).replace(/[^\x00-\x7F]/g, '');
   if (riverKey) {
     const rStart = Date.now();
     try {
