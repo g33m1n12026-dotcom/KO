@@ -1,4 +1,7 @@
+import fs from 'fs';
+import path from 'path';
 import JSZip from 'jszip';
+import { generateWisienkaComicSvg } from './comicSvg';
 
 export interface ComicBuildResult {
   filename: string;
@@ -392,9 +395,48 @@ export async function generateCeriseComicVolume(volume: number): Promise<ComicBu
     { type: 'back_cover' as const, num: 12, name: '12_tylna_okladka.png' },
   ];
 
-  for (const plate of plates) {
-    const pngBuf = createComicPlatePng(plate.type, current.title, current.subtitle, plate.num, current.color);
-    zip.file(plate.name, pngBuf);
+  const hdDir = path.join(process.cwd(), 'public/assets/comics/wisienka');
+  let hdFiles: Array<{ name: string; src: string }> = [];
+
+  if (volume === 2) {
+    hdFiles = [
+      { name: '01_okladka_ksiega_hektora.jpg', src: 'wisienka_tome2_cover_hd_1793212872408.jpg' },
+      { name: '02_dziennik_wisienki_ksiega_hektora.jpg', src: 'wisienka_t2_journal_1793213276974.jpg' },
+      { name: '03_plansza_biblioteka_tajemnica_listu.jpg', src: 'wisienka_tome2_panel_hd_1793212891903.jpg' },
+      { name: '04_plansza_odkrycie_listow_hektora.jpg', src: 'wisienka_t2_letters_1793213294651.jpg' },
+      { name: '05_tylna_okladka.jpg', src: 'wisienka_back_cover_hd_1793212076010.jpg' },
+    ];
+  } else {
+    hdFiles = [
+      { name: '01_okladka.jpg', src: 'wisienka_cover_hd_1793211990361.jpg' },
+      { name: '02_dziennik_wisienki.jpg', src: 'wisienka_journal_hd_1793212007325.jpg' },
+      { name: '03_plansza_domek_na_drzewie.jpg', src: 'wisienka_panel_1_hd_1793212024751.jpg' },
+      { name: '04_plansza_brama_zoo_posagi.jpg', src: 'wisienka_panel_2_hd_1793212041404.jpg' },
+      { name: '05_plansza_odnowienie_ogrodu.jpg', src: 'wisienka_panel_3_hd_1793212058649.jpg' },
+      { name: '06_tylna_okladka.jpg', src: 'wisienka_back_cover_hd_1793212076010.jpg' },
+    ];
+  }
+
+  let hasHdFiles = false;
+  try {
+    if (fs.existsSync(hdDir) && hdFiles.length > 0 && fs.existsSync(path.join(hdDir, hdFiles[0].src))) {
+      hasHdFiles = true;
+      for (const hf of hdFiles) {
+        const fullP = path.join(hdDir, hf.src);
+        if (fs.existsSync(fullP)) {
+          zip.file(hf.name, fs.readFileSync(fullP));
+        }
+      }
+    }
+  } catch {}
+
+  if (!hasHdFiles) {
+    for (const plate of plates) {
+      const pngBuf = createComicPlatePng(plate.type, current.title, current.subtitle, plate.num, current.color);
+      zip.file(plate.name, pngBuf);
+      const svgPlate = generateWisienkaComicSvg(plate.num, volume);
+      zip.file(plate.name.replace(/\.png$/, '.svg'), svgPlate.svgContent);
+    }
   }
 
   // Include ComicInfo.xml for KOReader, Kavita, and Komga

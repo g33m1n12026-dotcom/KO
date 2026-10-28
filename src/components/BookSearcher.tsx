@@ -147,7 +147,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
   const [didYouMean, setDidYouMean] = useState<SearchDidYouMean | null>(null);
   const [isMultilingualExpanded, setIsMultilingualExpanded] = useState(false);
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'trusted' | 'zlib' | 'wolnelektury' | 'libgen' | 'archive' | 'gutenberg' | 'openlibrary' | 'chomikuj' | '4shared' | 'docer'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'trusted' | 'comics' | 'zlib' | 'wolnelektury' | 'libgen' | 'archive' | 'gutenberg' | 'openlibrary' | 'chomikuj' | '4shared' | 'docer'>('all');
   const [languageFilter, setLanguageFilter] = useState<string>('all');
   const [selectedSourceIdMap, setSelectedSourceIdMap] = useState<Record<string, string>>({});
   const [searchViewMode, setSearchViewMode] = useState<'shelf' | 'grid' | 'list'>(() => {
@@ -1217,6 +1217,11 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                   { name: 'Z-Library PL', url: `https://pl.1lib.sk/s/${encodeURIComponent(query || 'książki')}`, badge: 'Shadow' },
                   ...(showAllBases
                     ? [
+                        { name: 'LibGen Comics', url: `https://libgen.li/index.php?req=${encodeURIComponent(query || 'comic')}&columns[]=t&columns[]=a&objects[]=f&topics[]=c&res=25`, badge: 'CBZ' },
+                        { name: 'GetComics', url: `https://getcomics.org/?s=${encodeURIComponent(query || '')}`, badge: 'Albumy' },
+                        { name: 'Archive Comics', url: `https://archive.org/details/comics?query=${encodeURIComponent(query || 'comic')}`, badge: 'Archiwum' },
+                        { name: 'Comic Book Plus', url: `https://comicbookplus.com/?cbplus=${encodeURIComponent(query || '')}`, badge: 'Vintage' },
+                        { name: 'Gildia Komiksu', url: `https://www.gildia.pl/szukaj?q=${encodeURIComponent(query || '')}`, badge: 'Katalog PL' },
                         { name: 'Wolne Lektury', url: `https://wolnelektury.pl/katalog/szukaj/?q=${encodeURIComponent(query || 'książki')}`, badge: 'Wolne' },
                         { name: 'Anna’s Archive', url: `https://annas-archive.gl/search?q=${encodeURIComponent(query || 'książki')}`, badge: 'Giga' },
                         { name: 'LibGen', url: `https://libgen.li/index.php?req=${encodeURIComponent(query || 'książki')}`, badge: 'Global' },
@@ -1248,6 +1253,33 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                     </span>
                     <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
                   </a>
+                ))}
+              </div>
+
+              {/* Quick Comic Series Bar for Children & Teenagers */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-stone-200/60 text-xs">
+                <span className="font-semibold text-stone-700 flex items-center gap-1 mr-1">
+                  <span>🎨 Serie komiksowe (CBZ / Kindle):</span>
+                </span>
+                {[
+                  { label: '🍒 Pamiętniki Wisienki (Cała seria)', query: 'Pamiętniki Wisienki' },
+                  { label: '🗡️ Kajko i Kokosz', query: 'Kajko i Kokosz' },
+                  { label: '🚀 Tytus, Romek i A’Tomek', query: 'Tytus Romek i ATomek' },
+                  { label: '🦆 Kaczor Donald / Gigant', query: 'Kaczor Donald' },
+                  { label: '🛡️ Asterix i Obelix', query: 'Asterix' },
+                  { label: '⚔️ Thorgal', query: 'Thorgal' },
+                ].map((pill, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setQuery(pill.query);
+                      handleSearch(pill.query);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 hover:bg-amber-100/90 text-amber-900 border border-amber-300/80 transition cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    {pill.label}
+                  </button>
                 ))}
               </div>
             </div>
@@ -1490,6 +1522,15 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                       {[
                         { id: 'all', label: 'Wszystkie źródła', count: results.length },
                         {
+                          id: 'comics',
+                          label: '🎨 Komiksy (CBZ/CBR)',
+                          count: results.filter((r) => {
+                            const s = r.source.toLowerCase();
+                            const fmt = (r.format || '').toUpperCase();
+                            return s.includes('comic') || fmt === 'CBZ' || fmt === 'CBR' || r.title.toLowerCase().includes('komiks');
+                          }).length,
+                        },
+                        {
                           id: 'trusted',
                           label: '⭐ Zaufane (Z-Lib & Wolne Lektury)',
                           count: results.filter((r) => {
@@ -1660,6 +1701,7 @@ export const BookSearcher: React.FC<BookSearcherProps> = ({ onOrderCreated, init
                       .filter((item) => {
                         if (sourceFilter !== 'all') {
                           const s = item.source.toLowerCase();
+                          if (sourceFilter === 'comics' && !(s.includes('comic') || (item.format || '').toUpperCase() === 'CBZ' || (item.format || '').toUpperCase() === 'CBR' || item.title.toLowerCase().includes('komiks'))) return false;
                           if (sourceFilter === 'trusted' && !(s.includes('z-library') || s.includes('zlib') || s.includes('wolne'))) return false;
                           if (sourceFilter === 'chomikuj' && !s.includes('chomik')) return false;
                           if (sourceFilter === 'zlib' && !(s.includes('z-library') || s.includes('zlib'))) return false;

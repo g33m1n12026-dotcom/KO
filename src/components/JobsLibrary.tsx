@@ -155,14 +155,6 @@ export const JobsLibrary: React.FC<JobsLibraryProps> = ({ jobs, onRefresh, onDel
     }
   };
 
-  useEffect(() => {
-    // Auto sync on mount
-    const timer = setTimeout(() => {
-      handleSyncWithCloud().catch(() => {});
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
-
   const handleDirectFileUpload = async (file: File) => {
     setIsUploadingDirect(true);
     setDirectUploadSuccess(null);

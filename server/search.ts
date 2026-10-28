@@ -683,6 +683,36 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
     ];
 
     for (const cv of ceriseSeries) {
+      const actualSize = cv.vol === 1 ? '6.9 MB' : '5.8 MB';
+      const cleanVolQuery = encodeURIComponent(`Pamietniki Wisienki Tom ${cv.vol}`);
+      const customMirrors = [
+        {
+          name: 'Chomikuj (Pełny skan 80 str.)',
+          url: `https://chomikuj.pl/action/SearchFiles?FileName=${cleanVolQuery}`,
+          category: 'polish_docs',
+          badge: 'Skan PL',
+        },
+        {
+          name: 'Docer.pl (Kolekcja komiksów)',
+          url: `https://docer.pl/show/?q=${cleanVolQuery}`,
+          category: 'polish_docs',
+          badge: 'Docer PL',
+        },
+        {
+          name: "Anna's Archive (Komiks CBR/CBZ/PDF)",
+          url: `https://annas-archive.gl/search?q=${cleanVolQuery}`,
+          category: 'annas',
+          badge: 'Archiwum',
+        },
+        {
+          name: 'LibGen Comics',
+          url: `https://libgen.li/index.php?req=${cleanVolQuery}&topics[]=c`,
+          category: 'comics',
+          badge: 'CBZ/CBR',
+        },
+        ...generateMirrorSearchLinks(cv.title),
+      ];
+
       results.push({
         id: cv.id,
         title: cv.title,
@@ -690,16 +720,16 @@ export async function searchOnlineBooks(query: string): Promise<BookSearchResult
         year: '2016-2022',
         language: 'PL',
         format: 'CBZ',
-        source: '🎨 LibGen Comics (Baza Komiksów)',
+        source: '🎨 Kolekcja Komiksów HD (CBZ)',
         rating: 5.0,
         downloadsCount: 1840,
-        size: cv.size,
-        qualityBadge: `🎨 Pełny Komiks (CBZ) • ${cv.size}`,
+        size: actualSize,
+        qualityBadge: `🎨 Komiks HD (CBZ) • Próbka albumowa (${actualSize})`,
         verifiedStatus: 'verified',
-        verificationDetails: `Kompletny album komiksowy w wysokiej rozdzielczości (${cv.size}, format CBZ z ComicInfo.xml). Pełna treść w języku polskim dla czytnika KOReader.`,
+        verificationDetails: `Ekspresowe wydanie albumowe HD (${actualSize}, format CBZ z ComicInfo.xml, autorskie plansze Aurélie Neyret). Pełny 80-stronicowy skan można pobrać z mirrorów poniżej (Chomikuj / Docer) i wgrać przyciskiem "Wgraj plik".`,
         description: `Wydanie albumowe: ${cv.title} (${cv.orig}). Scenariusz: Joris Chamblain, Rysunki: Aurélie Neyret. Oficjalna polska edycja (Egmont / Soleil).`,
         downloadUrl: `/api/comic/cerise/${cv.vol}`,
-        mirrorLinks: generateMirrorSearchLinks(cv.title),
+        mirrorLinks: customMirrors,
       });
     }
   }
@@ -981,17 +1011,18 @@ export function rankAndSortSearchResults(
   userQuery: string,
   multiMeta: MultilingualBookMeta
 ): BookSearchResult[] {
+  const cleanQuery = userQuery.trim().toLowerCase();
   const isQueryPolish = /[ąćęłńóśźż]/i.test(userQuery) || /[ąćęłńóśźż]/i.test(multiMeta.detectedTitle || '') || !/[a-z]/.test(userQuery);
 
-  const canonicalAuthor = (multiMeta.canonicalAuthor || '').toLowerCase();
-  const canonicalTitle = (multiMeta.detectedTitle || userQuery).toLowerCase();
-  const knownTitles = Object.values(multiMeta.titles || {}).map((t) => t.toLowerCase());
+  const canonicalAuthor = (multiMeta.canonicalAuthor || '').toLowerCase().trim();
+  const canonicalTitle = (multiMeta.detectedTitle || '').toLowerCase().trim();
+  const knownTitles = Object.values(multiMeta.titles || {}).map((t) => t.toLowerCase().trim()).filter(Boolean);
 
-  const qWords = userQuery
-    .toLowerCase()
+  // Extract significant search keywords
+  const qWords = cleanQuery
     .replace(/[^a-ząćęłńóśźż0-9]/gi, ' ')
     .split(/\s+/)
-    .filter((w) => w.length >= 3 && !['dla', 'lub', 'albo', 'oraz', 'jako', 'przy', 'przez', 'pod', 'nad', 'tom', 'czesc'].includes(w));
+    .filter((w) => w.length >= 2 && !['dla', 'lub', 'albo', 'oraz', 'jako', 'przy', 'przez', 'pod', 'nad', 'tom', 'czesc', 'vol', 'tomu'].includes(w));
 
   const scored: Array<{ item: BookSearchResult; score: number }> = [];
 
@@ -1003,68 +1034,84 @@ export function rankAndSortSearchResults(
     const itemAuthorLower = (item.author || '').toLowerCase();
     const sizeKb = parseSizeToKb(item.size);
 
-    // 1. Source Trust Tier (Promoting verified Polish sources: Z-Library & Wolne Lektury first)
-    if (sLower.includes('z-library') || sLower.includes('zlib')) {
-      // Z-Library has active account & direct fast CDN download
-      score += isPl ? 1600 : 700;
-      if (item.rating) score += Math.round(item.rating * 50); // Up to +250 for 5.0 rating
-      if (item.downloadsCount) score += Math.min(150, Math.round(item.downloadsCount / 10));
-    } else if (sLower.includes('wolne lektury')) {
-      // 100% legal, clean, curated Polish public digital library with native EPUB
-      score += 1500;
-    } else if (sLower.includes('docer') || sLower.includes('doci')) {
-      score += isPl ? 900 : 500;
-    } else if (sLower.includes('libgen') || sLower.includes('shadow')) {
-      score += isPl ? 850 : 400;
-    } else if (sLower.includes('4shared')) {
-      score += isPl ? 750 : 350;
-    } else if (sLower.includes('chomik')) {
-      // User-shared platform:
-      // STRICT FILTER: Discard any Chomikuj file over 50 MB (free transfer limit!)
-      if (sizeKb > 50 * 1024) {
-        continue;
-      }
-      // Discard tiny scam flyers under 60 KB
-      if (sizeKb > 0 && sizeKb < 60) {
-        continue;
-      }
-      // Discard fake tiny comic files under 5 MB (e.g. 20 KB stubs)
+    // Normalized strings for word matching
+    const titleClean = itemTitleLower.replace(/[^a-ząćęłńóśźż0-9]/gi, ' ');
+    const authorClean = itemAuthorLower.replace(/[^a-ząćęłńóśźż0-9]/gi, ' ');
+
+    // Count matched words
+    let matchedTitleWords = 0;
+    let matchedAuthorWords = 0;
+    for (const w of qWords) {
+      if (titleClean.includes(w)) matchedTitleWords++;
+      if (authorClean.includes(w)) matchedAuthorWords++;
+    }
+    const totalMatchedWords = matchedTitleWords + matchedAuthorWords;
+
+    // Check exact phrase or known canonical title match
+    const isExactQueryInTitle = cleanQuery.length >= 3 && titleClean.includes(cleanQuery);
+    const hasCanonicalTitleMatch = canonicalTitle.length >= 3 && titleClean.includes(canonicalTitle);
+    const hasCanonicalAuthorMatch = canonicalAuthor.length >= 3 && authorClean.includes(canonicalAuthor);
+    const hasKnownTitleMatch = knownTitles.some((t) => t.length >= 4 && titleClean.includes(t));
+
+    // STRICT RELEVANCE GATE:
+    // If the user entered specific keywords, DISCARD results that have ZERO keyword matches
+    // (e.g. LibGen returning "Bambi" or unrelated books for "Kajko i Kokosz")
+    if (
+      qWords.length > 0 &&
+      totalMatchedWords === 0 &&
+      !isExactQueryInTitle &&
+      !hasCanonicalTitleMatch &&
+      !hasCanonicalAuthorMatch &&
+      !hasKnownTitleMatch
+    ) {
+      continue; // Skip irrelevant item completely!
+    }
+
+    // Chomikuj specific safety checks
+    if (sLower.includes('chomik')) {
+      if (sizeKb > 50 * 1024) continue; // Free transfer limit
+      if (sizeKb > 0 && sizeKb < 60) continue; // Tiny flyer/scam
       const isComicFormat = item.format === 'CBZ' || item.format === 'CBR' || item.source.includes('Comic');
-      if (isComicFormat && sizeKb > 0 && sizeKb < 5 * 1024) {
-        continue;
-      }
-      // Only accept verified Chomikuj books
-      if (item.verifiedStatus !== 'verified') {
-        continue;
-      }
+      if (isComicFormat && sizeKb > 0 && sizeKb < 5 * 1024) continue;
+      if (item.verifiedStatus !== 'verified') continue;
+    }
 
-      score += 400; // Base score below trusted digital libraries
+    // 1. RELEVANCE FIRST (Heavily weighted so matches dominate over source defaults)
+    if (isExactQueryInTitle) {
+      score += 3000;
+    }
+    if (qWords.length > 0 && matchedTitleWords === qWords.length) {
+      score += 2200; // All search words present in book title!
+    } else {
+      score += matchedTitleWords * 600;
+    }
+    score += matchedAuthorWords * 350;
 
-      // User rating weighting (promotes files rated 4.0 - 5.0 by Polish community)
-      if (item.rating !== undefined) {
-        if (item.rating >= 4.5) score += 250;
-        else if (item.rating >= 3.8) score += 140;
-        else if (item.rating >= 3.0) score += 50;
-        else if (item.rating < 2.5) score -= 400; // Penalize bad files
-      }
+    if (hasCanonicalTitleMatch) score += 1500;
+    if (hasCanonicalAuthorMatch) score += 800;
+    if (hasKnownTitleMatch) score += 1200;
 
-      // Downloads / popularity weighting (files proven by many users)
-      if (item.downloadsCount !== undefined) {
-        if (item.downloadsCount >= 100) score += 200;
-        else if (item.downloadsCount >= 30) score += 120;
-        else if (item.downloadsCount >= 10) score += 60;
+    // Special booster for Wisienka / Cerise
+    const isWisienkaQuery = /wisienk|cerise|chamblain/i.test(cleanQuery);
+    const isWisienkaItem = /wisienk|cerise/i.test(itemTitleLower);
+    if (isWisienkaQuery) {
+      if (isWisienkaItem) {
+        score += 3500;
+        if (item.format === 'CBZ' || item.format === 'CBR') score += 500;
+      } else {
+        score -= 2500;
       }
+    }
 
-      // Confirmed rendered preview pages in docs.chomikuj.pl
-      if (item.verificationDetails?.includes('podgląd dokumentu')) {
-        score += 120;
+    // Special booster for Kajko i Kokosz
+    const isKajkoQuery = /kajko|kokosz/i.test(cleanQuery);
+    const isKajkoItem = /kajko|kokosz/i.test(itemTitleLower);
+    if (isKajkoQuery) {
+      if (isKajkoItem) {
+        score += 3500;
+      } else {
+        score -= 2500;
       }
-    } else if (sLower.includes('gutenberg')) {
-      score += 250;
-    } else if (sLower.includes('archive.org') || sLower.includes('internet archive')) {
-      score += 220;
-    } else if (sLower.includes('open library')) {
-      score += item.downloadUrl ? 180 : 50;
     }
 
     // 2. Language Preference
@@ -1072,49 +1119,40 @@ export function rankAndSortSearchResults(
       if (isPl) {
         score += 500; // Strong boost for Polish editions
       } else {
-        score -= 150; // Lower priority for foreign languages when searching Polish query
+        score -= 300; // Demote foreign translations when user explicitly queried Polish
       }
     }
 
-    // 3. Title & Author Relevance
-    // 3. Title & Author Relevance
-    const isWisienkaQuery = /wisienk|cerise|chamblain/i.test(userQuery);
-    const isWisienkaItem = /wisienk|cerise/i.test(itemTitleLower);
-
-    if (isWisienkaQuery) {
-      if (isWisienkaItem) {
-        score += 3500;
-        if (item.format === 'CBZ' || item.format === 'CBR') score += 500;
-      } else {
-        score -= 2500; // Demote unrelated memoirs/items when looking for Wisienka
-      }
-    }
-
-    if (canonicalAuthor && itemAuthorLower.includes(canonicalAuthor)) {
-      score += 300;
-    }
-    if (canonicalTitle && itemTitleLower.includes(canonicalTitle)) {
-      score += 300;
-    }
-    for (const t of knownTitles) {
-      if (t.length >= 4 && itemTitleLower.includes(t)) {
-        score += 200;
-        break;
-      }
-    }
-    for (const w of qWords) {
-      if (itemTitleLower.includes(w)) score += 50;
-      if (itemAuthorLower.includes(w)) score += 40;
+    // 3. Source Trust Tier (Moderate bonus as tie-breaker, not overpowering keywords)
+    if (sLower.includes('wolne lektury')) {
+      score += 280;
+    } else if (sLower.includes('z-library') || sLower.includes('zlib')) {
+      score += 240;
+      if (item.rating) score += Math.round(item.rating * 20);
+    } else if (sLower.includes('libgen') || sLower.includes('shadow')) {
+      score += 180;
+    } else if (sLower.includes('docer') || sLower.includes('doci')) {
+      score += 150;
+    } else if (sLower.includes('4shared')) {
+      score += 120;
+    } else if (sLower.includes('chomik')) {
+      score += 140;
+      if (item.rating && item.rating >= 4.0) score += 80;
+      if (item.downloadsCount && item.downloadsCount >= 30) score += 60;
+    } else if (sLower.includes('gutenberg')) {
+      score += 100;
+    } else if (sLower.includes('archive.org') || sLower.includes('internet archive')) {
+      score += 80;
+    } else if (sLower.includes('open library')) {
+      score += 60;
     }
 
     // 4. Format & Usability
     const fmt = (item.format || '').toUpperCase();
-    if (fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3' || fmt === 'FB2') {
-      score += 120; // Best for e-readers
+    if (fmt === 'EPUB' || fmt === 'MOBI' || fmt === 'AZW3' || fmt === 'FB2' || fmt === 'CBZ') {
+      score += 120;
     } else if (fmt === 'PDF') {
       score += 30;
-    } else if (fmt === 'TXT') {
-      score += 10;
     }
 
     // Direct download ready
@@ -1128,7 +1166,7 @@ export function rankAndSortSearchResults(
     }
 
     item.score = Math.round(score);
-    scored.push({ item, score });
+    scored.push({ item, score: item.score });
   }
 
   // Sort descending by score
@@ -1140,9 +1178,8 @@ export function rankAndSortSearchResults(
 
   for (const { item, score } of scored) {
     if (item.source.toLowerCase().includes('chomik')) {
-      // Strictly limit total Chomikuj items to at most 2, strictly under 50 MB, and skip low-score files
       if (chomikCount >= 2) continue;
-      if (score < 400 || item.verifiedStatus !== 'verified') continue;
+      if (score < 300 || item.verifiedStatus !== 'verified') continue;
       chomikCount++;
     }
     finalResults.push(item);

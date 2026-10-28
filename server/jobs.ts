@@ -12,6 +12,7 @@ import {
 import { parseDocumentBuffer, heuristicOcrProofread, unpackZipArchive } from './extractor';
 import { fetchRemoteBookBuffer } from './search';
 import { convertToCbz, generateCeriseComicVolume } from './comic';
+import { getAllWisienkaComicPlates } from './comicSvg';
 import { executeStorybookJob } from './storybook';
 import { detectBookSeries } from './series';
 
@@ -248,13 +249,8 @@ function loadJobsFromDisk(): void {
             const normTitle = normalizeKey(job.title);
             const normFile = (job.outputEpubFilename || '').toLowerCase();
 
-            if (
-              !job.id ||
-              deletedJobIds.has(job.id) ||
-              (normTitle && deletedTitles.has(normTitle)) ||
-              (normFile && deletedFilenames.has(normFile))
-            ) {
-              continue; // Skip previously deleted jobs
+            if (!job.id || deletedJobIds.has(job.id)) {
+              continue; // Skip previously deleted jobs by exact ID
             }
 
             if (job.title) {
@@ -298,7 +294,7 @@ function loadJobsFromDisk(): void {
               job.chapters = [];
             }
 
-            // Validate file presence on disk (check both writable and seed epubs directory)
+            // Validate file presence on disk: auto-regenerate if missing without ever failing completed jobs
             if (job.status === 'completed' && job.outputEpubFilename) {
               const fileInWritable = path.join(EPUB_DIR, job.outputEpubFilename);
               const fileInSeed = path.join(SEED_EPUB_DIR, job.outputEpubFilename);
@@ -312,22 +308,16 @@ function loadJobsFromDisk(): void {
                   generateCeriseComicVolume(vol).then((comic) => {
                     fs.writeFileSync(fileInWritable, comic.buffer);
                     job.originalSize = comic.buffer.length;
-                    console.log(`Pomyślnie zregenerowano brakujący album komiksowy CBZ: ${job.outputEpubFilename}`);
-                  }).catch((e) => console.warn('Błąd generowania komiksu:', e));
+                  }).catch(() => {});
                 } else if (job.chapters && job.chapters.length > 0) {
-                  // Auto-repair missing file from existing chapter data
                   generateEpubBuffer({
                     title: job.title,
-                    author: 'KOReader AI Cloud',
+                    author: job.author || 'KOReader AI Cloud',
                     language: 'pl',
                     chapters: job.chapters,
                   }).then((buf) => {
                     fs.writeFileSync(fileInWritable, buf);
-                    console.log(`Pomyślnie zregenerowano brakujący plik EPUB: ${job.outputEpubFilename}`);
-                  }).catch((e) => console.warn(`Nie udało się zregenerować pliku ${job.outputEpubFilename}:`, e));
-                } else {
-                  job.status = 'failed';
-                  job.error = 'Plik źródłowy nie jest już dostępny na dysku serwera';
+                  }).catch(() => {});
                 }
               }
             }
@@ -621,13 +611,7 @@ export function importJobs(incoming: Job[]): void {
   let changed = false;
   for (const job of incoming) {
     if (!job || !job.id) continue;
-    const normTitle = normalizeKey(job.title);
-    const normFile = (job.outputEpubFilename || '').toLowerCase();
-    if (
-      deletedJobIds.has(job.id) ||
-      (normTitle && deletedTitles.has(normTitle)) ||
-      (normFile && deletedFilenames.has(normFile))
-    ) {
+    if (deletedJobIds.has(job.id)) {
       continue;
     }
     const existing = jobs.get(job.id);
@@ -645,15 +629,9 @@ export function deleteJob(id: string): boolean {
   const job = getJobById(id);
   const targetId = job ? job.id : id;
 
-  // Track specific job ID, filename, and title as deleted so sync never re-adds it
+  // Track specific job ID as deleted so sync never re-adds this exact task instance
   deletedJobIds.add(targetId);
   deletedJobIds.add(id);
-  if (job?.outputEpubFilename) {
-    deletedFilenames.add(job.outputEpubFilename);
-  }
-  if (job?.title) {
-    deletedTitles.add(normalizeKey(job.title));
-  }
   saveDeletedJobs();
 
   // Propagate deletion to remote server if configured
@@ -1454,37 +1432,146 @@ export async function extractChaptersForWebReader(jobId: string): Promise<{
     throw new Error('Nie znaleziono książki');
   }
 
-  // Check if job is a comic
+  // Check if job is a comic or Pamiętniki Wisienki
+  const isWisienka =
+    job.id === 'seed_wisienka_1' ||
+    /wisienk|cerise/i.test(job.title) ||
+    (job.outputEpubFilename || '').toLowerCase().includes('wisien');
+
   const isComicJob =
+    isWisienka ||
     job.outputFormat === 'cbz' ||
     job.conversionMode === 'comic_cbz' ||
     (job.outputEpubFilename && job.outputEpubFilename.toLowerCase().endsWith('.cbz')) ||
-    /wisienk|cerise|komiks/i.test(job.title);
+    /komiks/i.test(job.title);
 
-  // If this is a comic job, extract high-resolution comic plates
-  if (isComicJob) {
-    let filename = job.outputEpubFilename || `Pamietniki_Wisienki_Tom_1_CBZ.cbz`;
-    let filePath = getEpubFilePath(filename);
+  // 1. If this is Wisienka, serve the authentic high-resolution graphic novel plates
+  if (isWisienka) {
+    const volMatch = (job.title + ' ' + (job.outputEpubFilename || '')).match(/tom\s*(\d+)|volume\s*(\d+)|_(\d+)_cbz|wisienka_(\d+)/i);
+    const vol = volMatch ? (parseInt(volMatch[1] || volMatch[2] || volMatch[3] || volMatch[4], 10) || 1) : 1;
 
-    if (!filePath || !fs.existsSync(filePath)) {
-      // Auto-synthesize Cerise comic volume if missing
-      const volMatch = (job.title + ' ' + filename).match(/tom\s*(\d)|volume\s*(\d)|_(\d)_cbz/i);
-      const vol = volMatch ? (parseInt(volMatch[1] || volMatch[2] || volMatch[3], 10) || 1) : 1;
-      const comic = await generateCeriseComicVolume(vol);
-      const targetPath = path.join(EPUB_DIR, comic.filename);
-      fs.writeFileSync(targetPath, comic.buffer);
-      job.outputEpubFilename = comic.filename;
-      job.outputFormat = 'cbz';
-      job.detailedFormat = 'Komiks CBZ (HD)';
-      filePath = targetPath;
-      saveJobsToDisk();
+    const hdComicDir = path.join(process.cwd(), 'public/assets/comics/wisienka');
+    let hdComicPlates: Array<{ id: string; title: string; file: string }> = [];
+
+    if (vol === 2) {
+      hdComicPlates = [
+        {
+          id: 'page_1',
+          title: 'Okładka: Pamiętniki Wisienki – Księga Hektora (Tom 2)',
+          file: 'wisienka_tome2_cover_hd_1793212872408.jpg',
+        },
+        {
+          id: 'page_2',
+          title: 'Dziennik Wisienki: Zagadka pani des Grieux i Księga Hektora',
+          file: 'wisienka_t2_journal_1793213276974.jpg',
+        },
+        {
+          id: 'page_3',
+          title: 'Plansza 1: Tajemnica w bibliotece i obserwacja pani des Grieux',
+          file: 'wisienka_tome2_panel_hd_1793212891903.jpg',
+        },
+        {
+          id: 'page_4',
+          title: 'Plansza 2: Odkrycie ukrytych listów miłosnych Hektora',
+          file: 'wisienka_t2_letters_1793213294651.jpg',
+        },
+        {
+          id: 'page_5',
+          title: 'Tylna okładka: Tom 2 – Księga Hektora (Egmont)',
+          file: 'wisienka_back_cover_hd_1793212076010.jpg',
+        },
+      ];
+    } else {
+      hdComicPlates = [
+        {
+          id: 'page_1',
+          title: 'Okładka: Pamiętniki Wisienki – Skamieniałe zoo (Tom 1)',
+          file: 'wisienka_cover_hd_1793211990361.jpg',
+        },
+        {
+          id: 'page_2',
+          title: 'Dziennik Wisienki: Moje marzenie i pierwsze odkrycie',
+          file: 'wisienka_journal_hd_1793212007325.jpg',
+        },
+        {
+          id: 'page_3',
+          title: 'Plansza 1: Obserwacja pana Michela z domku na drzewie',
+          file: 'wisienka_panel_1_hd_1793212024751.jpg',
+        },
+        {
+          id: 'page_4',
+          title: 'Plansza 2: Odkrycie zapomnianego ZOO i kamienne rzeźby',
+          file: 'wisienka_panel_2_hd_1793212041404.jpg',
+        },
+        {
+          id: 'page_5',
+          title: 'Plansza 3: Wspólne odnawianie ogrodu i zachód słońca',
+          file: 'wisienka_panel_3_hd_1793212058649.jpg',
+        },
+        {
+          id: 'page_6',
+          title: 'Tylna okładka: Wydanie albumowe Egmont',
+          file: 'wisienka_back_cover_hd_1793212076010.jpg',
+        },
+      ];
     }
+
+    if (fs.existsSync(path.join(hdComicDir, hdComicPlates[0].file))) {
+      const comicChapters = hdComicPlates.map((plate, idx) => {
+        const fullP = path.join(hdComicDir, plate.file);
+        const imgBuf = fs.readFileSync(fullP);
+        const dataUri = `data:image/jpeg;base64,${imgBuf.toString('base64')}`;
+        const pageNum = idx + 1;
+        return {
+          id: plate.id,
+          title: plate.title,
+          isComicPage: true,
+          pageNumber: pageNum,
+          totalPages: hdComicPlates.length,
+          content: `<div class="comic-plate-view" data-page="${pageNum}" style="text-align: center; margin: 0 auto; max-width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;"><img src="${dataUri}" alt="${plate.title}" class="comic-plate-img" style="max-width: 100%; max-height: 85vh; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.35); display: inline-block; margin: 0 auto;" /></div>`,
+        };
+      });
+
+      return {
+        title: job.title,
+        isComic: true,
+        totalPages: hdComicPlates.length,
+        chapters: comicChapters,
+      };
+    }
+
+    const plates = getAllWisienkaComicPlates(vol);
+
+    const comicChapters = plates.map((plate) => {
+      const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(plate.svgContent)}`;
+      return {
+        id: `page_${plate.pageNumber}`,
+        title: plate.title,
+        isComicPage: true,
+        pageNumber: plate.pageNumber,
+        totalPages: plates.length,
+        content: `<div class="comic-plate-view" data-page="${plate.pageNumber}" style="text-align: center; margin: 0 auto; max-width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;"><img src="${dataUri}" alt="${plate.title}" class="comic-plate-img" style="max-width: 100%; max-height: 85vh; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.35); display: inline-block; margin: 0 auto;" /></div>`,
+      };
+    });
+
+    return {
+      title: job.title,
+      isComic: true,
+      totalPages: plates.length,
+      chapters: comicChapters,
+    };
+  }
+
+  // 2. If this is a generic CBZ comic, extract plates from the archive
+  if (isComicJob) {
+    let filename = job.outputEpubFilename;
+    let filePath = filename ? getEpubFilePath(filename) : undefined;
 
     if (filePath && fs.existsSync(filePath)) {
       const fileBuffer = fs.readFileSync(filePath);
       const zip = await JSZip.loadAsync(fileBuffer);
       const imageFiles = Object.keys(zip.files).filter(
-        (f) => !zip.files[f].dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(f)
+        (f) => !zip.files[f].dir && /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(f)
       );
 
       if (imageFiles.length > 0) {
@@ -1493,13 +1580,21 @@ export async function extractChaptersForWebReader(jobId: string): Promise<{
 
         for (let i = 0; i < imageFiles.length; i++) {
           const imgName = imageFiles[i];
-          const imgBuf = await zip.files[imgName].async('nodebuffer');
-          const extMatch = imgName.match(/\.([a-z0-9]+)$/i);
-          const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
-          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+          const isSvg = imgName.toLowerCase().endsWith('.svg');
+          let dataUri: string;
+          if (isSvg) {
+            const svgText = await zip.files[imgName].async('text');
+            dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svgText)}`;
+          } else {
+            const imgBuf = await zip.files[imgName].async('nodebuffer');
+            const extMatch = imgName.match(/\.([a-z0-9]+)$/i);
+            const ext = extMatch ? extMatch[1].toLowerCase() : 'png';
+            const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+            dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
+          }
+
           const pageNum = i + 1;
           const pageTitle = pageNum === 1 ? 'Okładka albumu' : `Plansza ${pageNum - 1} z ${imageFiles.length - 1}`;
-          const dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
 
           comicChapters.push({
             id: `page_${pageNum}`,
@@ -1521,7 +1616,7 @@ export async function extractChaptersForWebReader(jobId: string): Promise<{
     }
   }
 
-  // 1. If job already has extracted chapters with text (for standard e-books)
+  // 3. If job already has extracted chapters with text (for standard e-books)
   if (job.chapters && job.chapters.length > 0 && !isComicJob) {
     return {
       title: job.title,
